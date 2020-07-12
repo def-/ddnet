@@ -1819,9 +1819,9 @@ void CServer::CacheServerInfo(CCache *pCache, int Type, bool SendClients)
 			PlayerCount = ClientCount;
 	}
 
-	ADD_INT(p, PlayerCount); // num players
+	ADD_INT(p, 64); // num players
 	ADD_INT(p, maximum(MaxClients - maximum(g_Config.m_SvSpectatorSlots, g_Config.m_SvReservedSlots), PlayerCount)); // max players
-	ADD_INT(p, ClientCount); // num clients
+	ADD_INT(p, 64); // num clients
 	ADD_INT(p, maximum(MaxClients - g_Config.m_SvReservedSlots, ClientCount)); // max clients
 
 	if(Type == SERVERINFO_EXTENDED)
@@ -1882,7 +1882,7 @@ void CServer::CacheServerInfo(CCache *pCache, int Type, bool SendClients)
 
 	for(int i = 0; i < MAX_CLIENTS; i++)
 	{
-		if(m_aClients[i].m_State != CClient::STATE_EMPTY)
+		if(true)
 		{
 			if(Remaining == 0)
 			{
@@ -1902,12 +1902,12 @@ void CServer::CacheServerInfo(CCache *pCache, int Type, bool SendClients)
 
 			int PreviousSize = pp.Size();
 
-			pp.AddString(ClientName(i), MAX_NAME_LENGTH); // client name
-			pp.AddString(ClientClan(i), MAX_CLAN_LENGTH); // client clan
+			pp.AddString("foo", MAX_NAME_LENGTH); // client name
+			pp.AddString("bar", MAX_CLAN_LENGTH); // client clan
 
-			ADD_INT(pp, m_aClients[i].m_Country); // client country
-			ADD_INT(pp, m_aClients[i].m_Score); // client score
-			ADD_INT(pp, GameServer()->IsClientPlayer(i) ? 1 : 0); // is player?
+			ADD_INT(pp, 100); // client country
+			ADD_INT(pp, i); // client score
+			ADD_INT(pp, 1); // is player?
 			if(Type == SERVERINFO_EXTENDED)
 				pp.AddString("", 0); // extra info, reserved
 

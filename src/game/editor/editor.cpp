@@ -5643,7 +5643,7 @@ int CEditor::PopupMenuFile(CEditor *pEditor, CUIRect View, void *pContext)
 
 	View.HSplitTop(2.0f, &Slot, &View);
 	View.HSplitTop(12.0f, &Slot, &View);
-	if(pEditor->DoButton_MenuItem(&s_OpenCurrentMapButton, "Load Current Map", 0, &Slot, 0, "Opens the current in game map for editing (ctrl+alt+l)"))
+	if(pEditor->DoButton_MenuItem(&s_OpenCurrentMapButton, "Load Current Map", 0, &Slot, 0, "Opens the current in game map for editing (ctrl+shift+l)"))
 	{
 		if(pEditor->HasUnsavedData())
 		{

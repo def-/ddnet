@@ -2033,7 +2033,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTile(const CCommandBuffe
 
 	SBufferContainer &BufferContainer = m_BufferContainers[Index];
 
-	RenderBorderTileEmulation(BufferContainer, pCommand->m_State, (float *)&pCommand->m_Color, pCommand->m_pIndicesOffset, pCommand->m_DrawNum, pCommand->m_Offset, pCommand->m_Dir, pCommand->m_JumpIndex);
+	//RenderBorderTileEmulation(BufferContainer, pCommand->m_State, (float *)&pCommand->m_Color, pCommand->m_pIndicesOffset, pCommand->m_DrawNum, pCommand->m_Offset, pCommand->m_Dir, pCommand->m_JumpIndex);
 }
 
 void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTileLine(const CCommandBuffer::SCommand_RenderBorderTileLine *pCommand)
@@ -2045,7 +2045,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTileLine(const CCommandB
 
 	SBufferContainer &BufferContainer = m_BufferContainers[Index];
 
-	RenderBorderTileLineEmulation(BufferContainer, pCommand->m_State, (float *)&pCommand->m_Color, pCommand->m_pIndicesOffset, pCommand->m_IndexDrawNum, pCommand->m_DrawNum, pCommand->m_Offset, pCommand->m_Dir);
+	//RenderBorderTileLineEmulation(BufferContainer, pCommand->m_State, (float *)&pCommand->m_Color, pCommand->m_pIndicesOffset, pCommand->m_IndexDrawNum, pCommand->m_DrawNum, pCommand->m_Offset, pCommand->m_Dir);
 }
 
 void CCommandProcessorFragment_OpenGL2::Cmd_RenderTileLayer(const CCommandBuffer::SCommand_RenderTileLayer *pCommand)

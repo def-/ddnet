@@ -275,6 +275,11 @@ int CNetBase::UnpackPacket(unsigned char *pBuffer, int Size, CNetPacketConstruct
 				return -1;
 			}
 			pPacket->m_DataSize = ms_Huffman.Decompress(&pBuffer[DataStart], pPacket->m_DataSize, pPacket->m_aChunkData, sizeof(pPacket->m_aChunkData));
+			if(pPacket->m_DataSize < 0)
+			{
+				// Decompression failed
+				return -1;
+			}
 		}
 		else
 			mem_copy(pPacket->m_aChunkData, &pBuffer[DataStart], pPacket->m_DataSize);

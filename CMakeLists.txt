@@ -283,6 +283,9 @@ function(set_glob VAR GLOBBING EXTS DIRECTORY) # ...
       endif()
       if(NOT LIST_BUT_NOT_GLOB AND NOT GLOB_BUT_NOT_LIST)
         message(AUTHOR_WARNING "${VAR} is not alphabetically sorted")
+        foreach(file ${GLOB_RESULT})
+          message(MESSAGE " ${file}")
+        endforeach()
       endif()
     endif()
   endif()
@@ -1254,6 +1257,47 @@ set(EXPECTED_DATA
   shader/text.vert
   shader/tile.frag
   shader/tile.vert
+  shader/vulkan/compile.sh
+  shader/vulkan/prim.frag
+  shader/vulkan/prim.frag.spv
+  shader/vulkan/prim.vert
+  shader/vulkan/prim.vert.spv
+  shader/vulkan/prim_textured.frag.spv
+  shader/vulkan/prim_textured.vert.spv
+  shader/vulkan/primex.frag
+  shader/vulkan/primex.frag.spv
+  shader/vulkan/primex.vert
+  shader/vulkan/primex.vert.spv
+  shader/vulkan/primex_rotationless.frag.spv
+  shader/vulkan/primex_rotationless.vert.spv
+  shader/vulkan/primex_tex.frag.spv
+  shader/vulkan/primex_tex.vert.spv
+  shader/vulkan/primex_tex_rotationless.frag.spv
+  shader/vulkan/primex_tex_rotationless.vert.spv
+  shader/vulkan/quad.frag
+  shader/vulkan/quad.vert
+  shader/vulkan/spritemulti.frag
+  shader/vulkan/spritemulti.frag.spv
+  shader/vulkan/spritemulti.vert
+  shader/vulkan/spritemulti.vert.spv
+  shader/vulkan/text.frag
+  shader/vulkan/text.frag.spv
+  shader/vulkan/text.vert
+  shader/vulkan/text.vert.spv
+  shader/vulkan/tile.frag
+  shader/vulkan/tile.frag.spv
+  shader/vulkan/tile.vert
+  shader/vulkan/tile.vert.spv
+  shader/vulkan/tile_border.frag.spv
+  shader/vulkan/tile_border.vert.spv
+  shader/vulkan/tile_border_line.frag.spv
+  shader/vulkan/tile_border_line.vert.spv
+  shader/vulkan/tile_border_line_textured.frag.spv
+  shader/vulkan/tile_border_line_textured.vert.spv
+  shader/vulkan/tile_border_textured.frag.spv
+  shader/vulkan/tile_border_textured.vert.spv
+  shader/vulkan/tile_textured.frag.spv
+  shader/vulkan/tile_textured.vert.spv
   skins/Aoe4leg.png
   skins/PaladiN.png
   skins/antiantey.png
@@ -1378,7 +1422,7 @@ set(EXPECTED_DATA
   wordlist.txt
 )
 
-set_glob(DATA GLOB_RECURSE "frag;json;map;otf;png;rules;ttf;txt;vert;wv" data ${EXPECTED_DATA})
+set_glob(DATA GLOB_RECURSE "frag;json;map;otf;png;rules;sh;spv;ttf;txt;vert;wv" data ${EXPECTED_DATA})
 
 ########################################################################
 # COPY DATA AND SHARED LIBS
@@ -1730,6 +1774,8 @@ if(CLIENT)
   list(APPEND TARGETS_OWN ${TARGET_STEAMAPI})
 
   set_src(ENGINE_CLIENT GLOB_RECURSE src/engine/client
+    backend/backend_base.cpp
+    backend/backend_base.h
     backend/glsl_shader_compiler.cpp
     backend/glsl_shader_compiler.h
     backend/opengl/backend_opengl.cpp
@@ -1747,6 +1793,8 @@ if(CLIENT)
     backend/opengles/gles_class_defines.h
     backend/opengles/opengles_sl.cpp
     backend/opengles/opengles_sl_program.cpp
+    backend/vulkan/backend_vulkan.cpp
+    backend/vulkan/backend_vulkan.h
     backend_sdl.cpp
     backend_sdl.h
     blocklist_driver.cpp
@@ -1941,6 +1989,8 @@ if(CLIENT)
     # Add pthreads (on non-Windows) at the end, so that other libraries can depend
     # on it.
     ${CMAKE_THREAD_LIBS_INIT}
+
+    vulkan
   )
 
   if(DISCORD)

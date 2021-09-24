@@ -52,6 +52,7 @@
 #define CONF_PLATFORM_LINUX 1
 #define PLATFORM_STRING "linux"
 #define CONF_BACKEND_OPENGL_ES3 1
+#define CONF_BACKEND_VULKAN 1
 #endif
 
 #if defined(__ANDROID__)

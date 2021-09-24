@@ -1391,29 +1391,6 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderText(const CCommandBuffer::S
 	RenderText(pCommand->m_State, pCommand->m_DrawNum, pCommand->m_TextTextureIndex, pCommand->m_TextOutlineTextureIndex, pCommand->m_TextureSize, pCommand->m_aTextColor, pCommand->m_aTextOutlineColor);
 }
 
-void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTextStream(const CCommandBuffer::SCommand_RenderTextStream *pCommand)
-{
-	if(pCommand->m_PrimCount == 0)
-	{
-		return; // nothing to draw
-	}
-
-	UploadStreamBufferData(CCommandBuffer::PRIMTYPE_QUADS, pCommand->m_pVertices, sizeof(CCommandBuffer::SVertex), pCommand->m_PrimCount);
-
-	glBindVertexArray(m_PrimitiveDrawVertexID[m_LastStreamBuffer]);
-	if(m_LastIndexBufferBound[m_LastStreamBuffer] != m_QuadDrawIndexBufferID)
-	{
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_QuadDrawIndexBufferID);
-		m_LastIndexBufferBound[m_LastStreamBuffer] = m_QuadDrawIndexBufferID;
-	}
-
-	float aTextColor[4] = {1.f, 1.f, 1.f, 1.f};
-
-	RenderText(pCommand->m_State, pCommand->m_PrimCount * 6, pCommand->m_TextTextureIndex, pCommand->m_TextOutlineTextureIndex, pCommand->m_TextureSize, aTextColor, pCommand->m_aTextOutlineColor);
-
-	m_LastStreamBuffer = (m_LastStreamBuffer + 1 >= MAX_STREAM_BUFFER_COUNT ? 0 : m_LastStreamBuffer + 1);
-}
-
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadContainer(const CCommandBuffer::SCommand_RenderQuadContainer *pCommand)
 {
 	if(pCommand->m_DrawNum == 0)

@@ -37,33 +37,6 @@ void CCommandProcessorFragment_OpenGL::Cmd_Finish(const CCommandBuffer::SCommand
 	glFinish();
 }
 
-bool CCommandProcessorFragment_OpenGL::Texture2DTo3D(void *pImageBuffer, int ImageWidth, int ImageHeight, int ImageColorChannelCount, int SplitCountWidth, int SplitCountHeight, void *pTarget3DImageData, int &Target3DImageWidth, int &Target3DImageHeight)
-{
-	Target3DImageWidth = ImageWidth / SplitCountWidth;
-	Target3DImageHeight = ImageHeight / SplitCountHeight;
-
-	size_t FullImageWidth = (size_t)ImageWidth * ImageColorChannelCount;
-
-	for(int Y = 0; Y < SplitCountHeight; ++Y)
-	{
-		for(int X = 0; X < SplitCountWidth; ++X)
-		{
-			for(int Y3D = 0; Y3D < Target3DImageHeight; ++Y3D)
-			{
-				int DepthIndex = X + Y * SplitCountWidth;
-
-				size_t TargetImageFullWidth = (size_t)Target3DImageWidth * ImageColorChannelCount;
-				size_t TargetImageFullSize = (size_t)TargetImageFullWidth * Target3DImageHeight;
-				ptrdiff_t ImageOffset = (ptrdiff_t)(((size_t)Y * FullImageWidth * (size_t)Target3DImageHeight) + ((size_t)Y3D * FullImageWidth) + ((size_t)X * TargetImageFullWidth));
-				ptrdiff_t TargetImageOffset = (ptrdiff_t)(TargetImageFullSize * (size_t)DepthIndex + ((size_t)Y3D * TargetImageFullWidth));
-				mem_copy(((uint8_t *)pTarget3DImageData) + TargetImageOffset, ((uint8_t *)pImageBuffer) + (ptrdiff_t)(ImageOffset), TargetImageFullWidth);
-			}
-		}
-	}
-
-	return true;
-}
-
 int CCommandProcessorFragment_OpenGL::TexFormatToOpenGLFormat(int TexFormat)
 {
 	if(TexFormat == CCommandBuffer::TEXFORMAT_RGB)
@@ -73,24 +46,6 @@ int CCommandProcessorFragment_OpenGL::TexFormatToOpenGLFormat(int TexFormat)
 	if(TexFormat == CCommandBuffer::TEXFORMAT_RGBA)
 		return GL_RGBA;
 	return GL_RGBA;
-}
-
-int CCommandProcessorFragment_OpenGL::TexFormatToImageColorChannelCount(int TexFormat)
-{
-	if(TexFormat == CCommandBuffer::TEXFORMAT_RGB)
-		return 3;
-	if(TexFormat == CCommandBuffer::TEXFORMAT_ALPHA)
-		return 1;
-	if(TexFormat == CCommandBuffer::TEXFORMAT_RGBA)
-		return 4;
-	return 4;
-}
-
-void *CCommandProcessorFragment_OpenGL::Resize(int Width, int Height, int NewWidth, int NewHeight, int Format, const unsigned char *pData)
-{
-	int Bpp = TexFormatToImageColorChannelCount(Format);
-
-	return ResizeImage((const uint8_t *)pData, Width, Height, NewWidth, NewHeight, Bpp);
 }
 
 bool CCommandProcessorFragment_OpenGL::IsTexturedState(const CCommandBuffer::SState &State)
@@ -1083,7 +1038,6 @@ bool CCommandProcessorFragment_OpenGL::RunCommand(const CCommandBuffer::SCommand
 	case CCommandBuffer::CMD_RENDER_BORDER_TILE_LINE: Cmd_RenderBorderTileLine(static_cast<const CCommandBuffer::SCommand_RenderBorderTileLine *>(pBaseCommand)); break;
 	case CCommandBuffer::CMD_RENDER_QUAD_LAYER: Cmd_RenderQuadLayer(static_cast<const CCommandBuffer::SCommand_RenderQuadLayer *>(pBaseCommand)); break;
 	case CCommandBuffer::CMD_RENDER_TEXT: Cmd_RenderText(static_cast<const CCommandBuffer::SCommand_RenderText *>(pBaseCommand)); break;
-	case CCommandBuffer::CMD_RENDER_TEXT_STREAM: Cmd_RenderTextStream(static_cast<const CCommandBuffer::SCommand_RenderTextStream *>(pBaseCommand)); break;
 	case CCommandBuffer::CMD_RENDER_QUAD_CONTAINER: Cmd_RenderQuadContainer(static_cast<const CCommandBuffer::SCommand_RenderQuadContainer *>(pBaseCommand)); break;
 	case CCommandBuffer::CMD_RENDER_QUAD_CONTAINER_EX: Cmd_RenderQuadContainerEx(static_cast<const CCommandBuffer::SCommand_RenderQuadContainerEx *>(pBaseCommand)); break;
 	case CCommandBuffer::CMD_RENDER_QUAD_CONTAINER_SPRITE_MULTIPLE: Cmd_RenderQuadContainerAsSpriteMultiple(static_cast<const CCommandBuffer::SCommand_RenderQuadContainerAsSpriteMultiple *>(pBaseCommand)); break;

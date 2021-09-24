@@ -839,7 +839,7 @@ void CMapLayers::OnMapLoad()
 							}
 
 							// first create the buffer object
-							int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData, true);
+							int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData, 0, true);
 
 							// then create the buffer container
 							SBufferContainerInfo ContainerInfo;
@@ -944,7 +944,7 @@ void CMapLayers::OnMapLoad()
 					else
 						pUploadData = &tmpQuads[0];
 					// create the buffer object
-					int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData);
+					int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData, 0);
 					// then create the buffer container
 					SBufferContainerInfo ContainerInfo;
 					ContainerInfo.m_Stride = (Textured ? (sizeof(STmpQuadTextured) / 4) : (sizeof(STmpQuad) / 4));

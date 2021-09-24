@@ -86,7 +86,9 @@ public:
 
 		// texture commands
 		CMD_TEXTURE_CREATE,
+		CMD_TEXT_TEXTURES_CREATE,
 		CMD_TEXTURE_DESTROY,
+		CMD_TEXT_TEXTURES_DESTROY,
 		CMD_TEXTURE_UPDATE,
 
 		// rendering
@@ -112,7 +114,6 @@ public:
 		CMD_RENDER_BORDER_TILE_LINE, // render an amount of tiles multiple times
 		CMD_RENDER_QUAD_LAYER, // render a quad layer
 		CMD_RENDER_TEXT, // render text
-		CMD_RENDER_TEXT_STREAM, // render text stream
 		CMD_RENDER_QUAD_CONTAINER, // render a quad buffer container
 		CMD_RENDER_QUAD_CONTAINER_EX, // render a quad buffer container with extended parameters
 		CMD_RENDER_QUAD_CONTAINER_SPRITE_MULTIPLE, // render a quad buffer container as sprite multiple times
@@ -254,6 +255,8 @@ public:
 		bool m_DeletePointer;
 		void *m_pUploadData;
 		size_t m_DataSize;
+
+		int m_Flags; // @see EBufferObjectCreateFlags
 	};
 
 	struct SCommand_RecreateBufferObject : public SCommand
@@ -266,6 +269,8 @@ public:
 		bool m_DeletePointer;
 		void *m_pUploadData;
 		size_t m_DataSize;
+
+		int m_Flags; // @see EBufferObjectCreateFlags
 	};
 
 	struct SCommand_UpdateBufferObject : public SCommand
@@ -419,24 +424,6 @@ public:
 		float m_aTextOutlineColor[4];
 	};
 
-	struct SCommand_RenderTextStream : public SCommand
-	{
-		SCommand_RenderTextStream() :
-			SCommand(CMD_RENDER_TEXT_STREAM) {}
-		SState m_State;
-
-		SVertex *m_pVertices;
-		unsigned m_PrimType;
-		unsigned m_PrimCount;
-
-		int m_TextureSize;
-
-		int m_TextTextureIndex;
-		int m_TextOutlineTextureIndex;
-
-		float m_aTextOutlineColor[4];
-	};
-
 	struct SCommand_RenderQuadContainer : public SCommand
 	{
 		SCommand_RenderQuadContainer() :
@@ -521,6 +508,7 @@ public:
 		int m_Y;
 		int m_Width;
 		int m_Height;
+		bool m_ByResize; // resized by an resize event.. a hint to make clear that the viewport update can be deferred if wanted
 	};
 
 	struct SCommand_Texture_Create : public SCommand
@@ -538,6 +526,29 @@ public:
 		int m_StoreFormat;
 		int m_Flags;
 		void *m_pData; // will be freed by the command processor
+	};
+
+	struct SCommand_TextTextures_Create : public SCommand
+	{
+		SCommand_TextTextures_Create() :
+			SCommand(CMD_TEXT_TEXTURES_CREATE) {}
+
+		// texture information
+		int m_Slot;
+		int m_SlotOutline;
+
+		int m_Width;
+		int m_Height;
+	};
+
+	struct SCommand_TextTextures_Destroy : public SCommand
+	{
+		SCommand_TextTextures_Destroy() :
+			SCommand(CMD_TEXTURE_DESTROY) {}
+
+		// texture information
+		int m_Slot;
+		int m_SlotOutline;
 	};
 
 	struct SCommand_Texture_Update : public SCommand
@@ -660,7 +671,7 @@ public:
 	virtual int Init(const char *pName, int *Screen, int *pWidth, int *pHeight, int *pRefreshRate, int FsaaSamples, int Flags, int *pDesktopWidth, int *pDesktopHeight, int *pCurrentWidth, int *pCurrentHeight, class IStorage *pStorage) = 0;
 	virtual int Shutdown() = 0;
 
-	virtual int MemoryUsage() const = 0;
+	virtual uint64_t MemoryUsage() const = 0;
 
 	virtual void GetVideoModes(CVideoMode *pModes, int MaxModes, int *pNumModes, int HiDPIScale, int MaxWindowWidth, int MaxWindowHeight, int Screen) = 0;
 	virtual void GetCurrentVideoMode(CVideoMode &CurMode, int HiDPIScale, int MaxWindowWidth, int MaxWindowHeight, int Screen) = 0;
@@ -874,7 +885,7 @@ public:
 	void WrapNormal() override;
 	void WrapClamp() override;
 
-	int MemoryUsage() const override;
+	uint64_t MemoryUsage() const override;
 
 	void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) override;
 	void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) override;
@@ -886,6 +897,9 @@ public:
 	int UnloadTexture(IGraphics::CTextureHandle *pIndex) override;
 	IGraphics::CTextureHandle LoadTextureRaw(int Width, int Height, int Format, const void *pData, int StoreFormat, int Flags, const char *pTexName = NULL) override;
 	int LoadTextureRawSub(IGraphics::CTextureHandle TextureID, int x, int y, int Width, int Height, int Format, const void *pData) override;
+
+	bool LoadTextTextures(int Width, int Height, CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) override;
+	bool UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) override;
 
 	CTextureHandle LoadSpriteTextureImpl(CImageInfo &FromImageInfo, int x, int y, int w, int h);
 	CTextureHandle LoadSpriteTexture(CImageInfo &FromImageInfo, struct CDataSprite *pSprite) override;
@@ -912,8 +926,6 @@ public:
 
 	void QuadsBegin() override;
 	void QuadsEnd() override;
-	void TextQuadsBegin() override;
-	void TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override;
 	void QuadsTex3DBegin() override;
 	void QuadsTex3DEnd() override;
 	void TrianglesBegin() override;
@@ -1144,7 +1156,6 @@ public:
 	}
 
 	void FlushVertices(bool KeepVertices = false) override;
-	void FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override;
 	void FlushVerticesTex3D() override;
 
 	void RenderTileLayer(int BufferContainerIndex, float *pColor, char **pOffsets, unsigned int *IndicedVertexDrawNum, size_t NumIndicesOffet) override;
@@ -1154,8 +1165,8 @@ public:
 	void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) override;
 
 	// modern GL functions
-	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
-	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
+	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
+	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
 	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override;
 	void CopyBufferObject(int WriteBufferIndex, int ReadBufferIndex, size_t WriteOffset, size_t ReadOffset, size_t CopyDataSize) override;
 	void DeleteBufferObject(int BufferIndex) override;

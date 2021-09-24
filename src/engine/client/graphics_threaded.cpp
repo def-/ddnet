@@ -73,24 +73,6 @@ void CGraphics_Threaded::FlushVertices(bool KeepVertices)
 	}
 }
 
-void CGraphics_Threaded::FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor)
-{
-	CCommandBuffer::SCommand_RenderTextStream Cmd;
-	int PrimType, PrimCount, NumVerts;
-	size_t VertSize = sizeof(CCommandBuffer::SVertex);
-
-	Cmd.m_TextureSize = TextureSize;
-	Cmd.m_TextTextureIndex = TextTextureIndex;
-	Cmd.m_TextOutlineTextureIndex = TextOutlineTextureIndex;
-	mem_copy(Cmd.m_aTextOutlineColor, pOutlineTextColor, sizeof(Cmd.m_aTextOutlineColor));
-
-	FlushVerticesImpl(false, PrimType, PrimCount, NumVerts, Cmd, VertSize);
-	if(Cmd.m_pVertices != NULL)
-	{
-		mem_copy(Cmd.m_pVertices, m_aVertices, VertSize * NumVerts);
-	}
-}
-
 void CGraphics_Threaded::FlushVerticesTex3D()
 {
 	CCommandBuffer::SCommand_RenderTex3D Cmd;
@@ -209,7 +191,7 @@ void CGraphics_Threaded::WrapClamp()
 	m_State.m_WrapMode = CCommandBuffer::WRAP_CLAMP;
 }
 
-int CGraphics_Threaded::MemoryUsage() const
+uint64_t CGraphics_Threaded::MemoryUsage() const
 {
 	return m_pBackend->MemoryUsage();
 }
@@ -500,6 +482,78 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTexture(const char *pFilename,
 	return m_InvalidTexture;
 }
 
+bool CGraphics_Threaded::LoadTextTextures(int Width, int Height, CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture)
+{
+	if(Width == 0 || Height == 0)
+		return false;
+
+	// grab texture
+	int Tex = m_FirstFreeTexture;
+	if(Tex == -1)
+	{
+		size_t CurSize = m_TextureIndices.size();
+		m_TextureIndices.resize(CurSize * 2);
+		for(size_t i = 0; i < CurSize - 1; ++i)
+		{
+			m_TextureIndices[CurSize + i] = CurSize + i + 1;
+		}
+		m_TextureIndices.back() = -1;
+
+		Tex = CurSize;
+	}
+	m_FirstFreeTexture = m_TextureIndices[Tex];
+	m_TextureIndices[Tex] = -1;
+
+	int Tex2 = m_FirstFreeTexture;
+	if(Tex2 == -1)
+	{
+		size_t CurSize = m_TextureIndices.size();
+		m_TextureIndices.resize(CurSize * 2);
+		for(size_t i = 0; i < CurSize - 1; ++i)
+		{
+			m_TextureIndices[CurSize + i] = CurSize + i + 1;
+		}
+		m_TextureIndices.back() = -1;
+
+		Tex2 = CurSize;
+	}
+	m_FirstFreeTexture = m_TextureIndices[Tex2];
+	m_TextureIndices[Tex2] = -1;
+
+	CCommandBuffer::SCommand_TextTextures_Create Cmd;
+	Cmd.m_Slot = Tex;
+	Cmd.m_SlotOutline = Tex2;
+	Cmd.m_Width = Width;
+	Cmd.m_Height = Height;
+
+	AddCmd(
+		Cmd, [] { return true; }, "failed to load raw texture.");
+
+	TextTexture = CreateTextureHandle(Tex);
+	TextOutlineTexture = CreateTextureHandle(Tex2);
+
+	return true;
+}
+
+bool CGraphics_Threaded::UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture)
+{
+	CCommandBuffer::SCommand_TextTextures_Destroy Cmd;
+	Cmd.m_Slot = TextTexture.Id();
+	Cmd.m_SlotOutline = TextOutlineTexture.Id();
+	AddCmd(
+		Cmd, [] { return true; }, "failed to unload texture.");
+
+	m_TextureIndices[TextTexture.Id()] = m_FirstFreeTexture;
+	m_FirstFreeTexture = TextTexture.Id();
+
+	m_TextureIndices[TextOutlineTexture.Id()] = m_FirstFreeTexture;
+	m_FirstFreeTexture = TextOutlineTexture.Id();
+
+	TextTexture.Invalidate();
+	TextOutlineTexture.Invalidate();
+	return true;
+}
+
 int CGraphics_Threaded::LoadPNG(CImageInfo *pImg, const char *pFilename, int StorageType)
 {
 	char aCompleteFilename[IO_MAX_PATH_LENGTH];
@@ -713,18 +767,6 @@ void CGraphics_Threaded::QuadsEnd()
 {
 	dbg_assert(m_Drawing == DRAWING_QUADS, "called Graphics()->QuadsEnd without begin");
 	FlushVertices();
-	m_Drawing = 0;
-}
-
-void CGraphics_Threaded::TextQuadsBegin()
-{
-	QuadsBegin();
-}
-
-void CGraphics_Threaded::TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor)
-{
-	dbg_assert(m_Drawing == DRAWING_QUADS, "called Graphics()->TextQuadsEnd without begin");
-	FlushTextVertices(TextureSize, TextTextureIndex, TextOutlineTextureIndex, pOutlineTextColor);
 	m_Drawing = 0;
 }
 
@@ -1280,12 +1322,12 @@ void CGraphics_Threaded::QuadContainerUpload(int ContainerIndex)
 			if(Container.m_QuadBufferObjectIndex == -1)
 			{
 				size_t UploadDataSize = Container.m_Quads.size() * sizeof(SQuadContainer::SQuad);
-				Container.m_QuadBufferObjectIndex = CreateBufferObject(UploadDataSize, &Container.m_Quads[0]);
+				Container.m_QuadBufferObjectIndex = CreateBufferObject(UploadDataSize, &Container.m_Quads[0], 0);
 			}
 			else
 			{
 				size_t UploadDataSize = Container.m_Quads.size() * sizeof(SQuadContainer::SQuad);
-				RecreateBufferObject(Container.m_QuadBufferObjectIndex, UploadDataSize, &Container.m_Quads[0]);
+				RecreateBufferObject(Container.m_QuadBufferObjectIndex, UploadDataSize, &Container.m_Quads[0], 0);
 			}
 
 			if(Container.m_QuadBufferContainerIndex == -1)
@@ -1713,7 +1755,7 @@ void *CGraphics_Threaded::AllocCommandBufferData(unsigned AllocSize)
 	return pData;
 }
 
-int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer)
+int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer)
 {
 	int Index = -1;
 	if(m_FirstFreeBufferObjectIndex == -1)
@@ -1732,6 +1774,7 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 	Cmd.m_BufferIndex = Index;
 	Cmd.m_DataSize = UploadDataSize;
 	Cmd.m_DeletePointer = IsMovedPointer;
+	Cmd.m_Flags = CreateFlags;
 
 	if(IsMovedPointer)
 	{
@@ -1795,12 +1838,13 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 	return Index;
 }
 
-void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer)
+void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer)
 {
 	CCommandBuffer::SCommand_RecreateBufferObject Cmd;
 	Cmd.m_BufferIndex = BufferIndex;
 	Cmd.m_DataSize = UploadDataSize;
 	Cmd.m_DeletePointer = IsMovedPointer;
+	Cmd.m_Flags = CreateFlags;
 
 	if(IsMovedPointer)
 	{
@@ -2393,6 +2437,7 @@ void CGraphics_Threaded::GotResized(int w, int h, int RefreshRate)
 	Cmd.m_Y = 0;
 	Cmd.m_Width = m_ScreenWidth;
 	Cmd.m_Height = m_ScreenHeight;
+	Cmd.m_ByResize = true;
 
 	if(!AddCmd(
 		   Cmd, [] { return true; }, "failed to add resize command"))

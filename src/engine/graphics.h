@@ -235,7 +235,7 @@ public:
 	virtual void BlendAdditive() = 0;
 	virtual void WrapNormal() = 0;
 	virtual void WrapClamp() = 0;
-	virtual int MemoryUsage() const = 0;
+	virtual uint64_t MemoryUsage() const = 0;
 
 	virtual int LoadPNG(CImageInfo *pImg, const char *pFilename, int StorageType) = 0;
 	virtual void FreePNG(CImageInfo *pImg) = 0;
@@ -255,6 +255,9 @@ public:
 	virtual void TextureSet(CTextureHandle Texture) = 0;
 	void TextureClear() { TextureSet(CTextureHandle()); }
 
+	virtual bool LoadTextTextures(int Width, int Height, CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) = 0;
+	virtual bool UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) = 0;
+
 	virtual CTextureHandle LoadSpriteTexture(CImageInfo &FromImageInfo, struct CDataSprite *pSprite) = 0;
 	virtual CTextureHandle LoadSpriteTexture(CImageInfo &FromImageInfo, struct client_data7::CDataSprite *pSprite) = 0;
 
@@ -262,7 +265,6 @@ public:
 	virtual bool IsSpriteTextureFullyTransparent(CImageInfo &FromImageInfo, struct client_data7::CDataSprite *pSprite) = 0;
 
 	virtual void FlushVertices(bool KeepVertices = false) = 0;
-	virtual void FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) = 0;
 	virtual void FlushVerticesTex3D() = 0;
 
 	// specific render functions
@@ -273,9 +275,16 @@ public:
 	virtual void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) = 0;
 
 	// opengl 3.3 functions
+
+	enum EBufferObjectCreateFlags
+	{
+		// tell the backend that the buffer only needs to be valid for the span of one frame. Buffer size is not allowed to be bigger than GL_SVertex * MAX_VERTICES
+		BUFFER_OBJECT_CREATE_FLAGS_ONE_TIME_USE_BIT = 1 << 0,
+	};
+
 	// if a pointer is passed as moved pointer, it requires to be allocated with malloc()
-	virtual int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) = 0;
-	virtual void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) = 0;
+	virtual int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) = 0;
+	virtual void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) = 0;
 	virtual void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) = 0;
 	virtual void CopyBufferObject(int WriteBufferIndex, int ReadBufferIndex, size_t WriteOffset, size_t ReadOffset, size_t CopyDataSize) = 0;
 	virtual void DeleteBufferObject(int BufferIndex) = 0;
@@ -311,8 +320,6 @@ public:
 
 	virtual void QuadsBegin() = 0;
 	virtual void QuadsEnd() = 0;
-	virtual void TextQuadsBegin() = 0;
-	virtual void TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) = 0;
 	virtual void QuadsTex3DBegin() = 0;
 	virtual void QuadsTex3DEnd() = 0;
 	virtual void TrianglesBegin() = 0;

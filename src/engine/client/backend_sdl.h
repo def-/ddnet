@@ -159,60 +159,10 @@ public:
 	bool RunCommand(const CCommandBuffer::SCommand *pBaseCommand);
 };
 
-class CCommandProcessorFragment_GLBase
-{
-public:
-	virtual ~CCommandProcessorFragment_GLBase() = default;
-	virtual bool RunCommand(const CCommandBuffer::SCommand *pBaseCommand) = 0;
-
-	enum
-	{
-		CMD_INIT = CCommandBuffer::CMDGROUP_PLATFORM_GL,
-		CMD_SHUTDOWN = CMD_INIT + 1,
-	};
-
-	struct SCommand_Init : public CCommandBuffer::SCommand
-	{
-		SCommand_Init() :
-			SCommand(CMD_INIT) {}
-
-		SDL_Window *m_pWindow;
-		uint32_t m_Width;
-		uint32_t m_Height;
-
-		class IStorage *m_pStorage;
-		std::atomic<int> *m_pTextureMemoryUsage;
-		SBackendCapabilites *m_pCapabilities;
-		int *m_pInitError;
-
-		const char **m_pErrStringPtr;
-
-		char *m_pVendorString;
-		char *m_pVersionString;
-		char *m_pRendererString;
-
-		int m_RequestedMajor;
-		int m_RequestedMinor;
-		int m_RequestedPatch;
-
-		EBackendType m_RequestedBackend;
-
-		int m_GlewMajor;
-		int m_GlewMinor;
-		int m_GlewPatch;
-	};
-
-	struct SCommand_Shutdown : public CCommandBuffer::SCommand
-	{
-		SCommand_Shutdown() :
-			SCommand(CMD_SHUTDOWN) {}
-	};
-};
-
 // command processor impelementation, uses the fragments to combine into one processor
 class CCommandProcessor_SDL_GL : public CGraphicsBackend_Threaded::ICommandProcessor
 {
-	CCommandProcessorFragment_GLBase *m_pGLBackend;
+	class CCommandProcessorFragment_GLBase *m_pGLBackend;
 	CCommandProcessorFragment_SDL m_SDL;
 	CCommandProcessorFragment_General m_General;
 
@@ -232,7 +182,7 @@ class CGraphicsBackend_SDL_GL : public CGraphicsBackend_Threaded
 	SDL_Window *m_pWindow = NULL;
 	SDL_GLContext m_GLContext;
 	ICommandProcessor *m_pProcessor;
-	std::atomic<int> m_TextureMemoryUsage;
+	std::atomic<uint64_t> m_TextureMemoryUsage;
 	int m_NumScreens;
 
 	SBackendCapabilites m_Capabilites;
@@ -252,7 +202,7 @@ public:
 	virtual int Init(const char *pName, int *Screen, int *pWidth, int *pHeight, int *pRefreshRate, int FsaaSamples, int Flags, int *pDesktopWidth, int *pDesktopHeight, int *pCurrentWidth, int *pCurrentHeight, class IStorage *pStorage);
 	virtual int Shutdown();
 
-	virtual int MemoryUsage() const;
+	virtual uint64_t MemoryUsage() const;
 
 	virtual int GetNumScreens() const { return m_NumScreens; }
 

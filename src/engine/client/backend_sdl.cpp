@@ -609,7 +609,7 @@ void CGraphicsBackend_SDL_GL::ClampDriverVersion(EBackendType BackendType)
 	else if(BackendType == BACKEND_TYPE_VULKAN)
 	{
 		g_Config.m_GfxGLMajor = 1;
-		g_Config.m_GfxGLMinor = 0;
+		g_Config.m_GfxGLMinor = 1;
 		g_Config.m_GfxGLPatch = 0;
 	}
 }
@@ -1089,6 +1089,7 @@ int CGraphicsBackend_SDL_GL::Init(const char *pName, int *pScreen, int *pWidth, 
 
 		CmdSDL.m_Width = *pCurrentWidth;
 		CmdSDL.m_Height = *pCurrentHeight;
+		CmdSDL.m_ByResize = true;
 		CmdBuffer.AddCommandUnsafe(CmdSDL);
 		RunBuffer(&CmdBuffer);
 		WaitForIdle();
@@ -1127,7 +1128,7 @@ int CGraphicsBackend_SDL_GL::Shutdown()
 	return 0;
 }
 
-int CGraphicsBackend_SDL_GL::MemoryUsage() const
+uint64_t CGraphicsBackend_SDL_GL::MemoryUsage() const
 {
 	return m_TextureMemoryUsage;
 }

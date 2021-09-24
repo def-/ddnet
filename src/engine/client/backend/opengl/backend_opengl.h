@@ -12,6 +12,7 @@
 
 #include <base/system.h>
 
+#include <engine/client/backend/backend_base.h>
 #include <engine/client/backend_sdl.h>
 
 class CGLSLProgram;
@@ -53,7 +54,7 @@ protected:
 		float m_ResizeHeight;
 	};
 	std::vector<CTexture> m_Textures;
-	std::atomic<int> *m_pTextureMemoryUsage;
+	std::atomic<uint64_t> *m_pTextureMemoryUsage;
 
 	TWGLint m_MaxTexSize;
 
@@ -73,7 +74,6 @@ protected:
 	bool m_IsOpenGLES;
 
 	bool IsTexturedState(const CCommandBuffer::SState &State);
-	static bool Texture2DTo3D(void *pImageBuffer, int ImageWidth, int ImageHeight, int ImageColorChannelCount, int SplitCountWidth, int SplitCountHeight, void *pTarget3DImageData, int &Target3DImageWidth, int &Target3DImageHeight);
 
 	bool InitOpenGL(const SCommand_Init *pCommand);
 
@@ -82,8 +82,6 @@ protected:
 	void DestroyTexture(int Slot);
 
 	static int TexFormatToOpenGLFormat(int TexFormat);
-	static int TexFormatToImageColorChannelCount(int TexFormat);
-	static void *Resize(int Width, int Height, int NewWidth, int NewHeight, int Format, const unsigned char *pData);
 
 	virtual bool Cmd_Init(const SCommand_Init *pCommand);
 	virtual void Cmd_Shutdown(const SCommand_Shutdown *pCommand) {}
@@ -114,7 +112,6 @@ protected:
 	virtual void Cmd_RenderBorderTileLine(const CCommandBuffer::SCommand_RenderBorderTileLine *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderBorderTileLine"); }
 	virtual void Cmd_RenderQuadLayer(const CCommandBuffer::SCommand_RenderQuadLayer *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderQuadLayer"); }
 	virtual void Cmd_RenderText(const CCommandBuffer::SCommand_RenderText *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderText"); }
-	virtual void Cmd_RenderTextStream(const CCommandBuffer::SCommand_RenderTextStream *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderTextStream"); }
 	virtual void Cmd_RenderQuadContainer(const CCommandBuffer::SCommand_RenderQuadContainer *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderQuadContainer"); }
 	virtual void Cmd_RenderQuadContainerEx(const CCommandBuffer::SCommand_RenderQuadContainerEx *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderQuadContainerEx"); }
 	virtual void Cmd_RenderQuadContainerAsSpriteMultiple(const CCommandBuffer::SCommand_RenderQuadContainerAsSpriteMultiple *pCommand) { dbg_assert(false, "Call of unsupported Cmd_RenderQuadContainerAsSpriteMultiple"); }

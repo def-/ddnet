@@ -1,0 +1,11 @@
+- viewport & scissor on fly changes (distinct the pipelines better for faster non clipped rendering)
+- implement remaining render* calls (quads and streamed tiles missing)
+- dynamic descriptor pool allocations when needed (maybe smaller pool sizes)
+- implement texture destroy correctly (descriptors missing)
+- v-sync not working? (or just radv bug?)
+- implement new command buffer commands in OpenGL backend
+- disallow alpha textures (new cmd for text textures)
+- screenshots and video recorder not working
+- decide on a heap
+- check other swap chain images, if finished to free resources faster
+- compile shaders in cmake ( https://gist.github.com/evilactually/a0d191701cb48f157b05be7f74d79396 )

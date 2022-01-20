@@ -1071,7 +1071,6 @@ set(EXPECTED_DATA
   countryflags/ZW.png
   countryflags/default.png
   countryflags/index.txt
-  debug_font.png
   demo_buttons.png
   demo_buttons2.png
   editor/audio_source.png
@@ -1117,6 +1116,7 @@ set(EXPECTED_DATA
   fonts/DejaVuSans.ttf
   fonts/GlowSansJCompressed-Book.otf
   fonts/Icons.ttf
+  fonts/Inconsolata-Regular.ttf
   fonts/SourceHanSansSC-Regular.otf
   game.png
   gui_buttons.png

@@ -194,8 +194,6 @@ public:
 
 	virtual bool SoundInitFailed() const = 0;
 
-	virtual IGraphics::CTextureHandle GetDebugFont() const = 0; // TODO: remove this function
-
 	//DDRace
 
 	virtual const char *GetCurrentMap() const = 0;

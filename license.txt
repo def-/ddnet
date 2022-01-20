@@ -23,6 +23,7 @@ freely, subject to the following restrictions:
 All content under 'data' except the assets, font, language & skin files,
 (which have their own licenses) are released under
 CC-BY-SA 3.0 (http://creativecommons.org/licenses/by-sa/3.0/).
+
 Apache 2.0 for the 'Icon.tff' file:
 Copyright Google
 
@@ -37,6 +38,10 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+Open Font License for the 'Inconsolata.otf' file:
+Copyright 2006 The Inconsolata Project Authors
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
 
 The other fonts are released under CC-BY-SA 3.0 (http://creativecommons.org/licenses/by-sa/3.0/).
 

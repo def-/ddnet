@@ -703,6 +703,17 @@ public:
 			io_close(File);
 			LoadFont(aFilename, pBuf, Size);
 		}
+
+		const char *pFontFile = "fonts/Inconsolata-Regular.ttf";
+		File = pStorage->OpenFile(pFontFile, IOFLAG_READ, IStorage::TYPE_ALL, aFilename, sizeof(aFilename));
+		if(File)
+		{
+			size_t Size = io_length(File);
+			unsigned char *pBuf = (unsigned char *)malloc(Size);
+			io_read(File, pBuf, Size);
+			io_close(File);
+			LoadFont(aFilename, pBuf, Size);
+		}
 	}
 
 	virtual CFont *LoadFont(const char *pFilename, const unsigned char *pBuf, size_t Size)

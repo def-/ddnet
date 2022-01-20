@@ -31,6 +31,7 @@ enum ETextRenderFlags
 enum
 {
 	TEXT_FONT_ICON_FONT = 0,
+	TEXT_FONT_MONO_FONT = 1,
 };
 
 class CFont;

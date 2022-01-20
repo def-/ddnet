@@ -52,7 +52,7 @@ public:
 	void ScaleMin();
 
 	void Add(float v, float r, float g, float b);
-	void Render(IGraphics *pGraphics, IGraphics::CTextureHandle FontTexture, float x, float y, float w, float h, const char *pDescription);
+	void Render(IGraphics *pGraphics, CFont *Font, int FontSize, float x, float y, float w, float h, const char *pDescription);
 };
 
 class CSmoothTime
@@ -142,7 +142,6 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	unsigned m_SnapshotParts[NUM_DUMMIES];
 	int64_t m_LocalStartTime;
 
-	IGraphics::CTextureHandle m_DebugFont;
 	int m_DebugSoundIndex = 0;
 
 	int64_t m_LastRenderTime;
@@ -323,8 +322,6 @@ public:
 	virtual bool ConnectionProblems() const;
 
 	virtual bool SoundInitFailed() const { return m_SoundInitFailed; }
-
-	virtual IGraphics::CTextureHandle GetDebugFont() const { return m_DebugFont; }
 
 	void DirectInput(int *pInput, int Size);
 	void SendInput();

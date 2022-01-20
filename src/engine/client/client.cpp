@@ -3,6 +3,7 @@
 
 #define _WIN32_WINNT 0x0501
 
+#include <iostream>
 #include <new>
 
 #include <stdarg.h>
@@ -126,7 +127,7 @@ void CGraph::Add(float v, float r, float g, float b)
 	m_aColors[m_Index][2] = b;
 }
 
-void CGraph::Render(IGraphics *pGraphics, IGraphics::CTextureHandle FontTexture, float x, float y, float w, float h, const char *pDescription)
+void CGraph::Render(IGraphics *pGraphics, CFont *Font, int FontSize, float x, float y, float w, float h, const char *pDescription)
 {
 	//m_pGraphics->BlendNormal();
 
@@ -166,16 +167,16 @@ void CGraph::Render(IGraphics *pGraphics, IGraphics::CTextureHandle FontTexture,
 	}
 	pGraphics->LinesEnd();
 
-	pGraphics->TextureSet(FontTexture);
+	pGraphics->TextureSet(Font);
 	pGraphics->QuadsBegin();
-	pGraphics->QuadsText(x + 2, y + h - 16, 16, pDescription);
+	pGraphics->QuadsText(x + 2, y + h - 16, FontSize, pDescription);
 
 	char aBuf[32];
 	str_format(aBuf, sizeof(aBuf), "%.2f", m_Max);
-	pGraphics->QuadsText(x + w - 8 * str_length(aBuf) - 8, y + 2, 16, aBuf);
+	pGraphics->QuadsText(x + w - 8 * str_length(aBuf) - 8, y + 2, FontSize, aBuf);
 
 	str_format(aBuf, sizeof(aBuf), "%.2f", m_Min);
-	pGraphics->QuadsText(x + w - 8 * str_length(aBuf) - 8, y + h - 16, 16, aBuf);
+	pGraphics->QuadsText(x + w - 8 * str_length(aBuf) - 8, y + h - 16, FontSize, aBuf);
 	pGraphics->QuadsEnd();
 }
 
@@ -973,7 +974,6 @@ void CClient::ServerInfoRequest()
 
 int CClient::LoadData()
 {
-	m_DebugFont = Graphics()->LoadTexture("debug_font.png", IStorage::TYPE_ALL, CImageInfo::FORMAT_AUTO, 0);
 	return 1;
 }
 
@@ -1054,6 +1054,9 @@ void CClient::DebugRender()
 		net_stats(&Current);
 	}
 
+	int FontSize = Graphics()->ScreenWidth() / 150;
+	std::cout << FontSize << std::endl;
+
 	/*
 		eth = 14
 		ip = 20
@@ -1065,7 +1068,7 @@ void CClient::DebugRender()
 		m_CurGameTick[g_Config.m_ClDummy], m_PredTick[g_Config.m_ClDummy],
 		Graphics()->MemoryUsage() / 1024,
 		(int)(1.0f / FrameTimeAvg + 0.5f));
-	Graphics()->QuadsText(2, 2, 16, aBuffer);
+	Graphics()->QuadsText(2, 2, FontSize, aBuffer);
 
 	{
 		uint64_t SendPackets = (Current.sent_packets - Prev.sent_packets);
@@ -1082,7 +1085,7 @@ void CClient::DebugRender()
 		str_format(aBuffer, sizeof(aBuffer), "send: %3" PRIu64 " %5" PRIu64 "+%4" PRIu64 "=%5" PRIu64 " (%3" PRIu64 " kbps) avg: %5" PRIu64 "\nrecv: %3" PRIu64 " %5" PRIu64 "+%4" PRIu64 "=%5" PRIu64 " (%3" PRIu64 " kbps) avg: %5" PRIu64,
 			SendPackets, SendBytes, SendPackets * 42, SendTotal, (SendTotal * 8) / 1024, SendBytes / SendPackets,
 			RecvPackets, RecvBytes, RecvPackets * 42, RecvTotal, (RecvTotal * 8) / 1024, RecvBytes / RecvPackets);
-		Graphics()->QuadsText(2, 14, 16, aBuffer);
+		Graphics()->QuadsText(2, 14, FontSize, aBuffer);
 	}
 
 	// render rates
@@ -1095,14 +1098,14 @@ void CClient::DebugRender()
 			{
 				str_format(aBuffer, sizeof(aBuffer), "%4d %20s: %8d %8d %8d", i, GameClient()->GetItemName(i), m_SnapshotDelta.GetDataRate(i) / 8, m_SnapshotDelta.GetDataUpdates(i),
 					(m_SnapshotDelta.GetDataRate(i) / m_SnapshotDelta.GetDataUpdates(i)) / 8);
-				Graphics()->QuadsText(2, 100 + y * 12, 16, aBuffer);
+				Graphics()->QuadsText(2, 100 + y * 12, FontSize, aBuffer);
 				y++;
 			}
 		}
 	}
 
 	str_format(aBuffer, sizeof(aBuffer), "pred: %d ms", GetPredictionTime());
-	Graphics()->QuadsText(2, 70, 16, aBuffer);
+	Graphics()->QuadsText(2, 70, FontSize, aBuffer);
 	Graphics()->QuadsEnd();
 
 	// render graphs
@@ -1116,13 +1119,13 @@ void CClient::DebugRender()
 
 		m_FpsGraph.ScaleMax();
 		m_FpsGraph.ScaleMin();
-		m_FpsGraph.Render(Graphics(), m_DebugFont, x, sp * 5, w, h, "FPS");
+		m_FpsGraph.Render(Graphics(), FontSize, x, sp * 5, w, h, "FPS");
 		m_InputtimeMarginGraph.ScaleMin();
 		m_InputtimeMarginGraph.ScaleMax();
-		m_InputtimeMarginGraph.Render(Graphics(), m_DebugFont, x, sp * 5 + h + sp, w, h, "Prediction Margin");
+		m_InputtimeMarginGraph.Render(Graphics(), FontSize, x, sp * 5 + h + sp, w, h, "Prediction Margin");
 		m_GametimeMarginGraph.ScaleMin();
 		m_GametimeMarginGraph.ScaleMax();
-		m_GametimeMarginGraph.Render(Graphics(), m_DebugFont, x, sp * 5 + h + sp + h + sp, w, h, "Gametime Margin");
+		m_GametimeMarginGraph.Render(Graphics(), FontSize, x, sp * 5 + h + sp + h + sp, w, h, "Gametime Margin");
 	}
 }
 

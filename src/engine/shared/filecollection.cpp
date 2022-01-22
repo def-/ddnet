@@ -29,7 +29,7 @@ bool CFileCollection::IsFilenameValid(const char *pFilename)
 		pFilename += m_FileDescLength;
 	}
 
-	if(pFilename[0] == '_' &&
+	return pFilename[0] == '_' &&
 		pFilename[1] >= '0' && pFilename[1] <= '9' &&
 		pFilename[2] >= '0' && pFilename[2] <= '9' &&
 		pFilename[3] >= '0' && pFilename[3] <= '9' &&
@@ -48,10 +48,7 @@ bool CFileCollection::IsFilenameValid(const char *pFilename)
 		pFilename[16] >= '0' && pFilename[16] <= '9' &&
 		pFilename[17] == '-' &&
 		pFilename[18] >= '0' && pFilename[18] <= '9' &&
-		pFilename[19] >= '0' && pFilename[19] <= '9')
-		return true;
-
-	return false;
+		pFilename[19] >= '0' && pFilename[19] <= '9';
 }
 
 int64_t CFileCollection::ExtractTimestamp(const char *pTimestring)

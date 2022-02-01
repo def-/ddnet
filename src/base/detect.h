@@ -76,6 +76,7 @@
 #define CONF_FAMILY_STRING "unix"
 #define CONF_PLATFORM_MACOS 1
 #define PLATFORM_STRING "macos"
+#define CONF_BACKEND_VULKAN 1
 #endif
 
 #if defined(__sun)

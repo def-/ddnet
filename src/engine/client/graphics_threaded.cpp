@@ -2569,8 +2569,8 @@ void CGraphics_Threaded::Swap()
 	KickCommandBuffer();
 	// TODO: Remove when https://github.com/libsdl-org/SDL/issues/5203 is fixed
 #ifdef CONF_PLATFORM_MACOS
-	if(str_find(GetVersionString(), "Metal"))
-		WaitForIdle();
+	//if(str_find(GetVersionString(), "Metal"))
+	//	WaitForIdle();
 #endif
 }
 

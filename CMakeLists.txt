@@ -1990,7 +1990,7 @@ if(CLIENT)
     # on it.
     ${CMAKE_THREAD_LIBS_INIT}
 
-    vulkan
+    /opt/homebrew/Cellar/molten-vk/1.1.6/lib/libMoltenVK.dylib
   )
 
   if(DISCORD)

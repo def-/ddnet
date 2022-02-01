@@ -114,14 +114,16 @@ void CGraphicsBackend_Threaded::StopProcessor()
 	thread_wait(m_Thread);
 }
 
-void CGraphicsBackend_Threaded::RunBuffer(CCommandBuffer *pBuffer)
-{
-	WaitForIdle();
-	std::unique_lock<std::mutex> Lock(m_BufferSwapMutex);
-	m_pBuffer = pBuffer;
-	m_BufferInProcess.store(true, std::memory_order_relaxed);
-	m_BufferSwapCond.notify_all();
-}
+void CGraphicsBackend_Threaded::RunBuffer(CCommandBuffer *pBuffer) { /*WaitForIdle(); std::unique_lock<std::mutex> Lock(m_BufferSwapMutex); m_pBuffer = pBuffer; m_BufferInProcess.store(true, std::memory_order_relaxed); m_BufferSwapCond.notify_all();*/ m_pProcessor->RunBuffer(pBuffer); }  
+
+//void CGraphicsBackend_Threaded::RunBuffer(CCommandBuffer *pBuffer)
+//{
+//	WaitForIdle();
+//	std::unique_lock<std::mutex> Lock(m_BufferSwapMutex);
+//	m_pBuffer = pBuffer;
+//	m_BufferInProcess.store(true, std::memory_order_relaxed);
+//	m_BufferSwapCond.notify_all();
+//}
 
 bool CGraphicsBackend_Threaded::IsIdle() const
 {

@@ -857,7 +857,7 @@ void CGraphics_Threaded::ChangeColorOfCurrentQuadVertices(float r, float g, floa
 
 void CGraphics_Threaded::ChangeColorOfQuadVertices(int QuadOffset, unsigned char r, unsigned char g, unsigned char b, unsigned char a)
 {
-	if(g_Config.m_GfxQuadAsTriangle && !m_IsNewOpenGL)
+	if(g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad)
 	{
 		m_aVertices[QuadOffset * 6].m_Color.r = r;
 		m_aVertices[QuadOffset * 6].m_Color.g = g;
@@ -962,7 +962,7 @@ void CGraphics_Threaded::QuadsTex3DDrawTL(const CQuadItem *pArray, int Num)
 	int CurNumVert = m_NumVertices;
 
 	int VertNum = 0;
-	if(g_Config.m_GfxQuadAsTriangle && !m_IsNewOpenGL)
+	if(g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad)
 	{
 		VertNum = 6;
 	}
@@ -989,7 +989,7 @@ void CGraphics_Threaded::QuadsDrawFreeform(const CFreeformItem *pArray, int Num)
 {
 	dbg_assert(m_Drawing == DRAWING_QUADS || m_Drawing == DRAWING_TRIANGLES, "called Graphics()->QuadsDrawFreeform without begin");
 
-	if((g_Config.m_GfxQuadAsTriangle && !m_IsNewOpenGL) || m_Drawing == DRAWING_TRIANGLES)
+	if((g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad) || m_Drawing == DRAWING_TRIANGLES)
 	{
 		for(int i = 0; i < Num; ++i)
 		{
@@ -1089,7 +1089,7 @@ void CGraphics_Threaded::RenderTileLayer(int BufferContainerIndex, float *pColor
 	if(NumIndicesOffet == 0)
 		return;
 
-	//add the VertexArrays and draw
+	// add the VertexArrays and draw
 	CCommandBuffer::SCommand_RenderTileLayer Cmd;
 	Cmd.m_State = m_State;
 	Cmd.m_IndicesDrawNum = NumIndicesOffet;
@@ -1132,7 +1132,7 @@ void CGraphics_Threaded::RenderTileLayer(int BufferContainerIndex, float *pColor
 	mem_copy(Cmd.m_pIndicesOffsets, pOffsets, sizeof(char *) * NumIndicesOffet);
 	mem_copy(Cmd.m_pDrawCount, IndicedVertexDrawNum, sizeof(unsigned int) * NumIndicesOffet);
 
-	//todo max indices group check!!
+	// todo max indices group check!!
 }
 
 void CGraphics_Threaded::RenderBorderTiles(int BufferContainerIndex, float *pColor, char *pIndexBufferOffset, float *pOffset, float *pDir, int JumpIndex, unsigned int DrawNum)
@@ -1194,7 +1194,7 @@ void CGraphics_Threaded::RenderQuadLayer(int BufferContainerIndex, SQuadRenderIn
 	if(QuadNum == 0)
 		return;
 
-	//add the VertexArrays and draw
+	// add the VertexArrays and draw
 	CCommandBuffer::SCommand_RenderQuadLayer Cmd;
 	Cmd.m_State = m_State;
 	Cmd.m_QuadNum = QuadNum;
@@ -2090,12 +2090,12 @@ int CGraphics_Threaded::IssueInit()
 
 	int r = m_pBackend->Init("DDNet Client", &g_Config.m_GfxScreen, &g_Config.m_GfxScreenWidth, &g_Config.m_GfxScreenHeight, &g_Config.m_GfxScreenRefreshRate, g_Config.m_GfxFsaaSamples, Flags, &g_Config.m_GfxDesktopWidth, &g_Config.m_GfxDesktopHeight, &m_ScreenWidth, &m_ScreenHeight, m_pStorage);
 	AddBackEndWarningIfExists();
-	m_IsNewOpenGL = m_pBackend->IsNewOpenGL();
-	m_OpenGLTileBufferingEnabled = m_IsNewOpenGL || m_pBackend->HasTileBuffering();
-	m_OpenGLQuadBufferingEnabled = m_IsNewOpenGL || m_pBackend->HasQuadBuffering();
-	m_OpenGLQuadContainerBufferingEnabled = m_IsNewOpenGL || m_pBackend->HasQuadContainerBuffering();
-	m_OpenGLTextBufferingEnabled = m_IsNewOpenGL || (m_OpenGLQuadContainerBufferingEnabled && m_pBackend->HasTextBuffering());
-	m_OpenGLHasTextureArrays = m_IsNewOpenGL || m_pBackend->Has2DTextureArrays();
+	m_GLUseTrianglesAsQuad = m_pBackend->UseTrianglesAsQuad();
+	m_GLTileBufferingEnabled = m_pBackend->HasTileBuffering();
+	m_GLQuadBufferingEnabled = m_pBackend->HasQuadBuffering();
+	m_GLQuadContainerBufferingEnabled = m_pBackend->HasQuadContainerBuffering();
+	m_GLTextBufferingEnabled = (m_GLQuadContainerBufferingEnabled && m_pBackend->HasTextBuffering());
+	m_GLHasTextureArrays = m_pBackend->Has2DTextureArrays();
 	m_ScreenHiDPIScale = m_ScreenWidth / (float)g_Config.m_GfxScreenWidth;
 	m_ScreenRefreshRate = g_Config.m_GfxScreenRefreshRate;
 	return r;
@@ -2133,76 +2133,76 @@ int CGraphics_Threaded::InitWindow()
 			return 0;
 	}
 
-	size_t OpenGLInitTryCount = 0;
-	while(ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_OPENGL_CONTEXT_FAILED || ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_OPENGL_VERSION_FAILED)
+	size_t GLInitTryCount = 0;
+	while(ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_GL_CONTEXT_FAILED || ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_GL_VERSION_FAILED)
 	{
-		if(ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_OPENGL_CONTEXT_FAILED)
+		if(ErrorCode == EGraphicsBackendErrorCodes::GRAPHICS_BACKEND_ERROR_CODE_GL_CONTEXT_FAILED)
 		{
 			// try next smaller major/minor or patch version
-			if(g_Config.m_GfxOpenGLMajor >= 4)
+			if(g_Config.m_GfxGLMajor >= 4)
 			{
-				g_Config.m_GfxOpenGLMajor = 3;
-				g_Config.m_GfxOpenGLMinor = 3;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 3;
+				g_Config.m_GfxGLMinor = 3;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 3 && g_Config.m_GfxOpenGLMinor >= 1)
+			else if(g_Config.m_GfxGLMajor == 3 && g_Config.m_GfxGLMinor >= 1)
 			{
-				g_Config.m_GfxOpenGLMajor = 3;
-				g_Config.m_GfxOpenGLMinor = 0;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 3;
+				g_Config.m_GfxGLMinor = 0;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 3 && g_Config.m_GfxOpenGLMinor == 0)
+			else if(g_Config.m_GfxGLMajor == 3 && g_Config.m_GfxGLMinor == 0)
 			{
-				g_Config.m_GfxOpenGLMajor = 2;
-				g_Config.m_GfxOpenGLMinor = 1;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 2;
+				g_Config.m_GfxGLMinor = 1;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 2 && g_Config.m_GfxOpenGLMinor >= 1)
+			else if(g_Config.m_GfxGLMajor == 2 && g_Config.m_GfxGLMinor >= 1)
 			{
-				g_Config.m_GfxOpenGLMajor = 2;
-				g_Config.m_GfxOpenGLMinor = 0;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 2;
+				g_Config.m_GfxGLMinor = 0;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 2 && g_Config.m_GfxOpenGLMinor == 0)
+			else if(g_Config.m_GfxGLMajor == 2 && g_Config.m_GfxGLMinor == 0)
 			{
-				g_Config.m_GfxOpenGLMajor = 1;
-				g_Config.m_GfxOpenGLMinor = 5;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 1;
+				g_Config.m_GfxGLMinor = 5;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 1 && g_Config.m_GfxOpenGLMinor == 5)
+			else if(g_Config.m_GfxGLMajor == 1 && g_Config.m_GfxGLMinor == 5)
 			{
-				g_Config.m_GfxOpenGLMajor = 1;
-				g_Config.m_GfxOpenGLMinor = 4;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 1;
+				g_Config.m_GfxGLMinor = 4;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 1 && g_Config.m_GfxOpenGLMinor == 4)
+			else if(g_Config.m_GfxGLMajor == 1 && g_Config.m_GfxGLMinor == 4)
 			{
-				g_Config.m_GfxOpenGLMajor = 1;
-				g_Config.m_GfxOpenGLMinor = 3;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 1;
+				g_Config.m_GfxGLMinor = 3;
+				g_Config.m_GfxGLPatch = 0;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 1 && g_Config.m_GfxOpenGLMinor == 3)
+			else if(g_Config.m_GfxGLMajor == 1 && g_Config.m_GfxGLMinor == 3)
 			{
-				g_Config.m_GfxOpenGLMajor = 1;
-				g_Config.m_GfxOpenGLMinor = 2;
-				g_Config.m_GfxOpenGLPatch = 1;
+				g_Config.m_GfxGLMajor = 1;
+				g_Config.m_GfxGLMinor = 2;
+				g_Config.m_GfxGLPatch = 1;
 			}
-			else if(g_Config.m_GfxOpenGLMajor == 1 && g_Config.m_GfxOpenGLMinor == 2)
+			else if(g_Config.m_GfxGLMajor == 1 && g_Config.m_GfxGLMinor == 2)
 			{
-				g_Config.m_GfxOpenGLMajor = 1;
-				g_Config.m_GfxOpenGLMinor = 1;
-				g_Config.m_GfxOpenGLPatch = 0;
+				g_Config.m_GfxGLMajor = 1;
+				g_Config.m_GfxGLMinor = 1;
+				g_Config.m_GfxGLPatch = 0;
 			}
 		}
 
-		// new opengl version was set by backend, try again
+		// new gl version was set by backend, try again
 		ErrorCode = IssueInit();
 		if(ErrorCode == 0)
 		{
 			return 0;
 		}
 
-		if(++OpenGLInitTryCount >= 9)
+		if(++GLInitTryCount >= 9)
 		{
 			// try something else
 			break;

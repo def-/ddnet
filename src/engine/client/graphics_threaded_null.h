@@ -131,7 +131,7 @@ public:
 	void RenderQuadLayer(int BufferContainerIndex, SQuadRenderInfo *pQuadInfo, int QuadNum, int QuadOffset) override{};
 	void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) override{};
 
-	// opengl 3.3 functions
+	// modern GL functions
 	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override { return 0; };
 	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override{};
 	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override{};

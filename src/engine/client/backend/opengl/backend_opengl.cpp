@@ -337,7 +337,7 @@ bool CCommandProcessorFragment_OpenGL::InitOpenGL(const SCommand_Init *pCommand)
 	int BlocklistMajor = -1, BlocklistMinor = -1, BlocklistPatch = -1;
 	bool RequiresWarning = false;
 	const char *pErrString = ParseBlocklistDriverVersions(pVendorString, pVersionString, BlocklistMajor, BlocklistMinor, BlocklistPatch, RequiresWarning);
-	//if the driver is buggy, and the requested GL version is the default, fallback
+	// if the driver is buggy, and the requested GL version is the default, fallback
 	if(pErrString != NULL && pCommand->m_RequestedMajor == 3 && pCommand->m_RequestedMinor == 0 && pCommand->m_RequestedPatch == 0)
 	{
 		// if not already in the error state, set the GL version
@@ -405,6 +405,7 @@ bool CCommandProcessorFragment_OpenGL::InitOpenGL(const SCommand_Init *pCommand)
 
 			pCommand->m_pCapabilities->m_2DArrayTexturesAsExtension = false;
 			pCommand->m_pCapabilities->m_NPOTTextures = true;
+			pCommand->m_pCapabilities->m_TrianglesAsQuads = false;
 
 			if(MajorV >= 4 || (MajorV == 3 && MinorV == 3))
 			{
@@ -417,6 +418,8 @@ bool CCommandProcessorFragment_OpenGL::InitOpenGL(const SCommand_Init *pCommand)
 				pCommand->m_pCapabilities->m_MipMapping = true;
 				pCommand->m_pCapabilities->m_3DTextures = true;
 				pCommand->m_pCapabilities->m_2DArrayTextures = true;
+
+				pCommand->m_pCapabilities->m_TrianglesAsQuads = true;
 			}
 			else if(MajorV == 3)
 			{
@@ -1103,7 +1106,7 @@ bool CCommandProcessorFragment_OpenGL2::IsAndUpdateTextureSlotBound(int IDX, int
 		return true;
 	else
 	{
-		//the texture slot uses this index now
+		// the texture slot uses this index now
 		m_TextureSlotBoundToUnit[IDX].m_TextureSlot = Slot;
 		m_TextureSlotBoundToUnit[IDX].m_Is2DArray = Is2DArray;
 		return false;
@@ -1125,14 +1128,14 @@ void CCommandProcessorFragment_OpenGL2::SetState(const CCommandBuffer::SState &S
 		{
 		case CCommandBuffer::BLEND_NONE:
 			// We don't really need this anymore
-			//glDisable(GL_BLEND);
+			// glDisable(GL_BLEND);
 			break;
 		case CCommandBuffer::BLEND_ALPHA:
-			//glEnable(GL_BLEND);
+			// glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			break;
 		case CCommandBuffer::BLEND_ADDITIVE:
-			//glEnable(GL_BLEND);
+			// glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 			break;
 		default:
@@ -1267,10 +1270,14 @@ void CCommandProcessorFragment_OpenGL2::SetState(const CCommandBuffer::SState &S
 		// orthographic projection matrix
 		// the z coordinate is the same for every vertex, so just ignore the z coordinate and set it in the shaders
 		float m[2 * 4] = {
-			2.f / (State.m_ScreenBR.x - State.m_ScreenTL.x), 0, 0, -((State.m_ScreenBR.x + State.m_ScreenTL.x) / (State.m_ScreenBR.x - State.m_ScreenTL.x)),
-			0, (2.f / (State.m_ScreenTL.y - State.m_ScreenBR.y)), 0, -((State.m_ScreenTL.y + State.m_ScreenBR.y) / (State.m_ScreenTL.y - State.m_ScreenBR.y)),
-			//0, 0, -(2.f/(9.f)), -((11.f)/(9.f)),
-			//0, 0, 0, 1.0f
+			2.f / (State.m_ScreenBR.x - State.m_ScreenTL.x),
+			0,
+			0,
+			-((State.m_ScreenBR.x + State.m_ScreenTL.x) / (State.m_ScreenBR.x - State.m_ScreenTL.x)),
+			0,
+			(2.f / (State.m_ScreenTL.y - State.m_ScreenBR.y)),
+			0,
+			-((State.m_ScreenTL.y + State.m_ScreenBR.y) / (State.m_ScreenTL.y - State.m_ScreenBR.y)),
 		};
 
 		// transpose bcs of column-major order of opengl
@@ -1580,7 +1587,7 @@ bool CCommandProcessorFragment_OpenGL2::IsTileMapAnalysisSucceeded()
 		}
 	}
 
-	//everything build up, now do the analyze steps
+	// everything build up, now do the analyze steps
 	bool NoError = DoAnalyzeStep(0, CheckCount, VertexCount, pFakeTexture, SingleImageSize);
 	if(NoError && m_HasShaders)
 		NoError &= DoAnalyzeStep(1, CheckCount, VertexCount, pFakeTexture, SingleImageSize);
@@ -1596,7 +1603,7 @@ bool CCommandProcessorFragment_OpenGL2::Cmd_Init(const SCommand_Init *pCommand)
 	if(!CCommandProcessorFragment_OpenGL::Cmd_Init(pCommand))
 		return false;
 
-	m_OpenGLTextureLodBIAS = g_Config.m_GfxOpenGLTextureLODBIAS;
+	m_OpenGLTextureLodBIAS = g_Config.m_GfxGLTextureLODBIAS;
 
 	m_HasShaders = pCommand->m_pCapabilities->m_ShaderSupport;
 
@@ -1635,7 +1642,7 @@ bool CCommandProcessorFragment_OpenGL2::Cmd_Init(const SCommand_Init *pCommand)
 			m_pPrimitive3DProgram = new CGLSLPrimitiveProgram;
 			m_pPrimitive3DProgramTextured = new CGLSLPrimitiveProgram;
 
-			CGLSLCompiler ShaderCompiler(g_Config.m_GfxOpenGLMajor, g_Config.m_GfxOpenGLMinor, g_Config.m_GfxOpenGLPatch, m_IsOpenGLES, m_OpenGLTextureLodBIAS / 1000.0f);
+			CGLSLCompiler ShaderCompiler(g_Config.m_GfxGLMajor, g_Config.m_GfxGLMinor, g_Config.m_GfxGLPatch, m_IsOpenGLES, m_OpenGLTextureLodBIAS / 1000.0f);
 			ShaderCompiler.SetHasTextureArray(pCommand->m_pCapabilities->m_2DArrayTextures);
 
 			if(pCommand->m_pCapabilities->m_2DArrayTextures)
@@ -1819,7 +1826,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_CreateBufferObject(const CCommandBuf
 {
 	void *pUploadData = pCommand->m_pUploadData;
 	int Index = pCommand->m_BufferIndex;
-	//create necessary space
+	// create necessary space
 	if((size_t)Index >= m_BufferObjectIndices.size())
 	{
 		for(int i = m_BufferObjectIndices.size(); i < Index + 1; ++i)
@@ -1931,7 +1938,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_DeleteBufferObject(const CCommandBuf
 void CCommandProcessorFragment_OpenGL2::Cmd_CreateBufferContainer(const CCommandBuffer::SCommand_CreateBufferContainer *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//create necessary space
+	// create necessary space
 	if((size_t)Index >= m_BufferContainers.size())
 	{
 		for(int i = m_BufferContainers.size(); i < Index + 1; ++i)
@@ -2180,7 +2187,7 @@ void CCommandProcessorFragment_OpenGL2::RenderBorderTileLineEmulation(SBufferCon
 void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTile(const CCommandBuffer::SCommand_RenderBorderTile *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -2192,7 +2199,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTile(const CCommandBuffe
 void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTileLine(const CCommandBuffer::SCommand_RenderBorderTileLine *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -2204,7 +2211,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_RenderBorderTileLine(const CCommandB
 void CCommandProcessorFragment_OpenGL2::Cmd_RenderTileLayer(const CCommandBuffer::SCommand_RenderTileLayer *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -2212,7 +2219,7 @@ void CCommandProcessorFragment_OpenGL2::Cmd_RenderTileLayer(const CCommandBuffer
 
 	if(pCommand->m_IndicesDrawNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	if(m_HasShaders)

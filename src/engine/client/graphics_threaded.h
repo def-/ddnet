@@ -72,7 +72,7 @@ public:
 	{
 		// commadn groups
 		CMDGROUP_CORE = 0, // commands that everyone has to implement
-		CMDGROUP_PLATFORM_OPENGL = 10000, // commands specific to a platform
+		CMDGROUP_PLATFORM_GL = 10000, // commands specific to a platform
 		CMDGROUP_PLATFORM_SDL = 20000,
 
 		//
@@ -94,7 +94,7 @@ public:
 		CMD_RENDER,
 		CMD_RENDER_TEX3D,
 
-		//opengl 2.0+ commands (some are just emulated and only exist in opengl 3.3+)
+		// opengl 2.0+ commands (some are just emulated and only exist in opengl 3.3+)
 		CMD_CREATE_BUFFER_OBJECT, // create vbo
 		CMD_RECREATE_BUFFER_OBJECT, // recreate vbo
 		CMD_UPDATE_BUFFER_OBJECT, // update vbo
@@ -350,9 +350,9 @@ public:
 		SCommand_RenderTileLayer() :
 			SCommand(CMD_RENDER_TILE_LAYER) {}
 		SState m_State;
-		SColorf m_Color; //the color of the whole tilelayer -- already envelopped
+		SColorf m_Color; // the color of the whole tilelayer -- already envelopped
 
-		//the char offset of all indices that should be rendered, and the amount of renders
+		// the char offset of all indices that should be rendered, and the amount of renders
 		char **m_pIndicesOffsets;
 		unsigned int *m_pDrawCount;
 
@@ -365,7 +365,7 @@ public:
 		SCommand_RenderBorderTile() :
 			SCommand(CMD_RENDER_BORDER_TILE) {}
 		SState m_State;
-		SColorf m_Color; //the color of the whole tilelayer -- already envelopped
+		SColorf m_Color; // the color of the whole tilelayer -- already envelopped
 		char *m_pIndicesOffset; // you should use the command buffer data to allocate vertices for this command
 		unsigned int m_DrawNum;
 		int m_BufferContainerIndex;
@@ -380,7 +380,7 @@ public:
 		SCommand_RenderBorderTileLine() :
 			SCommand(CMD_RENDER_BORDER_TILE_LINE) {}
 		SState m_State;
-		SColorf m_Color; //the color of the whole tilelayer -- already envelopped
+		SColorf m_Color; // the color of the whole tilelayer -- already envelopped
 		char *m_pIndicesOffset; // you should use the command buffer data to allocate vertices for this command
 		unsigned int m_IndexDrawNum;
 		unsigned int m_DrawNum;
@@ -631,8 +631,8 @@ enum EGraphicsBackendErrorCodes
 {
 	GRAPHICS_BACKEND_ERROR_CODE_UNKNOWN = -1,
 	GRAPHICS_BACKEND_ERROR_CODE_NONE = 0,
-	GRAPHICS_BACKEND_ERROR_CODE_OPENGL_CONTEXT_FAILED,
-	GRAPHICS_BACKEND_ERROR_CODE_OPENGL_VERSION_FAILED,
+	GRAPHICS_BACKEND_ERROR_CODE_GL_CONTEXT_FAILED,
+	GRAPHICS_BACKEND_ERROR_CODE_GL_VERSION_FAILED,
 	GRAPHICS_BACKEND_ERROR_CODE_SDL_INIT_FAILED,
 	GRAPHICS_BACKEND_ERROR_CODE_SDL_SCREEN_REQUEST_FAILED,
 	GRAPHICS_BACKEND_ERROR_CODE_SDL_SCREEN_INFO_REQUEST_FAILED,
@@ -691,7 +691,7 @@ public:
 	virtual void GetDriverVersion(EGraphicsDriverAgeType DriverAgeType, int &Major, int &Minor, int &Patch) {}
 	// checks if the current values of the config are a graphics modern API
 	virtual bool IsConfigModernAPI() { return false; }
-	virtual bool IsNewOpenGL() { return false; }
+	virtual bool UseTrianglesAsQuad() { return false; }
 	virtual bool HasTileBuffering() { return false; }
 	virtual bool HasQuadBuffering() { return false; }
 	virtual bool HasTextBuffering() { return false; }
@@ -717,12 +717,12 @@ class CGraphics_Threaded : public IEngineGraphics
 
 	CCommandBuffer::SState m_State;
 	IGraphicsBackend *m_pBackend;
-	bool m_OpenGLTileBufferingEnabled;
-	bool m_OpenGLQuadBufferingEnabled;
-	bool m_OpenGLTextBufferingEnabled;
-	bool m_OpenGLQuadContainerBufferingEnabled;
-	bool m_OpenGLHasTextureArrays;
-	bool m_IsNewOpenGL;
+	bool m_GLTileBufferingEnabled;
+	bool m_GLQuadBufferingEnabled;
+	bool m_GLTextBufferingEnabled;
+	bool m_GLQuadContainerBufferingEnabled;
+	bool m_GLHasTextureArrays;
+	bool m_GLUseTrianglesAsQuad;
 
 	CCommandBuffer *m_apCommandBuffers[NUM_CMDBUFFERS];
 	CCommandBuffer *m_pCommandBuffer;
@@ -955,7 +955,7 @@ public:
 
 		dbg_assert(m_Drawing == DRAWING_QUADS, "called Graphics()->QuadsDrawTL without begin");
 
-		if(g_Config.m_GfxQuadAsTriangle && !m_IsNewOpenGL)
+		if(g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad)
 		{
 			for(int i = 0; i < Num; ++i)
 			{
@@ -1083,7 +1083,7 @@ public:
 
 		if(m_Drawing == DRAWING_QUADS)
 		{
-			if(g_Config.m_GfxQuadAsTriangle && !m_IsNewOpenGL)
+			if(g_Config.m_GfxQuadAsTriangle && !m_GLUseTrianglesAsQuad)
 			{
 				PrimType = CCommandBuffer::PRIMTYPE_TRIANGLES;
 				PrimCount = NumVerts / 3;
@@ -1153,7 +1153,7 @@ public:
 	void RenderQuadLayer(int BufferContainerIndex, SQuadRenderInfo *pQuadInfo, int QuadNum, int QuadOffset) override;
 	void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) override;
 
-	// opengl 3.3 functions
+	// modern GL functions
 	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
 	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
 	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override;
@@ -1208,11 +1208,11 @@ public:
 
 	void GetDriverVersion(EGraphicsDriverAgeType DriverAgeType, int &Major, int &Minor, int &Patch) override { m_pBackend->GetDriverVersion(DriverAgeType, Major, Minor, Patch); }
 	bool IsConfigModernAPI() override { return m_pBackend->IsConfigModernAPI(); }
-	bool IsTileBufferingEnabled() override { return m_OpenGLTileBufferingEnabled; }
-	bool IsQuadBufferingEnabled() override { return m_OpenGLQuadBufferingEnabled; }
-	bool IsTextBufferingEnabled() override { return m_OpenGLTextBufferingEnabled; }
-	bool IsQuadContainerBufferingEnabled() override { return m_OpenGLQuadContainerBufferingEnabled; }
-	bool HasTextureArrays() override { return m_OpenGLHasTextureArrays; }
+	bool IsTileBufferingEnabled() override { return m_GLTileBufferingEnabled; }
+	bool IsQuadBufferingEnabled() override { return m_GLQuadBufferingEnabled; }
+	bool IsTextBufferingEnabled() override { return m_GLTextBufferingEnabled; }
+	bool IsQuadContainerBufferingEnabled() override { return m_GLQuadContainerBufferingEnabled; }
+	bool HasTextureArrays() override { return m_GLHasTextureArrays; }
 
 	const char *GetVendorString() override;
 	const char *GetVersionString() override;

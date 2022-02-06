@@ -1091,7 +1091,7 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	static CVideoMode s_aModes[MAX_RESOLUTIONS];
 	static int s_NumNodes = Graphics()->GetVideoModes(s_aModes, MAX_RESOLUTIONS, g_Config.m_GfxScreen);
 	static int s_GfxFsaaSamples = g_Config.m_GfxFsaaSamples;
-	static int s_GfxOpenGLVersion = Graphics()->IsConfigModernAPI();
+	static int s_GfxModernGLVersion = Graphics()->IsConfigModernAPI();
 	static int s_GfxEnableTextureUnitOptimization = g_Config.m_GfxEnableTextureUnitOptimization;
 	static int s_GfxUsePreinitBuffer = g_Config.m_GfxUsePreinitBuffer;
 	static int s_GfxHighdpi = g_Config.m_GfxHighdpi;
@@ -1203,12 +1203,12 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 		int NumScreens = Graphics()->GetNumScreens();
 		MainView.HSplitTop(20.0f, &Button, &MainView);
 		int Screen_MouseButton = DoButton_CheckBox_Number(&g_Config.m_GfxScreen, Localize("Screen"), g_Config.m_GfxScreen, &Button);
-		if(Screen_MouseButton == 1) //inc
+		if(Screen_MouseButton == 1) // inc
 		{
 			Client()->SwitchWindowScreen((g_Config.m_GfxScreen + 1) % NumScreens);
 			s_NumNodes = Graphics()->GetVideoModes(s_aModes, MAX_RESOLUTIONS, g_Config.m_GfxScreen);
 		}
-		else if(Screen_MouseButton == 2) //dec
+		else if(Screen_MouseButton == 2) // dec
 		{
 			Client()->SwitchWindowScreen((g_Config.m_GfxScreen - 1 + NumScreens) % NumScreens);
 			s_NumNodes = Graphics()->GetVideoModes(s_aModes, MAX_RESOLUTIONS, g_Config.m_GfxScreen);
@@ -1218,12 +1218,12 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	MainView.HSplitTop(20.0f, &Button, &MainView);
 	str_format(aBuf, sizeof(aBuf), "%s (%s)", Localize("FSAA samples"), Localize("may cause delay"));
 	int GfxFsaaSamples_MouseButton = DoButton_CheckBox_Number(&g_Config.m_GfxFsaaSamples, aBuf, g_Config.m_GfxFsaaSamples, &Button);
-	if(GfxFsaaSamples_MouseButton == 1) //inc
+	if(GfxFsaaSamples_MouseButton == 1) // inc
 	{
 		g_Config.m_GfxFsaaSamples = (g_Config.m_GfxFsaaSamples + 1) % 17;
 		CheckSettings = true;
 	}
-	else if(GfxFsaaSamples_MouseButton == 2) //dec
+	else if(GfxFsaaSamples_MouseButton == 2) // dec
 	{
 		g_Config.m_GfxFsaaSamples = (g_Config.m_GfxFsaaSamples - 1 + 17) % 17;
 		CheckSettings = true;
@@ -1233,29 +1233,29 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	if(DoButton_CheckBox(&g_Config.m_GfxHighDetail, Localize("High Detail"), g_Config.m_GfxHighDetail, &Button))
 		g_Config.m_GfxHighDetail ^= 1;
 
-	bool IsNewOpenGL = Graphics()->IsConfigModernAPI();
+	bool IsModernGL = Graphics()->IsConfigModernAPI();
 
 	// only promote modern GL in menu settings if the driver isn't on the blocklist already
 	if(g_Config.m_GfxDriverIsBlocked == 0)
 	{
 		MainView.HSplitTop(20.0f, &Button, &MainView);
 
-		if(DoButton_CheckBox(&g_Config.m_GfxOpenGLMajor, Localize("Use modern OpenGL"), IsNewOpenGL, &Button))
+		if(DoButton_CheckBox(&g_Config.m_GfxGLMajor, Localize("Use modern OpenGL"), IsModernGL, &Button))
 		{
 			CheckSettings = true;
-			if(IsNewOpenGL)
+			if(IsModernGL)
 			{
-				Graphics()->GetDriverVersion(GRAPHICS_DRIVER_AGE_TYPE_DEFAULT, g_Config.m_GfxOpenGLMajor, g_Config.m_GfxOpenGLMinor, g_Config.m_GfxOpenGLPatch);
-				IsNewOpenGL = false;
+				Graphics()->GetDriverVersion(GRAPHICS_DRIVER_AGE_TYPE_DEFAULT, g_Config.m_GfxGLMajor, g_Config.m_GfxGLMinor, g_Config.m_GfxGLPatch);
+				IsModernGL = false;
 			}
 			else
 			{
-				Graphics()->GetDriverVersion(GRAPHICS_DRIVER_AGE_TYPE_MODERN, g_Config.m_GfxOpenGLMajor, g_Config.m_GfxOpenGLMinor, g_Config.m_GfxOpenGLPatch);
-				IsNewOpenGL = true;
+				Graphics()->GetDriverVersion(GRAPHICS_DRIVER_AGE_TYPE_MODERN, g_Config.m_GfxGLMajor, g_Config.m_GfxGLMinor, g_Config.m_GfxGLPatch);
+				IsModernGL = true;
 			}
 		}
 
-		if(IsNewOpenGL)
+		if(IsModernGL)
 		{
 			MainView.HSplitTop(20.0f, &Button, &MainView);
 			if(DoButton_CheckBox(&g_Config.m_GfxUsePreinitBuffer, Localize("Preinit VBO (iGPUs only)"), g_Config.m_GfxUsePreinitBuffer, &Button))
@@ -1284,7 +1284,7 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	if(CheckSettings)
 	{
 		m_NeedRestartGraphics = !(s_GfxFsaaSamples == g_Config.m_GfxFsaaSamples &&
-					  s_GfxOpenGLVersion == (int)IsNewOpenGL &&
+					  s_GfxModernGLVersion == (int)IsModernGL &&
 					  s_GfxUsePreinitBuffer == g_Config.m_GfxUsePreinitBuffer &&
 					  s_GfxEnableTextureUnitOptimization == g_Config.m_GfxEnableTextureUnitOptimization &&
 					  s_GfxHighdpi == g_Config.m_GfxHighdpi);

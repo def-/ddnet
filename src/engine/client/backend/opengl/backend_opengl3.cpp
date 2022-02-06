@@ -74,7 +74,7 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	if(!InitOpenGL(pCommand))
 		return false;
 
-	m_OpenGLTextureLodBIAS = g_Config.m_GfxOpenGLTextureLODBIAS;
+	m_OpenGLTextureLodBIAS = g_Config.m_GfxGLTextureLODBIAS;
 
 	m_UseMultipleTextureUnits = g_Config.m_GfxEnableTextureUnitOptimization;
 	if(!m_UseMultipleTextureUnits)
@@ -114,7 +114,7 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	m_pSpriteProgramMultiple = new CGLSLSpriteMultipleProgram;
 	m_LastProgramID = 0;
 
-	CGLSLCompiler ShaderCompiler(g_Config.m_GfxOpenGLMajor, g_Config.m_GfxOpenGLMinor, g_Config.m_GfxOpenGLPatch, m_IsOpenGLES, m_OpenGLTextureLodBIAS / 1000.0f);
+	CGLSLCompiler ShaderCompiler(g_Config.m_GfxGLMajor, g_Config.m_GfxGLMinor, g_Config.m_GfxGLPatch, m_IsOpenGLES, m_OpenGLTextureLodBIAS / 1000.0f);
 
 	GLint CapVal;
 	glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &CapVal);
@@ -448,10 +448,10 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	if(m_UsePreinitializedVertexBuffer)
 		glBufferData(GL_ARRAY_BUFFER, sizeof(CCommandBuffer::SVertexTex3DStream) * CCommandBuffer::MAX_VERTICES, NULL, GL_STREAM_DRAW);
 
-	//query the image max size only once
+	// query the image max size only once
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_MaxTexSize);
 
-	//query maximum of allowed textures
+	// query maximum of allowed textures
 	glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &m_MaxTextureUnits);
 	m_TextureSlotBoundToUnit.resize(m_MaxTextureUnits);
 	for(int i = 0; i < m_MaxTextureUnits; ++i)
@@ -513,7 +513,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Shutdown(const SCommand_Shutdown *
 	m_pPrimitiveExProgramTexturedRotationless->DeleteProgram();
 	m_pSpriteProgramMultiple->DeleteProgram();
 
-	//clean up everything
+	// clean up everything
 	delete m_pPrimitiveProgram;
 	delete m_pPrimitiveProgramTextured;
 	delete m_pBorderTileProgram;
@@ -558,7 +558,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Texture_Update(const CCommandBuffe
 	if(m_UseMultipleTextureUnits)
 	{
 		int Slot = pCommand->m_Slot % m_MaxTextureUnits;
-		//just tell, that we using this texture now
+		// just tell, that we using this texture now
 		IsAndUpdateTextureSlotBound(Slot, pCommand->m_Slot);
 		glActiveTexture(GL_TEXTURE0 + Slot);
 		glBindSampler(Slot, m_Textures[pCommand->m_Slot].m_Sampler);
@@ -648,7 +648,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Texture_Create(const CCommandBuffe
 	if(m_UseMultipleTextureUnits)
 	{
 		Slot = pCommand->m_Slot % m_MaxTextureUnits;
-		//just tell, that we using this texture now
+		// just tell, that we using this texture now
 		IsAndUpdateTextureSlotBound(Slot, pCommand->m_Slot);
 		glActiveTexture(GL_TEXTURE0 + Slot);
 		m_TextureSlotBoundToUnit[Slot].m_TextureSlot = -1;
@@ -687,7 +687,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Texture_Create(const CCommandBuffe
 				glSamplerParameterf(m_Textures[pCommand->m_Slot].m_Sampler, GL_TEXTURE_LOD_BIAS, ((GLfloat)m_OpenGLTextureLodBIAS / 1000.0f));
 #endif
 
-			//prevent mipmap display bugs, when zooming out far
+			// prevent mipmap display bugs, when zooming out far
 			if(Width >= 1024 && Height >= 1024)
 			{
 				glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 5.f);
@@ -967,7 +967,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_CreateBufferObject(const CCommandB
 {
 	void *pUploadData = pCommand->m_pUploadData;
 	int Index = pCommand->m_BufferIndex;
-	//create necessary space
+	// create necessary space
 	if((size_t)Index >= m_BufferObjectIndices.size())
 	{
 		for(int i = m_BufferObjectIndices.size(); i < Index + 1; ++i)
@@ -1032,7 +1032,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_DeleteBufferObject(const CCommandB
 void CCommandProcessorFragment_OpenGL3_3::Cmd_CreateBufferContainer(const CCommandBuffer::SCommand_CreateBufferContainer *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//create necessary space
+	// create necessary space
 	if((size_t)Index >= m_BufferContainers.size())
 	{
 		for(int i = m_BufferContainers.size(); i < Index + 1; ++i)
@@ -1074,7 +1074,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_UpdateBufferContainer(const CComma
 
 	glBindVertexArray(BufferContainer.m_VertArrayID);
 
-	//disable all old attributes
+	// disable all old attributes
 	for(size_t i = 0; i < BufferContainer.m_ContainerInfo.m_Attributes.size(); ++i)
 	{
 		glDisableVertexAttribArray((GLuint)i);
@@ -1112,7 +1112,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_IndicesRequiredNumNotify(const CCo
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderBorderTile(const CCommandBuffer::SCommand_RenderBorderTile *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1148,7 +1148,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderBorderTile(const CCommandBuf
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderBorderTileLine(const CCommandBuffer::SCommand_RenderBorderTileLine *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1182,7 +1182,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderBorderTileLine(const CComman
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTileLayer(const CCommandBuffer::SCommand_RenderTileLayer *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1192,7 +1192,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTileLayer(const CCommandBuff
 
 	if(pCommand->m_IndicesDrawNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	CGLSLTileProgram *pProgram = NULL;
@@ -1223,7 +1223,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTileLayer(const CCommandBuff
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadLayer(const CCommandBuffer::SCommand_RenderQuadLayer *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1233,7 +1233,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadLayer(const CCommandBuff
 
 	if(pCommand->m_QuadNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	CGLSLQuadProgram *pProgram = NULL;
@@ -1289,7 +1289,7 @@ void CCommandProcessorFragment_OpenGL3_3::RenderText(const CCommandBuffer::SStat
 {
 	if(DrawNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	UseProgram(m_pTextProgram);
@@ -1373,7 +1373,7 @@ void CCommandProcessorFragment_OpenGL3_3::RenderText(const CCommandBuffer::SStat
 void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderText(const CCommandBuffer::SCommand_RenderText *pCommand)
 {
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1395,7 +1395,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTextStream(const CCommandBuf
 {
 	if(pCommand->m_PrimCount == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	UploadStreamBufferData(CCommandBuffer::PRIMTYPE_QUADS, pCommand->m_pVertices, sizeof(CCommandBuffer::SVertex), pCommand->m_PrimCount);
@@ -1418,11 +1418,11 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadContainer(const CCommand
 {
 	if(pCommand->m_DrawNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1450,11 +1450,11 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadContainerEx(const CComma
 {
 	if(pCommand->m_DrawNum == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 
@@ -1515,11 +1515,11 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadContainerAsSpriteMultipl
 {
 	if(pCommand->m_DrawNum == 0 || pCommand->m_DrawCount == 0)
 	{
-		return; //nothing to draw
+		return; // nothing to draw
 	}
 
 	int Index = pCommand->m_BufferContainerIndex;
-	//if space not there return
+	// if space not there return
 	if((size_t)Index >= m_BufferContainers.size())
 		return;
 

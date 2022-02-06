@@ -92,6 +92,7 @@ enum EBackendType
 {
 	BACKEND_TYPE_OPENGL = 0,
 	BACKEND_TYPE_OPENGL_ES,
+	BACKEND_TYPE_VULKAN,
 };
 
 struct SBackendCapabilites
@@ -107,6 +108,9 @@ struct SBackendCapabilites
 	bool m_2DArrayTextures;
 	bool m_2DArrayTexturesAsExtension;
 	bool m_ShaderSupport;
+
+	// use quads as much as possible, even if the user config says otherwise
+	bool m_TrianglesAsQuads;
 
 	int m_ContextMajor;
 	int m_ContextMinor;
@@ -155,15 +159,15 @@ public:
 	bool RunCommand(const CCommandBuffer::SCommand *pBaseCommand);
 };
 
-class CCommandProcessorFragment_OpenGLBase
+class CCommandProcessorFragment_GLBase
 {
 public:
-	virtual ~CCommandProcessorFragment_OpenGLBase() = default;
+	virtual ~CCommandProcessorFragment_GLBase() = default;
 	virtual bool RunCommand(const CCommandBuffer::SCommand *pBaseCommand) = 0;
 
 	enum
 	{
-		CMD_INIT = CCommandBuffer::CMDGROUP_PLATFORM_OPENGL,
+		CMD_INIT = CCommandBuffer::CMDGROUP_PLATFORM_GL,
 		CMD_SHUTDOWN = CMD_INIT + 1,
 	};
 
@@ -171,6 +175,11 @@ public:
 	{
 		SCommand_Init() :
 			SCommand(CMD_INIT) {}
+
+		SDL_Window *m_pWindow;
+		uint32_t m_Width;
+		uint32_t m_Height;
+
 		class IStorage *m_pStorage;
 		std::atomic<int> *m_pTextureMemoryUsage;
 		SBackendCapabilites *m_pCapabilities;
@@ -201,24 +210,24 @@ public:
 };
 
 // command processor impelementation, uses the fragments to combine into one processor
-class CCommandProcessor_SDL_OpenGL : public CGraphicsBackend_Threaded::ICommandProcessor
+class CCommandProcessor_SDL_GL : public CGraphicsBackend_Threaded::ICommandProcessor
 {
-	CCommandProcessorFragment_OpenGLBase *m_pOpenGL;
+	CCommandProcessorFragment_GLBase *m_pGLBackend;
 	CCommandProcessorFragment_SDL m_SDL;
 	CCommandProcessorFragment_General m_General;
 
 	EBackendType m_BackendType;
 
 public:
-	CCommandProcessor_SDL_OpenGL(EBackendType BackendType, int OpenGLMajor, int OpenGLMinor, int OpenGLPatch);
-	virtual ~CCommandProcessor_SDL_OpenGL();
+	CCommandProcessor_SDL_GL(EBackendType BackendType, int GLMajor, int GLMinor, int GLPatch);
+	virtual ~CCommandProcessor_SDL_GL();
 	virtual void RunBuffer(CCommandBuffer *pBuffer);
 };
 
 static constexpr size_t gs_GPUInfoStringSize = 256;
 
-// graphics backend implemented with SDL and OpenGL
-class CGraphicsBackend_SDL_OpenGL : public CGraphicsBackend_Threaded
+// graphics backend implemented with SDL and the graphics library @see EBackendType
+class CGraphicsBackend_SDL_GL : public CGraphicsBackend_Threaded
 {
 	SDL_Window *m_pWindow = NULL;
 	SDL_GLContext m_GLContext;
@@ -232,7 +241,6 @@ class CGraphicsBackend_SDL_OpenGL : public CGraphicsBackend_Threaded
 	char m_aVersionString[gs_GPUInfoStringSize] = {};
 	char m_aRendererString[gs_GPUInfoStringSize] = {};
 
-	bool m_UseNewOpenGL;
 	EBackendType m_BackendType;
 
 	char m_aErrorString[256];
@@ -269,7 +277,7 @@ public:
 
 	virtual void GetDriverVersion(EGraphicsDriverAgeType DriverAgeType, int &Major, int &Minor, int &Patch);
 	virtual bool IsConfigModernAPI() { return IsModernAPI(m_BackendType); }
-	virtual bool IsNewOpenGL() { return m_UseNewOpenGL; }
+	virtual bool UseTrianglesAsQuad() { return m_Capabilites.m_TrianglesAsQuads; }
 	virtual bool HasTileBuffering() { return m_Capabilites.m_TileBuffering; }
 	virtual bool HasQuadBuffering() { return m_Capabilites.m_QuadBuffering; }
 	virtual bool HasTextBuffering() { return m_Capabilites.m_TextBuffering; }

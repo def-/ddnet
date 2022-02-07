@@ -73,24 +73,6 @@ void CGraphics_Threaded::FlushVertices(bool KeepVertices)
 	}
 }
 
-void CGraphics_Threaded::FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor)
-{
-	CCommandBuffer::SCommand_RenderTextStream Cmd;
-	int PrimType, PrimCount, NumVerts;
-	size_t VertSize = sizeof(CCommandBuffer::SVertex);
-
-	Cmd.m_TextureSize = TextureSize;
-	Cmd.m_TextTextureIndex = TextTextureIndex;
-	Cmd.m_TextOutlineTextureIndex = TextOutlineTextureIndex;
-	mem_copy(Cmd.m_aTextOutlineColor, pOutlineTextColor, sizeof(Cmd.m_aTextOutlineColor));
-
-	FlushVerticesImpl(false, PrimType, PrimCount, NumVerts, Cmd, VertSize);
-	if(Cmd.m_pVertices != NULL)
-	{
-		mem_copy(Cmd.m_pVertices, m_aVertices, VertSize * NumVerts);
-	}
-}
-
 void CGraphics_Threaded::FlushVerticesTex3D()
 {
 	CCommandBuffer::SCommand_RenderTex3D Cmd;
@@ -209,9 +191,29 @@ void CGraphics_Threaded::WrapClamp()
 	m_State.m_WrapMode = CCommandBuffer::WRAP_CLAMP;
 }
 
-int CGraphics_Threaded::MemoryUsage() const
+uint64_t CGraphics_Threaded::TextureMemoryUsage() const
 {
-	return m_pBackend->MemoryUsage();
+	return m_pBackend->TextureMemoryUsage();
+}
+
+uint64_t CGraphics_Threaded::BufferMemoryUsage() const
+{
+	return m_pBackend->BufferMemoryUsage();
+}
+
+uint64_t CGraphics_Threaded::StreamedMemoryUsage() const
+{
+	return m_pBackend->StreamedMemoryUsage();
+}
+
+uint64_t CGraphics_Threaded::StagingMemoryUsage() const
+{
+	return m_pBackend->StagingMemoryUsage();
+}
+
+const TTWGraphicsGPUList &CGraphics_Threaded::GetGPUs() const
+{
+	return m_pBackend->GetGPUs();
 }
 
 void CGraphics_Threaded::MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY)
@@ -284,24 +286,49 @@ int CGraphics_Threaded::UnloadTexture(CTextureHandle *pIndex)
 	return 0;
 }
 
-static int ImageFormatToTexFormat(int Format)
-{
-	if(Format == CImageInfo::FORMAT_RGB)
-		return CCommandBuffer::TEXFORMAT_RGB;
-	if(Format == CImageInfo::FORMAT_RGBA)
-		return CCommandBuffer::TEXFORMAT_RGBA;
-	if(Format == CImageInfo::FORMAT_ALPHA)
-		return CCommandBuffer::TEXFORMAT_ALPHA;
-	return CCommandBuffer::TEXFORMAT_RGBA;
-}
-
 static int ImageFormatToPixelSize(int Format)
 {
 	switch(Format)
 	{
 	case CImageInfo::FORMAT_RGB: return 3;
-	case CImageInfo::FORMAT_ALPHA: return 1;
+	case CImageInfo::FORMAT_SINGLE_COMPONENT: return 1;
 	default: return 4;
+	}
+}
+
+static bool ConvertToRGBA(uint8_t *pDest, const uint8_t *pSrc, size_t SrcWidth, size_t SrcHeight, int SrcFormat)
+{
+	if(SrcFormat == CImageInfo::FORMAT_RGBA)
+	{
+		mem_copy(pDest, pSrc, SrcWidth * SrcHeight * 4);
+		return true;
+	}
+	else
+	{
+		size_t SrcChannelCount = ImageFormatToPixelSize(SrcFormat);
+		size_t DstChannelCount = 4;
+		for(size_t Y = 0; Y < SrcHeight; ++Y)
+		{
+			for(size_t X = 0; X < SrcHeight; ++X)
+			{
+				size_t ImgOffsetSrc = (Y * SrcWidth * SrcChannelCount) + (X * SrcChannelCount);
+				size_t ImgOffsetDest = (Y * SrcWidth * DstChannelCount) + (X * DstChannelCount);
+				size_t CopySize = SrcChannelCount;
+				if(SrcChannelCount == 3)
+				{
+					mem_copy(&pDest[ImgOffsetDest], &pSrc[ImgOffsetSrc], CopySize);
+					pDest[ImgOffsetDest + 3] = 255;
+				}
+				else if(SrcChannelCount == 1)
+				{
+					pDest[ImgOffsetDest + 0] = 255;
+					pDest[ImgOffsetDest + 1] = 255;
+					pDest[ImgOffsetDest + 2] = 255;
+					pDest[ImgOffsetDest + 3] = pSrc[ImgOffsetSrc];
+				}
+			}
+		}
+		return false;
 	}
 }
 
@@ -313,14 +340,14 @@ int CGraphics_Threaded::LoadTextureRawSub(CTextureHandle TextureID, int x, int y
 	Cmd.m_Y = y;
 	Cmd.m_Width = Width;
 	Cmd.m_Height = Height;
-	Cmd.m_Format = ImageFormatToTexFormat(Format);
+	Cmd.m_Format = CCommandBuffer::TEXFORMAT_RGBA;
 
 	// calculate memory usage
-	int MemSize = Width * Height * ImageFormatToPixelSize(Format);
+	int MemSize = Width * Height * 4;
 
 	// copy texture data
 	void *pTmpData = malloc(MemSize);
-	mem_copy(pTmpData, pData, MemSize);
+	ConvertToRGBA((uint8_t *)pTmpData, (const uint8_t *)pData, Width, Height, Format);
 	Cmd.m_pData = pTmpData;
 
 	AddCmd(
@@ -365,7 +392,7 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadSpriteTexture(CImageInfo &From
 
 bool CGraphics_Threaded::IsImageSubFullyTransparent(CImageInfo &FromImageInfo, int x, int y, int w, int h)
 {
-	if(FromImageInfo.m_Format == CImageInfo::FORMAT_ALPHA || FromImageInfo.m_Format == CImageInfo::FORMAT_RGBA)
+	if(FromImageInfo.m_Format == CImageInfo::FORMAT_SINGLE_COMPONENT || FromImageInfo.m_Format == CImageInfo::FORMAT_RGBA)
 	{
 		uint8_t *pImgData = (uint8_t *)FromImageInfo.m_pData;
 		int bpp = ImageFormatToPixelSize(FromImageInfo.m_Format);
@@ -445,9 +472,9 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(int Width, int Heig
 	Cmd.m_Slot = Tex;
 	Cmd.m_Width = Width;
 	Cmd.m_Height = Height;
-	Cmd.m_PixelSize = ImageFormatToPixelSize(Format);
-	Cmd.m_Format = ImageFormatToTexFormat(Format);
-	Cmd.m_StoreFormat = ImageFormatToTexFormat(StoreFormat);
+	Cmd.m_PixelSize = 4;
+	Cmd.m_Format = CCommandBuffer::TEXFORMAT_RGBA;
+	Cmd.m_StoreFormat = CCommandBuffer::TEXFORMAT_RGBA;
 
 	// flags
 	Cmd.m_Flags = 0;
@@ -467,7 +494,10 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(int Width, int Heig
 	// copy texture data
 	int MemSize = Width * Height * Cmd.m_PixelSize;
 	void *pTmpData = malloc(MemSize);
-	mem_copy(pTmpData, pData, MemSize);
+	if(!ConvertToRGBA((uint8_t *)pTmpData, (const uint8_t *)pData, Width, Height, Format))
+	{
+		dbg_msg("graphics", "converted image %s to RGBA, consider making its file format using RGBA", pTexName);
+	}
 	Cmd.m_pData = pTmpData;
 
 	AddCmd(
@@ -498,6 +528,100 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTexture(const char *pFilename,
 	}
 
 	return m_InvalidTexture;
+}
+
+bool CGraphics_Threaded::LoadTextTextures(int Width, int Height, CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture)
+{
+	if(Width == 0 || Height == 0)
+		return false;
+
+	// grab texture
+	int Tex = m_FirstFreeTexture;
+	if(Tex == -1)
+	{
+		size_t CurSize = m_TextureIndices.size();
+		m_TextureIndices.resize(CurSize * 2);
+		for(size_t i = 0; i < CurSize - 1; ++i)
+		{
+			m_TextureIndices[CurSize + i] = CurSize + i + 1;
+		}
+		m_TextureIndices.back() = -1;
+
+		Tex = CurSize;
+	}
+	m_FirstFreeTexture = m_TextureIndices[Tex];
+	m_TextureIndices[Tex] = -1;
+
+	int Tex2 = m_FirstFreeTexture;
+	if(Tex2 == -1)
+	{
+		size_t CurSize = m_TextureIndices.size();
+		m_TextureIndices.resize(CurSize * 2);
+		for(size_t i = 0; i < CurSize - 1; ++i)
+		{
+			m_TextureIndices[CurSize + i] = CurSize + i + 1;
+		}
+		m_TextureIndices.back() = -1;
+
+		Tex2 = CurSize;
+	}
+	m_FirstFreeTexture = m_TextureIndices[Tex2];
+	m_TextureIndices[Tex2] = -1;
+
+	CCommandBuffer::SCommand_TextTextures_Create Cmd;
+	Cmd.m_Slot = Tex;
+	Cmd.m_SlotOutline = Tex2;
+	Cmd.m_Width = Width;
+	Cmd.m_Height = Height;
+
+	AddCmd(
+		Cmd, [] { return true; }, "failed to load text textures.");
+
+	TextTexture = CreateTextureHandle(Tex);
+	TextOutlineTexture = CreateTextureHandle(Tex2);
+
+	return true;
+}
+
+bool CGraphics_Threaded::UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture)
+{
+	CCommandBuffer::SCommand_TextTextures_Destroy Cmd;
+	Cmd.m_Slot = TextTexture.Id();
+	Cmd.m_SlotOutline = TextOutlineTexture.Id();
+	AddCmd(
+		Cmd, [] { return true; }, "failed to unload text textures.");
+
+	m_TextureIndices[TextTexture.Id()] = m_FirstFreeTexture;
+	m_FirstFreeTexture = TextTexture.Id();
+
+	m_TextureIndices[TextOutlineTexture.Id()] = m_FirstFreeTexture;
+	m_FirstFreeTexture = TextOutlineTexture.Id();
+
+	TextTexture.Invalidate();
+	TextOutlineTexture.Invalidate();
+	return true;
+}
+
+bool CGraphics_Threaded::UpdateTextTexture(CTextureHandle TextureID, int x, int y, int Width, int Height, const void *pData)
+{
+	CCommandBuffer::SCommand_TextTexture_Update Cmd;
+	Cmd.m_Slot = TextureID.Id();
+	Cmd.m_X = x;
+	Cmd.m_Y = y;
+	Cmd.m_Width = Width;
+	Cmd.m_Height = Height;
+
+	// calculate memory usage
+	int MemSize = Width * Height;
+
+	// copy texture data
+	void *pTmpData = malloc(MemSize);
+	mem_copy(pTmpData, pData, MemSize);
+	Cmd.m_pData = pTmpData;
+
+	AddCmd(
+		Cmd, [] { return true; }, "failed to update text texture.");
+	return 0;
 }
 
 int CGraphics_Threaded::LoadPNG(CImageInfo *pImg, const char *pFilename, int StorageType)
@@ -592,7 +716,7 @@ bool CGraphics_Threaded::CheckImageDivisibility(const char *pFileName, CImageInf
 		}
 
 		int ColorChannelCount = 4;
-		if(Img.m_Format == CImageInfo::FORMAT_ALPHA)
+		if(Img.m_Format == CImageInfo::FORMAT_SINGLE_COMPONENT)
 			ColorChannelCount = 1;
 		else if(Img.m_Format == CImageInfo::FORMAT_RGB)
 			ColorChannelCount = 3;
@@ -713,18 +837,6 @@ void CGraphics_Threaded::QuadsEnd()
 {
 	dbg_assert(m_Drawing == DRAWING_QUADS, "called Graphics()->QuadsEnd without begin");
 	FlushVertices();
-	m_Drawing = 0;
-}
-
-void CGraphics_Threaded::TextQuadsBegin()
-{
-	QuadsBegin();
-}
-
-void CGraphics_Threaded::TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor)
-{
-	dbg_assert(m_Drawing == DRAWING_QUADS, "called Graphics()->TextQuadsEnd without begin");
-	FlushTextVertices(TextureSize, TextTextureIndex, TextOutlineTextureIndex, pOutlineTextColor);
 	m_Drawing = 0;
 }
 
@@ -1280,18 +1392,19 @@ void CGraphics_Threaded::QuadContainerUpload(int ContainerIndex)
 			if(Container.m_QuadBufferObjectIndex == -1)
 			{
 				size_t UploadDataSize = Container.m_Quads.size() * sizeof(SQuadContainer::SQuad);
-				Container.m_QuadBufferObjectIndex = CreateBufferObject(UploadDataSize, &Container.m_Quads[0]);
+				Container.m_QuadBufferObjectIndex = CreateBufferObject(UploadDataSize, &Container.m_Quads[0], 0);
 			}
 			else
 			{
 				size_t UploadDataSize = Container.m_Quads.size() * sizeof(SQuadContainer::SQuad);
-				RecreateBufferObject(Container.m_QuadBufferObjectIndex, UploadDataSize, &Container.m_Quads[0]);
+				RecreateBufferObject(Container.m_QuadBufferObjectIndex, UploadDataSize, &Container.m_Quads[0], 0);
 			}
 
 			if(Container.m_QuadBufferContainerIndex == -1)
 			{
 				SBufferContainerInfo Info;
 				Info.m_Stride = sizeof(CCommandBuffer::SVertex);
+				Info.m_VertBufferBindingIndex = Container.m_QuadBufferObjectIndex;
 
 				Info.m_Attributes.push_back(SBufferContainerInfo::SAttribute());
 				SBufferContainerInfo::SAttribute *pAttr = &Info.m_Attributes.back();
@@ -1300,7 +1413,6 @@ void CGraphics_Threaded::QuadContainerUpload(int ContainerIndex)
 				pAttr->m_Normalized = false;
 				pAttr->m_pOffset = 0;
 				pAttr->m_Type = GRAPHICS_TYPE_FLOAT;
-				pAttr->m_VertBufferBindingIndex = Container.m_QuadBufferObjectIndex;
 				Info.m_Attributes.push_back(SBufferContainerInfo::SAttribute());
 				pAttr = &Info.m_Attributes.back();
 				pAttr->m_DataTypeCount = 2;
@@ -1308,7 +1420,6 @@ void CGraphics_Threaded::QuadContainerUpload(int ContainerIndex)
 				pAttr->m_Normalized = false;
 				pAttr->m_pOffset = (void *)(sizeof(float) * 2);
 				pAttr->m_Type = GRAPHICS_TYPE_FLOAT;
-				pAttr->m_VertBufferBindingIndex = Container.m_QuadBufferObjectIndex;
 				Info.m_Attributes.push_back(SBufferContainerInfo::SAttribute());
 				pAttr = &Info.m_Attributes.back();
 				pAttr->m_DataTypeCount = 4;
@@ -1316,7 +1427,6 @@ void CGraphics_Threaded::QuadContainerUpload(int ContainerIndex)
 				pAttr->m_Normalized = true;
 				pAttr->m_pOffset = (void *)(sizeof(float) * 2 + sizeof(float) * 2);
 				pAttr->m_Type = GRAPHICS_TYPE_UNSIGNED_BYTE;
-				pAttr->m_VertBufferBindingIndex = Container.m_QuadBufferObjectIndex;
 
 				Container.m_QuadBufferContainerIndex = CreateBufferContainer(&Info);
 			}
@@ -1713,7 +1823,7 @@ void *CGraphics_Threaded::AllocCommandBufferData(unsigned AllocSize)
 	return pData;
 }
 
-int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer)
+int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer)
 {
 	int Index = -1;
 	if(m_FirstFreeBufferObjectIndex == -1)
@@ -1732,6 +1842,7 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 	Cmd.m_BufferIndex = Index;
 	Cmd.m_DataSize = UploadDataSize;
 	Cmd.m_DeletePointer = IsMovedPointer;
+	Cmd.m_Flags = CreateFlags;
 
 	if(IsMovedPointer)
 	{
@@ -1795,12 +1906,13 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 	return Index;
 }
 
-void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer)
+void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer)
 {
 	CCommandBuffer::SCommand_RecreateBufferObject Cmd;
 	Cmd.m_BufferIndex = BufferIndex;
 	Cmd.m_DataSize = UploadDataSize;
 	Cmd.m_DeletePointer = IsMovedPointer;
+	Cmd.m_Flags = CreateFlags;
 
 	if(IsMovedPointer)
 	{
@@ -1959,6 +2071,7 @@ int CGraphics_Threaded::CreateBufferContainer(SBufferContainerInfo *pContainerIn
 	Cmd.m_BufferContainerIndex = Index;
 	Cmd.m_AttrCount = (int)pContainerInfo->m_Attributes.size();
 	Cmd.m_Stride = pContainerInfo->m_Stride;
+	Cmd.m_VertBufferBindingIndex = pContainerInfo->m_VertBufferBindingIndex;
 
 	Cmd.m_Attributes = (SBufferContainerInfo::SAttribute *)AllocCommandBufferData(Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
 	if(Cmd.m_Attributes == NULL)
@@ -1979,10 +2092,9 @@ int CGraphics_Threaded::CreateBufferContainer(SBufferContainerInfo *pContainerIn
 		return -1;
 	}
 
-	mem_copy(Cmd.m_Attributes, &pContainerInfo->m_Attributes[0], Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
+	mem_copy(Cmd.m_Attributes, pContainerInfo->m_Attributes.data(), Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
 
-	for(auto &Attribute : pContainerInfo->m_Attributes)
-		m_VertexArrayInfo[Index].m_AssociatedBufferObjectIndices.push_back(Attribute.m_VertBufferBindingIndex);
+	m_VertexArrayInfo[Index].m_AssociatedBufferObjectIndex = pContainerInfo->m_VertBufferBindingIndex;
 
 	return Index;
 }
@@ -2004,24 +2116,15 @@ void CGraphics_Threaded::DeleteBufferContainer(int ContainerIndex, bool DestroyA
 	if(DestroyAllBO)
 	{
 		// delete all associated references
-		for(size_t i = 0; i < m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices.size(); ++i)
+		int BufferObjectIndex = m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndex;
+		if(BufferObjectIndex != -1)
 		{
-			int BufferObjectIndex = m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices[i];
-			if(BufferObjectIndex != -1)
-			{
-				// don't delete double entries
-				for(int &m_AssociatedBufferObjectIndice : m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices)
-				{
-					if(BufferObjectIndex == m_AssociatedBufferObjectIndice)
-						m_AssociatedBufferObjectIndice = -1;
-				}
-				// clear the buffer object index
-				m_BufferObjectIndices[BufferObjectIndex] = m_FirstFreeBufferObjectIndex;
-				m_FirstFreeBufferObjectIndex = BufferObjectIndex;
-			}
+			// clear the buffer object index
+			m_BufferObjectIndices[BufferObjectIndex] = m_FirstFreeBufferObjectIndex;
+			m_FirstFreeBufferObjectIndex = BufferObjectIndex;
 		}
 	}
-	m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices.clear();
+	m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndex = -1;
 
 	// also clear the buffer object index
 	m_VertexArrayInfo[ContainerIndex].m_FreeIndex = m_FirstFreeVertexArrayInfo;
@@ -2034,6 +2137,7 @@ void CGraphics_Threaded::UpdateBufferContainer(int ContainerIndex, SBufferContai
 	Cmd.m_BufferContainerIndex = ContainerIndex;
 	Cmd.m_AttrCount = (int)pContainerInfo->m_Attributes.size();
 	Cmd.m_Stride = pContainerInfo->m_Stride;
+	Cmd.m_VertBufferBindingIndex = pContainerInfo->m_VertBufferBindingIndex;
 
 	Cmd.m_Attributes = (SBufferContainerInfo::SAttribute *)AllocCommandBufferData(Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
 	if(Cmd.m_Attributes == NULL)
@@ -2054,11 +2158,9 @@ void CGraphics_Threaded::UpdateBufferContainer(int ContainerIndex, SBufferContai
 		return;
 	}
 
-	mem_copy(Cmd.m_Attributes, &pContainerInfo->m_Attributes[0], Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
+	mem_copy(Cmd.m_Attributes, pContainerInfo->m_Attributes.data(), Cmd.m_AttrCount * sizeof(SBufferContainerInfo::SAttribute));
 
-	m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices.clear();
-	for(auto &Attribute : pContainerInfo->m_Attributes)
-		m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndices.push_back(Attribute.m_VertBufferBindingIndex);
+	m_VertexArrayInfo[ContainerIndex].m_AssociatedBufferObjectIndex = pContainerInfo->m_VertBufferBindingIndex;
 }
 
 void CGraphics_Threaded::IndicesNumRequiredNotify(unsigned int RequiredIndicesCount)
@@ -2403,6 +2505,7 @@ void CGraphics_Threaded::GotResized(int w, int h, int RefreshRate)
 	Cmd.m_Y = 0;
 	Cmd.m_Width = m_ScreenWidth;
 	Cmd.m_Height = m_ScreenHeight;
+	Cmd.m_ByResize = true;
 
 	if(!AddCmd(
 		   Cmd, [] { return true; }, "failed to add resize command"))
@@ -2440,6 +2543,12 @@ void CGraphics_Threaded::WindowDestroyNtf(uint32_t WindowID)
 	{
 		return;
 	}
+
+#ifdef CONF_PLATFORM_ANDROID
+	// wait on android, else crashes
+	KickCommandBuffer();
+	WaitForIdle();
+#endif
 }
 
 void CGraphics_Threaded::WindowCreateNtf(uint32_t WindowID)
@@ -2454,6 +2563,12 @@ void CGraphics_Threaded::WindowCreateNtf(uint32_t WindowID)
 	{
 		return;
 	}
+
+#ifdef CONF_PLATFORM_ANDROID
+	// wait on android, else crashes
+	KickCommandBuffer();
+	WaitForIdle();
+#endif
 }
 
 int CGraphics_Threaded::WindowActive()

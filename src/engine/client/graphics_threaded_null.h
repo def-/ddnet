@@ -28,7 +28,13 @@ public:
 	void WrapNormal() override{};
 	void WrapClamp() override{};
 
-	int MemoryUsage() const override { return 0; };
+	uint64_t TextureMemoryUsage() const override { return 0; }
+	uint64_t BufferMemoryUsage() const override { return 0; }
+	uint64_t StreamedMemoryUsage() const override { return 0; }
+	uint64_t StagingMemoryUsage() const override { return 0; }
+
+	TTWGraphicsGPUList m_FakeGPUList;
+	const TTWGraphicsGPUList &GetGPUs() const override { return m_FakeGPUList; }
 
 	void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) override{};
 	void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) override
@@ -70,8 +76,6 @@ public:
 
 	void QuadsBegin() override{};
 	void QuadsEnd() override{};
-	void TextQuadsBegin() override{};
-	void TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override{};
 	void QuadsTex3DBegin() override{};
 	void QuadsTex3DEnd() override{};
 	void TrianglesBegin() override{};
@@ -122,7 +126,6 @@ public:
 	void RenderQuadContainerAsSpriteMultiple(int ContainerIndex, int QuadOffset, int DrawCount, SRenderSpriteInfo *pRenderInfo) override{};
 
 	void FlushVertices(bool KeepVertices = false) override{};
-	void FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override{};
 	void FlushVerticesTex3D() override{};
 
 	void RenderTileLayer(int BufferContainerIndex, float *pColor, char **pOffsets, unsigned int *IndicedVertexDrawNum, size_t NumIndicesOffet) override{};
@@ -132,8 +135,8 @@ public:
 	void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) override{};
 
 	// modern GL functions
-	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override { return 0; };
-	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override{};
+	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override { return 0; };
+	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override{};
 	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override{};
 	void CopyBufferObject(int WriteBufferIndex, int ReadBufferIndex, size_t WriteOffset, size_t ReadOffset, size_t CopyDataSize) override{};
 	void DeleteBufferObject(int BufferIndex) override{};

@@ -24,13 +24,16 @@
 #include <game/client/ui.h>
 #include <game/localization.h>
 
+#include "base/system.h"
 #include "binds.h"
 #include "camera.h"
 #include "countryflags.h"
 #include "menus.h"
 #include "skins.h"
 
+#include <memory>
 #include <utility>
+#include <vector>
 
 CMenusKeyBinder CMenus::m_Binder;
 
@@ -1306,7 +1309,70 @@ void CMenus::RenderSettingsGraphics(CUIRect MainView)
 	MainView.HSplitTop(20.0f, &Text, &MainView);
 	//text.VSplitLeft(15.0f, 0, &text);
 	UI()->DoLabelScaled(&Text, Localize("UI Color"), 14.0f, TEXTALIGN_LEFT);
-	RenderHSLScrollbars(&MainView, &g_Config.m_UiColor, true);
+	CUIRect HSLBar = MainView;
+	RenderHSLScrollbars(&HSLBar, &g_Config.m_UiColor, true);
+	MainView.y = HSLBar.y;
+	MainView.h = MainView.h - MainView.y;
+
+	// GPU list
+	const auto &GPUList = Graphics()->GetGPUs();
+	if(GPUList.m_GPUs.size() > 1)
+	{
+		MainView.HSplitTop(10.0f, nullptr, &MainView);
+		MainView.HSplitTop(20.0f, &Text, &MainView);
+		UI()->DoLabelScaled(&Text, Localize("Graphic cards"), 16.0f, TEXTALIGN_CENTER);
+
+		static float s_ScrollValueDropGPU = 0;
+		static int s_GPUDropDownState = 0;
+
+		static std::vector<std::unique_ptr<int>> vGPUIDs;
+		static std::vector<const void *> vGPUIDPtrs;
+		static std::vector<const char *> vGPUIDNames;
+
+		size_t GPUCount = GPUList.m_GPUs.size() + 1;
+		vGPUIDs.resize(GPUCount);
+		vGPUIDPtrs.resize(GPUCount);
+		vGPUIDNames.resize(GPUCount);
+
+		char aCurDeviceName[256 + 4];
+
+		int OldSelectedGPU = -1;
+		for(size_t i = 0; i < GPUCount; ++i)
+		{
+			if(vGPUIDs[i].get() == nullptr)
+				vGPUIDs[i] = std::unique_ptr<int>(new int());
+			vGPUIDPtrs[i] = vGPUIDs[i].get();
+			if(i == 0)
+			{
+				str_format(aCurDeviceName, sizeof(aCurDeviceName), "%s(%s)", Localize("auto"), GPUList.m_AutoGPU.m_Name);
+				vGPUIDNames[i] = aCurDeviceName;
+				if(str_comp("auto", g_Config.m_GfxGPUName) == 0)
+				{
+					OldSelectedGPU = 0;
+				}
+			}
+			else
+			{
+				vGPUIDNames[i] = GPUList.m_GPUs[i - 1].m_Name;
+				if(str_comp(GPUList.m_GPUs[i - 1].m_Name, g_Config.m_GfxGPUName) == 0)
+				{
+					OldSelectedGPU = i;
+				}
+			}
+		}
+
+		static int s_GPUCount = 0;
+		s_GPUCount = GPUCount;
+
+		const int NewGPU = RenderDropDown(s_GPUDropDownState, &MainView, OldSelectedGPU, vGPUIDPtrs.data(), vGPUIDNames.data(), s_GPUCount, &s_GPUCount, s_ScrollValueDropGPU);
+		if(OldSelectedGPU != NewGPU)
+		{
+			if(NewGPU == 0)
+				str_copy(g_Config.m_GfxGPUName, "auto", sizeof(g_Config.m_GfxGPUName));
+			else
+				str_copy(g_Config.m_GfxGPUName, GPUList.m_GPUs[NewGPU - 1].m_Name, sizeof(g_Config.m_GfxGPUName));
+		}
+	}
 }
 
 void CMenus::RenderSettingsSound(CUIRect MainView)

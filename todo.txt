@@ -1,0 +1,4 @@
+- implement remaining render* calls (quads missing)
+- screenshots and video recorder not working
+- compile shaders in cmake ( https://gist.github.com/evilactually/a0d191701cb48f157b05be7f74d79396 )
+- single threaded pre-init and post-destroy for macOS (needs testing)

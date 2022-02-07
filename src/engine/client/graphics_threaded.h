@@ -60,6 +60,8 @@ class CCommandBuffer
 
 public:
 	CBuffer m_CmdBuffer;
+	size_t m_CommandCount = 0;
+
 	CBuffer m_DataBuffer;
 
 	enum
@@ -88,6 +90,9 @@ public:
 		CMD_TEXTURE_CREATE,
 		CMD_TEXTURE_DESTROY,
 		CMD_TEXTURE_UPDATE,
+		CMD_TEXT_TEXTURES_CREATE,
+		CMD_TEXT_TEXTURES_DESTROY,
+		CMD_TEXT_TEXTURE_UPDATE,
 
 		// rendering
 		CMD_CLEAR,
@@ -112,7 +117,6 @@ public:
 		CMD_RENDER_BORDER_TILE_LINE, // render an amount of tiles multiple times
 		CMD_RENDER_QUAD_LAYER, // render a quad layer
 		CMD_RENDER_TEXT, // render text
-		CMD_RENDER_TEXT_STREAM, // render text stream
 		CMD_RENDER_QUAD_CONTAINER, // render a quad buffer container
 		CMD_RENDER_QUAD_CONTAINER_EX, // render a quad buffer container with extended parameters
 		CMD_RENDER_QUAD_CONTAINER_SPRITE_MULTIPLE, // render a quad buffer container as sprite multiple times
@@ -134,9 +138,7 @@ public:
 	enum
 	{
 		TEXFORMAT_INVALID = 0,
-		TEXFORMAT_RGB,
 		TEXFORMAT_RGBA,
-		TEXFORMAT_ALPHA,
 
 		TEXFLAG_NOMIPMAPS = 1,
 		TEXFLAG_TO_3D_TEXTURE = (1 << 3),
@@ -254,6 +256,8 @@ public:
 		bool m_DeletePointer;
 		void *m_pUploadData;
 		size_t m_DataSize;
+
+		int m_Flags; // @see EBufferObjectCreateFlags
 	};
 
 	struct SCommand_RecreateBufferObject : public SCommand
@@ -266,6 +270,8 @@ public:
 		bool m_DeletePointer;
 		void *m_pUploadData;
 		size_t m_DataSize;
+
+		int m_Flags; // @see EBufferObjectCreateFlags
 	};
 
 	struct SCommand_UpdateBufferObject : public SCommand
@@ -310,6 +316,7 @@ public:
 		int m_BufferContainerIndex;
 
 		int m_Stride;
+		int m_VertBufferBindingIndex;
 
 		int m_AttrCount;
 		SBufferContainerInfo::SAttribute *m_Attributes;
@@ -323,6 +330,7 @@ public:
 		int m_BufferContainerIndex;
 
 		int m_Stride;
+		int m_VertBufferBindingIndex;
 
 		int m_AttrCount;
 		SBufferContainerInfo::SAttribute *m_Attributes;
@@ -419,24 +427,6 @@ public:
 		float m_aTextOutlineColor[4];
 	};
 
-	struct SCommand_RenderTextStream : public SCommand
-	{
-		SCommand_RenderTextStream() :
-			SCommand(CMD_RENDER_TEXT_STREAM) {}
-		SState m_State;
-
-		SVertex *m_pVertices;
-		unsigned m_PrimType;
-		unsigned m_PrimCount;
-
-		int m_TextureSize;
-
-		int m_TextTextureIndex;
-		int m_TextOutlineTextureIndex;
-
-		float m_aTextOutlineColor[4];
-	};
-
 	struct SCommand_RenderQuadContainer : public SCommand
 	{
 		SCommand_RenderQuadContainer() :
@@ -521,6 +511,7 @@ public:
 		int m_Y;
 		int m_Width;
 		int m_Height;
+		bool m_ByResize; // resized by an resize event.. a hint to make clear that the viewport update can be deferred if wanted
 	};
 
 	struct SCommand_Texture_Create : public SCommand
@@ -563,6 +554,44 @@ public:
 
 		// texture information
 		int m_Slot;
+	};
+
+	struct SCommand_TextTextures_Create : public SCommand
+	{
+		SCommand_TextTextures_Create() :
+			SCommand(CMD_TEXT_TEXTURES_CREATE) {}
+
+		// texture information
+		int m_Slot;
+		int m_SlotOutline;
+
+		int m_Width;
+		int m_Height;
+	};
+
+	struct SCommand_TextTextures_Destroy : public SCommand
+	{
+		SCommand_TextTextures_Destroy() :
+			SCommand(CMD_TEXT_TEXTURES_DESTROY) {}
+
+		// texture information
+		int m_Slot;
+		int m_SlotOutline;
+	};
+
+	struct SCommand_TextTexture_Update : public SCommand
+	{
+		SCommand_TextTexture_Update() :
+			SCommand(CMD_TEXT_TEXTURE_UPDATE) {}
+
+		// texture information
+		int m_Slot;
+
+		int m_X;
+		int m_Y;
+		int m_Width;
+		int m_Height;
+		void *m_pData; // will be freed by the command processor
 	};
 
 	struct SCommand_WindowCreateNtf : public CCommandBuffer::SCommand
@@ -611,6 +640,8 @@ public:
 			m_pCmdBufferHead = pCmd;
 		m_pCmdBufferTail = pCmd;
 
+		++m_CommandCount;
+
 		return true;
 	}
 
@@ -624,6 +655,8 @@ public:
 		m_pCmdBufferHead = m_pCmdBufferTail = nullptr;
 		m_CmdBuffer.Reset();
 		m_DataBuffer.Reset();
+
+		m_CommandCount = 0;
 	}
 };
 
@@ -660,7 +693,12 @@ public:
 	virtual int Init(const char *pName, int *Screen, int *pWidth, int *pHeight, int *pRefreshRate, int FsaaSamples, int Flags, int *pDesktopWidth, int *pDesktopHeight, int *pCurrentWidth, int *pCurrentHeight, class IStorage *pStorage) = 0;
 	virtual int Shutdown() = 0;
 
-	virtual int MemoryUsage() const = 0;
+	virtual uint64_t TextureMemoryUsage() const = 0;
+	virtual uint64_t BufferMemoryUsage() const = 0;
+	virtual uint64_t StreamedMemoryUsage() const = 0;
+	virtual uint64_t StagingMemoryUsage() const = 0;
+
+	virtual const TTWGraphicsGPUList &GetGPUs() const = 0;
 
 	virtual void GetVideoModes(CVideoMode *pModes, int MaxModes, int *pNumModes, int HiDPIScale, int MaxWindowWidth, int MaxWindowHeight, int Screen) = 0;
 	virtual void GetCurrentVideoMode(CVideoMode &CurMode, int HiDPIScale, int MaxWindowWidth, int MaxWindowHeight, int Screen) = 0;
@@ -685,6 +723,7 @@ public:
 	virtual void WindowCreateNtf(uint32_t WindowID) = 0;
 
 	virtual void RunBuffer(CCommandBuffer *pBuffer) = 0;
+	virtual void RunBufferSingleThreadedUnsafe(CCommandBuffer *pBuffer) = 0;
 	virtual bool IsIdle() const = 0;
 	virtual void WaitForIdle() = 0;
 
@@ -762,8 +801,8 @@ class CGraphics_Threaded : public IEngineGraphics
 	{
 		SVertexArrayInfo() :
 			m_FreeIndex(-1) {}
-		// keep a reference to them, so we can free their IDs
-		std::vector<int> m_AssociatedBufferObjectIndices;
+		// keep a reference to it, so we can free the ID
+		int m_AssociatedBufferObjectIndex;
 
 		int m_FreeIndex;
 	};
@@ -874,7 +913,12 @@ public:
 	void WrapNormal() override;
 	void WrapClamp() override;
 
-	int MemoryUsage() const override;
+	uint64_t TextureMemoryUsage() const override;
+	uint64_t BufferMemoryUsage() const override;
+	uint64_t StreamedMemoryUsage() const override;
+	uint64_t StagingMemoryUsage() const override;
+
+	const TTWGraphicsGPUList &GetGPUs() const override;
 
 	void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) override;
 	void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) override;
@@ -886,6 +930,10 @@ public:
 	int UnloadTexture(IGraphics::CTextureHandle *pIndex) override;
 	IGraphics::CTextureHandle LoadTextureRaw(int Width, int Height, int Format, const void *pData, int StoreFormat, int Flags, const char *pTexName = NULL) override;
 	int LoadTextureRawSub(IGraphics::CTextureHandle TextureID, int x, int y, int Width, int Height, int Format, const void *pData) override;
+
+	bool LoadTextTextures(int Width, int Height, CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) override;
+	bool UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) override;
+	bool UpdateTextTexture(CTextureHandle TextureID, int x, int y, int Width, int Height, const void *pData) override;
 
 	CTextureHandle LoadSpriteTextureImpl(CImageInfo &FromImageInfo, int x, int y, int w, int h);
 	CTextureHandle LoadSpriteTexture(CImageInfo &FromImageInfo, struct CDataSprite *pSprite) override;
@@ -912,8 +960,6 @@ public:
 
 	void QuadsBegin() override;
 	void QuadsEnd() override;
-	void TextQuadsBegin() override;
-	void TextQuadsEnd(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override;
 	void QuadsTex3DBegin() override;
 	void QuadsTex3DEnd() override;
 	void TrianglesBegin() override;
@@ -1144,7 +1190,6 @@ public:
 	}
 
 	void FlushVertices(bool KeepVertices = false) override;
-	void FlushTextVertices(int TextureSize, int TextTextureIndex, int TextOutlineTextureIndex, float *pOutlineTextColor) override;
 	void FlushVerticesTex3D() override;
 
 	void RenderTileLayer(int BufferContainerIndex, float *pColor, char **pOffsets, unsigned int *IndicedVertexDrawNum, size_t NumIndicesOffet) override;
@@ -1154,8 +1199,8 @@ public:
 	void RenderText(int BufferContainerIndex, int TextQuadNum, int TextureSize, int TextureTextIndex, int TextureTextOutlineIndex, float *pTextColor, float *pTextoutlineColor) override;
 
 	// modern GL functions
-	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
-	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, bool IsMovedPointer = false) override;
+	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
+	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
 	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override;
 	void CopyBufferObject(int WriteBufferIndex, int ReadBufferIndex, size_t WriteOffset, size_t ReadOffset, size_t CopyDataSize) override;
 	void DeleteBufferObject(int BufferIndex) override;

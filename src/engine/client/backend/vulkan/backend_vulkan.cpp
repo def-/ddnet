@@ -4032,7 +4032,7 @@ public:
 
 				AllocateDescriptorPool(DescriptorPools, DescriptorPools.m_DefaultAllocSize);
 
-				AllocatedInThisRun = minimum(DescriptorPools.m_DefaultAllocSize, CurAllocNum);
+				AllocatedInThisRun = minimum((size_t)DescriptorPools.m_DefaultAllocSize, CurAllocNum);
 
 				auto &Pool = DescriptorPools.m_Pools.back();
 				Pool.m_CurSize += AllocatedInThisRun;

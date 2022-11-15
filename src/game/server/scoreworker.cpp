@@ -848,6 +848,7 @@ bool CScoreWorker::ShowTop(IDbConnection *pSqlServer, const ISqlData *pGameData,
 	// show top
 	while(!pSqlServer->Step(&End, pError, ErrorSize) && !End)
 	{
+		// TODO: HERE
 		char aName[MAX_NAME_LENGTH];
 		pSqlServer->GetString(1, aName, sizeof(aName));
 		float Time = pSqlServer->GetFloat(2);

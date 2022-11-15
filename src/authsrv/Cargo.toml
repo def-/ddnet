@@ -1,0 +1,13 @@
+[package]
+name = "authsrv"
+version = "0.0.1"
+edition = "2022"
+publish = false
+
+[dependencies]
+axum = "0.5.17"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.68"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

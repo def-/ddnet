@@ -4948,7 +4948,7 @@ void CGameContext::ReadCensorList()
 	}
 }
 
-void CGameContext::OnSetTimedOut(int ClientID, int OrigID)
+void CGameContext::OnSetTimedOut(int ClientId, int OrigId)
 {
-	m_PlayerMapping.InitPlayerMap(ClientID, true);
+	m_PlayerMapping.InitPlayerMap(ClientId, true);
 }

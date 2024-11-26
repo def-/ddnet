@@ -292,11 +292,11 @@ void CPlayerMapping::CPlayerMap::InsertNextEmpty(int ClientId)
 
 	for(int i = 0; i < GetMapSize() - m_NumSeeOthers; i++)
 	{
-		int CId = m_pMap[i];
-		if(CId != -1 && m_aReserved[CId])
+		int MappedId = m_pMap[i];
+		if(MappedId != -1 && m_aReserved[MappedId])
 			continue;
 
-		if(CId == -1 || (!m_pPlayerMapping->GameServer()->GetPlayerChar(CId) || m_pPlayerMapping->GameServer()->GetPlayerChar(CId)->NetworkClipped(m_ClientId)))
+		if(MappedId == -1 || (!m_pPlayerMapping->GameServer()->GetPlayerChar(MappedId) || m_pPlayerMapping->GameServer()->GetPlayerChar(MappedId)->NetworkClipped(m_ClientId)))
 		{
 			Add(i, ClientId);
 			break;

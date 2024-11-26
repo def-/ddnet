@@ -3997,14 +3997,14 @@ const char *CServer::GetAnnouncementLine()
 	return m_vAnnouncements[m_AnnouncementLastLine].c_str();
 }
 
-int *CServer::GetIdMap(int ClientID)
+int *CServer::GetIdMap(int ClientId)
 {
-	return m_aClients[ClientID].m_aIdMap;
+	return m_aClients[ClientId].m_aIdMap;
 }
 
-int *CServer::GetReverseIdMap(int ClientID)
+int *CServer::GetReverseIdMap(int ClientId)
 {
-	return m_aClients[ClientID].m_aReverseIdMap;
+	return m_aClients[ClientId].m_aReverseIdMap;
 }
 
 bool CServer::SetTimedOut(int ClientId, int OrigId)

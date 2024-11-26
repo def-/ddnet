@@ -3,8 +3,8 @@
 #ifndef GAME_SERVER_PLAYERMAPPING_H
 #define GAME_SERVER_PLAYERMAPPING_H
 
-#include <engine/shared/config.h>
-#include <game/server/gameworld.h>
+#include <engine/shared/protocol.h>
+#include <game/generated/protocol7.h>
 
 class CGameContext;
 class CPlayer;
@@ -20,8 +20,8 @@ class CPlayerMapping
 		enum class ESeeOthers
 		{
 			STATE_NONE = -1,
-			STATE_PAGE_FIRST,
-			STATE_PAGE_SECOND,
+			STATE_PAGE_FIRST = 0,
+			STATE_PAGE_SECOND = 1,
 
 			MAX_NUM_SEE_OTHERS = 34,
 		};
@@ -41,7 +41,7 @@ class CPlayerMapping
 		void Add(int MapId, int ClientId);
 		int Remove(int MapId);
 		void InsertNextEmpty(int ClientId);
-		int GetMapSize() { return LEGACY_MAX_CLIENTS - m_NumReserved; }
+		int GetMapSize() const { return LEGACY_MAX_CLIENTS - m_NumReserved; }
 		// See others
 		int m_SeeOthersState;
 		int m_TotalOverhang;
@@ -69,8 +69,8 @@ public:
 	enum
 	{
 		SEE_OTHERS_IND_NONE = -1,
-		SEE_OTHERS_IND_PLAYER,
-		SEE_OTHERS_IND_BUTTON,
+		SEE_OTHERS_IND_PLAYER = 0,
+		SEE_OTHERS_IND_BUTTON = 1,
 
 		SPEC_SELECT_FLAG_RED = LEGACY_MAX_CLIENTS - protocol7::SPEC_FLAGRED,
 		SPEC_SELECT_FLAG_BLUE = LEGACY_MAX_CLIENTS - protocol7::SPEC_FLAGBLUE,

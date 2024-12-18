@@ -708,7 +708,7 @@ void CCharacter::HandleTiles(int Index)
 {
 	int MapIndex = Index;
 	m_TileIndex = Collision()->GetTileIndex(MapIndex);
-	m_TileFIndex = Collision()->GetFTileIndex(MapIndex);
+	m_TileFIndex = Collision()->GetFrontTileIndex(MapIndex);
 	m_MoveRestrictions = Collision()->GetMoveRestrictions(IsSwitchActiveCb, this, m_Pos);
 
 	// stopper
@@ -984,17 +984,25 @@ void CCharacter::DDRaceTick()
 	int Index = Collision()->GetPureMapIndex(m_Pos);
 	const int aTiles[] = {
 		Collision()->GetTileIndex(Index),
-		Collision()->GetFTileIndex(Index),
+		Collision()->GetFrontTileIndex(Index),
 		Collision()->GetSwitchType(Index)};
 	m_Core.m_IsInFreeze = false;
 	for(const int Tile : aTiles)
 	{
-		if(Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE)
+		if(Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE || Tile == TILE_DEATH)
 		{
 			m_Core.m_IsInFreeze = true;
 			break;
 		}
 	}
+	m_Core.m_IsInFreeze |= (Collision()->GetCollisionAt(m_Pos.x + GetProximityRadius() / 3.f, m_Pos.y - GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetCollisionAt(m_Pos.x + GetProximityRadius() / 3.f, m_Pos.y + GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetCollisionAt(m_Pos.x - GetProximityRadius() / 3.f, m_Pos.y - GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetCollisionAt(m_Pos.x - GetProximityRadius() / 3.f, m_Pos.y + GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetFrontCollisionAt(m_Pos.x + GetProximityRadius() / 3.f, m_Pos.y - GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetFrontCollisionAt(m_Pos.x + GetProximityRadius() / 3.f, m_Pos.y + GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetFrontCollisionAt(m_Pos.x - GetProximityRadius() / 3.f, m_Pos.y - GetProximityRadius() / 3.f) == TILE_DEATH ||
+				Collision()->GetFrontCollisionAt(m_Pos.x - GetProximityRadius() / 3.f, m_Pos.y + GetProximityRadius() / 3.f) == TILE_DEATH);
 }
 
 void CCharacter::DDRacePostCoreTick()

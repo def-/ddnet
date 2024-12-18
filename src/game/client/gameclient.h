@@ -58,6 +58,7 @@
 #include "components/spectator.h"
 #include "components/statboard.h"
 #include "components/tooltips.h"
+#include "components/touch_controls.h"
 #include "components/voting.h"
 
 class CGameInfo
@@ -146,6 +147,7 @@ public:
 	CSounds m_Sounds;
 	CEmoticon m_Emoticon;
 	CDamageInd m_DamageInd;
+	CTouchControls m_TouchControls;
 	CVoting m_Voting;
 	CSpectator m_Spectator;
 
@@ -535,6 +537,7 @@ public:
 	virtual void OnFlagGrab(int TeamId);
 	void OnWindowResize() override;
 
+	void InitializeLanguage() override;
 	bool m_LanguageChanged = false;
 	void OnLanguageChange();
 	void HandleLanguageChanged();
@@ -817,8 +820,11 @@ private:
 	CTuningParams m_aTuningList[NUM_TUNEZONES];
 	CTuningParams *TuningList() { return m_aTuningList; }
 
+	float m_LastShowDistanceZoom;
 	float m_LastZoom;
 	float m_LastScreenAspect;
+	float m_LastDeadzone;
+	float m_LastFollowFactor;
 	bool m_LastDummyConnected;
 
 	void HandleMultiView();

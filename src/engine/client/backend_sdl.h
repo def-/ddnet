@@ -8,7 +8,7 @@
 #include <engine/graphics.h>
 
 #ifndef BACKEND_NO_SDL
-#include <SDL_video.h>
+#include <SDL3/SDL_video.h>
 #else
 struct SDL_Window;
 typedef void *SDL_GLContext;

@@ -10,7 +10,7 @@ static BOOL IsRunningInsideDDNetApp(void)
 	NSString *bundlePath = [bundle bundlePath];
 	if(!bundlePath)
 		return NO;
-	return [[bundlePath lastPathComponent] isEqualToString:@"DDNet.app"];
+	return YES;
 }
 
 int main(int argc, const char **argv)

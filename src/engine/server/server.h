@@ -36,6 +36,7 @@ class CLogMessage;
 class CMsgPacker;
 class CPacker;
 class IEngine;
+class IEngineHttp;
 class ILogger;
 
 class CServerBan : public CNetBan
@@ -65,6 +66,7 @@ class CServer : public IServer
 	class IGameServer *m_pGameServer;
 	class CConfig *m_pConfig;
 	class IConsole *m_pConsole;
+	IEngineHttp *m_pHttp;
 	class IStorage *m_pStorage;
 	class IEngineAntibot *m_pAntibot;
 	class IRegister *m_pRegister;
@@ -219,7 +221,6 @@ public:
 	CEcon m_Econ;
 	CFifo m_Fifo;
 	CServerBan m_ServerBan;
-	CHttp m_Http;
 
 	int64_t m_GameStartTime;
 

@@ -3496,6 +3496,7 @@ int CServer::Run()
 	m_pRegister->OnShutdown();
 	m_Econ.Shutdown();
 	m_Fifo.Shutdown();
+	m_pHttp->Shutdown();
 	Engine()->ShutdownJobs();
 
 	GameServer()->OnShutdown(nullptr);

@@ -90,8 +90,13 @@
 				},
 				canvas: document.getElementById('canvas')
 			};
-			window.onerror = function(text) {
-				appendOutput(text, true, "red");
+			window.onerror = function(message, url, line, column, error) {
+				appendOutput(message, true, "red");
+				if (error) {
+					for (const line of error.stack.split("\n")) {
+						appendOutput(line, false, "red");
+					}
+				}
 			};
 			Module['canvas'].addEventListener('contextmenu', e => e.preventDefault());
 			Module['canvas'].addEventListener('webglcontextcreationerror', e => {

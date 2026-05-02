@@ -97,6 +97,28 @@
 						appendOutput(line, false, "red");
 					}
 				}
+				// Force stop audio processing because the client does not do so when force quit on
+				// assertion errors and segmentation faults. This would otherwise cause many error
+				// messages to be emitted when audio processing continues after the runtime exited.
+				var SDL2 = Module['SDL2'];
+				if (SDL2.audio !== undefined) {
+					if (SDL2.audio.scriptProcessorNode !== undefined) {
+						SDL2.audio.scriptProcessorNode.disconnect();
+					}
+					if (SDL2.audio.silenceTimer !== undefined) {
+						clearInterval(SDL2.audio.silenceTimer);
+					}
+					SDL2.audio = undefined;
+				}
+				if (SDL2.audioContext !== undefined) {
+					SDL2.audioContext.close();
+					SDL2.audioContext = undefined;
+				}
+				// Force quit the client on errors, because the runtime does not exit otherwise, which
+				// would cause tests using `emrun` to time out and prevent `onExit` from being invoked.
+				if (!ABORT) {
+					Module.ccall('EmscriptenCallbackQuitForce', null, [], []);
+				}
 			};
 			Module['canvas'].addEventListener('contextmenu', e => e.preventDefault());
 			Module['canvas'].addEventListener('webglcontextcreationerror', e => {

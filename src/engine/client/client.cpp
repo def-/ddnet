@@ -73,6 +73,10 @@
 #include <android/android_main.h>
 #endif
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <emscripten/emscripten.h>
+#endif
+
 #include "SDL.h"
 #ifdef main
 #undef main
@@ -4669,6 +4673,17 @@ static bool SaveUnknownCommandCallback(const char *pCommand, void *pUser)
 	pClient->ConfigManager()->StoreUnknownCommand(pCommand);
 	return true;
 }
+
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+extern "C" {
+
+// This will be called from Emscripten JS code
+void EmscriptenCallbackQuitForce()
+{
+	emscripten_force_exit(-1);
+}
+}
+#endif
 
 /*
 	Server Time

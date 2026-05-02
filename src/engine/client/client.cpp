@@ -4787,6 +4787,10 @@ int main(int argc, const char **argv)
 		//       ignores the activity lifecycle entirely, which may cause issues if
 		//       we ever used any global resources like the camera.
 		std::exit(0);
+#elif defined(CONF_PLATFORM_EMSCRIPTEN)
+		// We cannot use atexit with Emscripten so we finish the global logger here.
+		// See comment in the log_set_global_logger function for details.
+		log_global_logger_finish();
 #endif
 	};
 	std::function<void()> PerformAllCleanup = [PerformCleanup, PerformFinalCleanup]() mutable {

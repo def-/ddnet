@@ -123,6 +123,12 @@
 					Module.ccall('EmscriptenCallbackQuitForce', null, [], []);
 				}
 			};
+			document.addEventListener('keydown', e => {
+				// Always use default browser actions for Ctrl+F5 (refresh), F11 (fullscreen), F12 (developer console).
+				if ((e.ctrlKey && e.key === 'F5') || e.key === 'F11' || e.key == 'F12') {
+					e.stopPropagation();
+				}
+			}, true);
 			Module['canvas'].addEventListener('contextmenu', e => e.preventDefault());
 			Module['canvas'].addEventListener('webglcontextcreationerror', e => {
 				appendOutput(`Failed to create WebGL context: ${e.statusMessage || "Unknown error"}`, true, "red");

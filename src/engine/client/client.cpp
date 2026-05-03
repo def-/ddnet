@@ -73,6 +73,10 @@
 #include <android/android_main.h>
 #endif
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <emscripten/emscripten.h>
+#endif
+
 #include "SDL.h"
 #ifdef main
 #undef main
@@ -4670,6 +4674,17 @@ static bool SaveUnknownCommandCallback(const char *pCommand, void *pUser)
 	return true;
 }
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+extern "C" {
+
+// This will be called from Emscripten JS code
+void EmscriptenCallbackQuitForce()
+{
+	emscripten_force_exit(-1);
+}
+}
+#endif
+
 /*
 	Server Time
 	Client Mirror Time
@@ -4772,6 +4787,10 @@ int main(int argc, const char **argv)
 		//       ignores the activity lifecycle entirely, which may cause issues if
 		//       we ever used any global resources like the camera.
 		std::exit(0);
+#elif defined(CONF_PLATFORM_EMSCRIPTEN)
+		// We cannot use atexit with Emscripten so we finish the global logger here.
+		// See comment in the log_set_global_logger function for details.
+		log_global_logger_finish();
 #endif
 	};
 	std::function<void()> PerformAllCleanup = [PerformCleanup, PerformFinalCleanup]() mutable {

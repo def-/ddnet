@@ -79,6 +79,9 @@
 					Module['canvas'].style.display = "none";
 					// Make sure to reset cursor because it sometimes does not become visible.
 					Module['canvas'].style.cursor = "default";
+					// Also reset cursor of body because the cursor sometimes does not become
+					// visible until being moved.
+					document.body.style.cursor = "default";
 					appendOutput("Client closed. Reload the page to restart.", true);
 					const restartButton = document.createElement("button");
 					restartButton.textContent = "Reload page";

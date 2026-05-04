@@ -37,6 +37,11 @@ int process_id()
 PROCESS process_execute(const char *file, EShellExecuteWindowState window_state, const char **arguments, const size_t num_arguments)
 {
 	dbg_assert((arguments == nullptr) == (num_arguments == 0), "Invalid number of arguments");
+	if(num_arguments > 1024)
+	{
+		dbg_msg("process", "process_execute called with too many arguments (%zu)", num_arguments);
+		return INVALID_PROCESS;
+	}
 #if defined(CONF_FAMILY_WINDOWS)
 	dbg_assert(str_endswith_nocase(file, ".bat") == nullptr && str_endswith_nocase(file, ".cmd") == nullptr, "Running batch files not allowed");
 	dbg_assert(str_endswith(file, ".exe") != nullptr || num_arguments == 0, "Arguments only allowed with .exe files");

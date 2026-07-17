@@ -78,6 +78,10 @@ private:
 
 	bool m_MouseFocus;
 
+	// fractional mouse wheel scroll remainders (see SDL_MOUSEWHEEL handling)
+	float m_AccumulatedMouseWheelX = 0.0f;
+	float m_AccumulatedMouseWheelY = 0.0f;
+
 	// IME support
 	std::string m_CompositionString;
 	int m_CompositionCursor;

@@ -665,28 +665,17 @@ static int TranslateMouseButtonEventKey(const SDL_MouseButtonEvent &MouseButtonE
 	}
 }
 
-static int TranslateMouseWheelEventKey(const SDL_MouseWheelEvent &MouseWheelEvent)
+static int AccumulateMouseWheelDelta(float &AccumulatedDelta, float Delta)
 {
-	if(MouseWheelEvent.y > 0)
+	// Reset the accumulated delta when the scroll direction changes
+	if((Delta > 0.0f && AccumulatedDelta < 0.0f) || (Delta < 0.0f && AccumulatedDelta > 0.0f))
 	{
-		return KEY_MOUSE_WHEEL_UP;
+		AccumulatedDelta = 0.0f;
 	}
-	else if(MouseWheelEvent.y < 0)
-	{
-		return KEY_MOUSE_WHEEL_DOWN;
-	}
-	else if(MouseWheelEvent.x > 0)
-	{
-		return KEY_MOUSE_WHEEL_RIGHT;
-	}
-	else if(MouseWheelEvent.x < 0)
-	{
-		return KEY_MOUSE_WHEEL_LEFT;
-	}
-	else
-	{
-		return KEY_UNKNOWN;
-	}
+	AccumulatedDelta += Delta;
+	const int Steps = (int)AccumulatedDelta; // truncates towards zero
+	AccumulatedDelta -= Steps;
+	return Steps;
 }
 
 #if defined(CONF_PLATFORM_EMSCRIPTEN)
@@ -797,8 +786,38 @@ int CInput::Update()
 			break;
 
 		case SDL_MOUSEWHEEL:
-			AddKeyEventChecked(TranslateMouseWheelEventKey(Event.wheel), IInput::FLAG_PRESS | IInput::FLAG_RELEASE);
+		{
+			// Accumulate the precise scroll deltas ourselves instead of using the
+			// integer x/y fields, because some SDL implementations (e.g. sdl2-compat)
+			// truncate fractional deltas of high-resolution mouse wheels to the
+			// integer fields per event without accumulating them, which makes
+			// scrolling unreliable. Emit one key event per whole scroll step, so
+			// multiple steps within one event are not lost.
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+			int StepsX = AccumulateMouseWheelDelta(m_AccumulatedMouseWheelX, Event.wheel.preciseX);
+			int StepsY = AccumulateMouseWheelDelta(m_AccumulatedMouseWheelY, Event.wheel.preciseY);
+#else
+			int StepsX = AccumulateMouseWheelDelta(m_AccumulatedMouseWheelX, Event.wheel.x);
+			int StepsY = AccumulateMouseWheelDelta(m_AccumulatedMouseWheelY, Event.wheel.y);
+#endif
+			for(; StepsY > 0; StepsY--)
+			{
+				AddKeyEventChecked(KEY_MOUSE_WHEEL_UP, IInput::FLAG_PRESS | IInput::FLAG_RELEASE);
+			}
+			for(; StepsY < 0; StepsY++)
+			{
+				AddKeyEventChecked(KEY_MOUSE_WHEEL_DOWN, IInput::FLAG_PRESS | IInput::FLAG_RELEASE);
+			}
+			for(; StepsX > 0; StepsX--)
+			{
+				AddKeyEventChecked(KEY_MOUSE_WHEEL_RIGHT, IInput::FLAG_PRESS | IInput::FLAG_RELEASE);
+			}
+			for(; StepsX < 0; StepsX++)
+			{
+				AddKeyEventChecked(KEY_MOUSE_WHEEL_LEFT, IInput::FLAG_PRESS | IInput::FLAG_RELEASE);
+			}
 			break;
+		}
 
 		case SDL_FINGERDOWN:
 			HandleTouchDownEvent(Event.tfinger);

@@ -529,6 +529,15 @@ if(NOT(TARGET_OS STREQUAL "android"))
   find_package(GLEW)
 endif()
 find_package(GTest)
+if(GTEST_FOUND AND CMAKE_BUILD_TYPE STREQUAL Debug AND NOT MSVC)
+  # Debug builds define _GLIBCXX_DEBUG/_LIBCPP_DEBUG, which change the ABI of
+  # standard library containers, making them incompatible with the installed
+  # GTest library, which is not compiled with these defines, causing crashes.
+  # Ignore the installed GTest so it is downloaded and compiled with matching
+  # flags instead. See https://github.com/ddnet/ddnet/issues/12305
+  message(STATUS "Ignoring installed GTest, which is incompatible with debug mode; set DOWNLOAD_GTEST=ON to compile GTest with matching flags")
+  set(GTEST_FOUND OFF)
+endif()
 if(UPNP)
   find_package(Miniupnpc)
 endif()

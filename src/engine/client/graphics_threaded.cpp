@@ -2622,9 +2622,10 @@ void CGraphics_Threaded::ResizeToScreen()
 	if(Resize(g_Config.m_GfxScreenWidth, g_Config.m_GfxScreenHeight, g_Config.m_GfxScreenRefreshRate))
 		return;
 
-	// Revert config variables if the change was not accepted
-	g_Config.m_GfxScreenWidth = ScreenWidth();
-	g_Config.m_GfxScreenHeight = ScreenHeight();
+	// Revert config variables if the change was not accepted. The config
+	// variables store the window size, not the canvas size in pixels.
+	g_Config.m_GfxScreenWidth = WindowWidth();
+	g_Config.m_GfxScreenHeight = WindowHeight();
 	g_Config.m_GfxScreenRefreshRate = m_ScreenRefreshRate;
 }
 

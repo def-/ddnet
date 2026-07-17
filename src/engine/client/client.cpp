@@ -2006,6 +2006,15 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 				}
 				if(Old != 0 && m_UseTempRconCommands == 0)
 				{
+					// Keep using the temp command list when the main connection is
+					// logged out while the dummy is still rcon authed, so the default
+					// command list is not shown in the remote console. The temp
+					// commands are still cleared, so no commands will be suggested
+					// until the main connection is authed again.
+					if(m_aRconAuthed[0] == 0 && m_aRconAuthed[1] != 0)
+					{
+						m_UseTempRconCommands = Old;
+					}
 					m_pConsole->DeregisterTempAll();
 					m_ExpectedRconCommands = -1;
 					m_vMaplistEntries.clear();

@@ -1566,6 +1566,11 @@ public:
 			DrawY = CursorY;
 		}
 
+		// Line width checks must be relative to the position where lines start being drawn,
+		// which is aligned to the screen pixels, otherwise the wrapping of the rendered text
+		// can differ from the wrapping determined during the text size calculation.
+		const float LineStartX = (RenderFlags & TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT) != 0 ? pCursor->m_StartX : round_to_int(pCursor->m_StartX * FakeToScreen.x) / FakeToScreen.x;
+
 		int LineCount = pCursor->m_LineCount;
 
 		const bool IsRendered = (pCursor->m_Flags & TEXTFLAG_RENDER) != 0;
@@ -1696,7 +1701,7 @@ public:
 					if(Cutter.m_GlyphCount <= 3 && !GotNewLineLast) // if we can't place 3 chars of the word on this line, take the next
 						Wlen = 0;
 				}
-				else if(Compare.m_X - pCursor->m_StartX > pCursor->m_LineWidth && !GotNewLineLast)
+				else if(Compare.m_X - LineStartX > pCursor->m_LineWidth && !GotNewLineLast)
 				{
 					NewLine = true;
 					Wlen = 0;
@@ -1762,7 +1767,7 @@ public:
 							CharKerningEllipsis = m_pGlyphMap->Kerning(pGlyph, pEllipsisGlyph).x * Scale * pCursor->m_AlignedFontSize;
 						}
 						if(pCursor->m_LineWidth > 0.0f &&
-							DrawX + CharKerning + Advance + CharKerningEllipsis + AdvanceEllipsis - pCursor->m_StartX > pCursor->m_LineWidth)
+							DrawX + CharKerning + Advance + CharKerningEllipsis + AdvanceEllipsis - LineStartX > pCursor->m_LineWidth)
 						{
 							// we hit the end, only render ellipsis and finish
 							pTmp = pEllipsis;
@@ -1774,7 +1779,7 @@ public:
 
 					if(pCursor->m_LineWidth > 0.0f &&
 						(pCursor->m_Flags & TEXTFLAG_STOP_AT_END) != 0 &&
-						(DrawX + CharKerning) + Advance - pCursor->m_StartX > pCursor->m_LineWidth)
+						(DrawX + CharKerning) + Advance - LineStartX > pCursor->m_LineWidth)
 					{
 						// we hit the end of the line, no more to render or count
 						pCurrent = pEnd;

@@ -802,7 +802,7 @@ void CMenus::RenderServerInfo(CUIRect MainView)
 	}
 
 	GameInfo.HSplitTop(FontSizeBody, &Label, &GameInfo);
-	str_format(aBuf, sizeof(aBuf), "%s: %d/%d", Localize("Players"), GameClient()->m_Snap.m_NumPlayers, CurrentServerInfo.m_MaxClients);
+	str_format(aBuf, sizeof(aBuf), "%s: %d/%d", Localize("Players"), CurrentServerInfo.m_NumClients, CurrentServerInfo.m_MaxClients);
 	Ui()->DoLabel(&Label, aBuf, FontSizeBody, TEXTALIGN_ML);
 
 	RenderServerInfoMotd(Motd);

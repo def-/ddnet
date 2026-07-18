@@ -65,6 +65,7 @@ private:
 	IConsole *Console() const { return m_pConsole; }
 
 	// joystick
+	bool m_JoysticksInitialized = false;
 	std::vector<CJoystick> m_vJoysticks;
 	CJoystick *m_pActiveJoystick = nullptr;
 	void InitJoysticks();

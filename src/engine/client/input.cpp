@@ -102,7 +102,13 @@ void CInput::Init()
 
 	MouseModeRelative();
 
-	InitJoysticks();
+	// Only initialize joysticks immediately if the controller is enabled, as the
+	// initialization is slow on some systems. Otherwise, it is deferred until the
+	// controller is enabled (see CInput::Update).
+	if(g_Config.m_InpControllerEnable)
+	{
+		InitJoysticks();
+	}
 }
 
 void CInput::Shutdown()
@@ -112,6 +118,8 @@ void CInput::Shutdown()
 
 void CInput::InitJoysticks()
 {
+	m_JoysticksInitialized = true;
+
 	if(!SDL_WasInit(SDL_INIT_JOYSTICK))
 	{
 		if(SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
@@ -703,6 +711,12 @@ void EmscriptenCallbackQuit()
 
 int CInput::Update()
 {
+	// Initialize joysticks deferredly when the controller gets enabled (see CInput::Init)
+	if(g_Config.m_InpControllerEnable && !m_JoysticksInitialized)
+	{
+		InitJoysticks();
+	}
+
 	const int64_t Now = time_get();
 	if(m_LastUpdate != 0)
 	{

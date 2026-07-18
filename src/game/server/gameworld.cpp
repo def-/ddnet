@@ -7,6 +7,7 @@
 #include "entity.h"
 #include "gamecontext.h"
 #include "gamecontroller.h"
+#include "player.h"
 
 #include <engine/shared/config.h>
 
@@ -124,16 +125,34 @@ void CGameWorld::Snap(int SnappingClient)
 		pEnt = m_pNextTraverseEntity;
 	}
 
-	for(int i = 0; i < NUM_ENTTYPES; i++)
+	// For clients using /showall the snapshot may not have enough space for
+	// all entities, so snap the entities within the normal show distance in
+	// a first pass to prioritize them over the entities further away.
+	const CPlayer *pSnapPlayer = SnappingClient != SERVER_DEMO_CLIENT ? GameServer()->m_apPlayers[SnappingClient] : nullptr;
+	const int NumPasses = pSnapPlayer != nullptr && pSnapPlayer->m_ShowAll ? 2 : 1;
+	for(int Pass = 0; Pass < NumPasses; Pass++)
 	{
-		if(i == ENTTYPE_CHARACTER)
-			continue;
-
-		for(CEntity *pEnt = m_apFirstEntityTypes[i]; pEnt;)
+		for(int i = 0; i < NUM_ENTTYPES; i++)
 		{
-			m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
-			pEnt->Snap(SnappingClient);
-			pEnt = m_pNextTraverseEntity;
+			if(i == ENTTYPE_CHARACTER)
+				continue;
+
+			for(CEntity *pEnt = m_apFirstEntityTypes[i]; pEnt;)
+			{
+				m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
+				if(NumPasses > 1)
+				{
+					const bool InShowDistance = absolute(pSnapPlayer->m_ViewPos.x - pEnt->m_Pos.x) <= pSnapPlayer->m_ShowDistance.x &&
+								    absolute(pSnapPlayer->m_ViewPos.y - pEnt->m_Pos.y) <= pSnapPlayer->m_ShowDistance.y;
+					if(InShowDistance != (Pass == 0))
+					{
+						pEnt = m_pNextTraverseEntity;
+						continue;
+					}
+				}
+				pEnt->Snap(SnappingClient);
+				pEnt = m_pNextTraverseEntity;
+			}
 		}
 	}
 }

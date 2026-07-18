@@ -39,6 +39,7 @@ void CChat::CLine::Reset(CChat &This)
 	m_Initialized = false;
 	m_Time = 0;
 	m_aText[0] = '\0';
+	m_aCensoredText[0] = '\0';
 	m_aName[0] = '\0';
 	m_Friend = false;
 	m_TimesRepeated = 0;
@@ -653,7 +654,7 @@ void CChat::StoreSave(const char *pText)
 	io_close(File);
 }
 
-void CChat::AddLine(int ClientId, int Team, const char *pLine)
+void CChat::AddLine(int ClientId, int Team, const char *pLine, const char *pCensoredLine)
 {
 	if(*pLine == 0 ||
 		(ClientId == SERVER_MSG && !g_Config.m_ClShowChatSystem) ||
@@ -798,6 +799,8 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 	CurrentLine.m_Highlighted = Highlighted;
 
 	str_copy(CurrentLine.m_aText, pLine);
+	if(pCensoredLine != nullptr)
+		str_copy(CurrentLine.m_aCensoredText, pCensoredLine);
 
 	if(CurrentLine.m_ClientId == SERVER_MSG)
 	{
@@ -979,7 +982,11 @@ void CChat::OnPrepareLines(float y)
 		const char *pText = Line.m_aText;
 		if(Config()->m_ClStreamerMode && Line.m_ClientId == SERVER_MSG)
 		{
-			if(str_startswith(Line.m_aText, "Team save in progress. You'll be able to load with '/load ") && str_endswith(Line.m_aText, "'"))
+			if(Line.m_aCensoredText[0] != '\0')
+			{
+				pText = Line.m_aCensoredText;
+			}
+			else if(str_startswith(Line.m_aText, "Team save in progress. You'll be able to load with '/load ") && str_endswith(Line.m_aText, "'"))
 			{
 				pText = "Team save in progress. You'll be able to load with '/load *** *** ***'";
 			}

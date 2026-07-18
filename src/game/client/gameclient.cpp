@@ -5226,6 +5226,7 @@ int CGameClient::FindFirstMultiViewId()
 void CGameClient::OnSaveCodeNetMessage(const CNetMsg_Sv_SaveCode *pMsg)
 {
 	char aBuf[512];
+	char aBufCensored[512];
 	if(pMsg->m_pError[0] != '\0')
 		m_Chat.AddLine(-1, TEAM_ALL, pMsg->m_pError);
 
@@ -5234,56 +5235,75 @@ void CGameClient::OnSaveCodeNetMessage(const CNetMsg_Sv_SaveCode *pMsg)
 	{
 		if(pMsg->m_pCode[0] == '\0')
 		{
-			str_format(aBuf, sizeof(aBuf),
-				Localize("Team save in progress. You'll be able to load with '/load %s'"),
+			const char *pFormat = Localize("Team save in progress. You'll be able to load with '/load %s'");
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pGeneratedCode);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"*** *** ***");
 		}
 		else
 		{
-			str_format(aBuf, sizeof(aBuf),
-				Localize("Team save in progress. You'll be able to load with '/load %s' if save is successful or with '/load %s' if it fails"),
+			const char *pFormat = Localize("Team save in progress. You'll be able to load with '/load %s' if save is successful or with '/load %s' if it fails");
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pCode,
 				pMsg->m_pGeneratedCode);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"*** *** ***",
+				"*** *** ***");
 		}
-		m_Chat.AddLine(-1, TEAM_ALL, aBuf);
+		m_Chat.AddLine(-1, TEAM_ALL, aBuf, aBufCensored);
 	}
 	else if(State == SAVESTATE_DONE)
 	{
 		if(pMsg->m_pServerName[0] == '\0')
 		{
-			str_format(aBuf, sizeof(aBuf),
-				"Team successfully saved by %s. Use '/load %s' to continue",
+			const char *pFormat = "Team successfully saved by %s. Use '/load %s' to continue";
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pSaveRequester,
 				pMsg->m_pCode[0] ? pMsg->m_pCode : pMsg->m_pGeneratedCode);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"***",
+				"*** *** ***");
 		}
 		else
 		{
-			str_format(aBuf, sizeof(aBuf),
-				"Team successfully saved by %s. Use '/load %s' on %s to continue",
+			const char *pFormat = "Team successfully saved by %s. Use '/load %s' on %s to continue";
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pSaveRequester,
 				pMsg->m_pCode[0] ? pMsg->m_pCode : pMsg->m_pGeneratedCode,
 				pMsg->m_pServerName);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"***",
+				"*** *** ***",
+				pMsg->m_pServerName);
 		}
-		m_Chat.AddLine(-1, TEAM_ALL, aBuf);
+		m_Chat.AddLine(-1, TEAM_ALL, aBuf, aBufCensored);
 	}
 	else if(State == SAVESTATE_FALLBACKFILE)
 	{
 		if(pMsg->m_pServerName[0] == '\0')
 		{
-			str_format(aBuf, sizeof(aBuf),
-				Localize("Team successfully saved by %s. The database connection failed, using generated save code instead to avoid collisions. Use '/load %s' to continue"),
+			const char *pFormat = Localize("Team successfully saved by %s. The database connection failed, using generated save code instead to avoid collisions. Use '/load %s' to continue");
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pSaveRequester,
 				pMsg->m_pGeneratedCode);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"***",
+				"*** *** ***");
 		}
 		else
 		{
-			str_format(aBuf, sizeof(aBuf),
-				Localize("Team successfully saved by %s. The database connection failed, using generated save code instead to avoid collisions. Use '/load %s' on %s to continue"),
+			const char *pFormat = Localize("Team successfully saved by %s. The database connection failed, using generated save code instead to avoid collisions. Use '/load %s' on %s to continue");
+			str_format(aBuf, sizeof(aBuf), pFormat,
 				pMsg->m_pSaveRequester,
 				pMsg->m_pGeneratedCode,
 				pMsg->m_pServerName);
+			str_format(aBufCensored, sizeof(aBufCensored), pFormat,
+				"***",
+				"*** *** ***",
+				pMsg->m_pServerName);
 		}
-		m_Chat.AddLine(-1, TEAM_ALL, aBuf);
+		m_Chat.AddLine(-1, TEAM_ALL, aBuf, aBufCensored);
 	}
 	else if(State == SAVESTATE_ERROR)
 	{

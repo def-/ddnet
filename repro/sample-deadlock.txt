@@ -1,0 +1,39 @@
+# sample of the frozen DDNet process (DBG_VK_FORCE_OOM_WORKER=1)
+# Captured with: sample <pid> 2
+# Line numbers below are from the vk-oom-repro branch.
+
+## Render WORKER thread — OOM recovery re-entered the frame loop and deadlocked:
+          1519 std::__thread_proxy[abi:nqn210106]<std::tuple<std::unique_ptr<std::__thread_struct>, CCommandProcessorFragment_Vulkan::Cmd_PreInit(CCommandProcessorFragment_GLBase::SCommand_PreInit const*)::'lambda'()>>(void*)  (in DDNet) + 44  [0x1022da368]  thread.h:168
+            1519 CCommandProcessorFragment_Vulkan::RunThread(unsigned long)  (in DDNet) + 256  [0x1022da494]  backend_vulkan.cpp:7783
+              1519 CCommandProcessorFragment_Vulkan::RenderStandard<GL_SVertex, false>(CCommandProcessorFragment_Vulkan::SRenderCommandExecuteBuffer&, CCommandBuffer::SState const&, EPrimitiveType, GL_SVertex const*, int)  (in DDNet) + 476  [0x1022d3358]  backend_vulkan.cpp:3531
+                1519 CCommandProcessorFragment_Vulkan::CreateStreamBuffer<CCommandProcessorFragment_Vulkan::SFrameBuffers, GL_SVertexTex3DStream, 65536ul, 1ul, false>(CCommandProcessorFragment_Vulkan::SFrameBuffers*&, std::function<bool (CCommandProcessorFragment_Vulkan::SFrameBuffers&, VkBuffer_T*, unsigned long long)>&&, CCommandProcessorFragment_Vulkan::SStreamMemory<CCommandProcessorFragment_Vulkan::SFrameBuffers>&, VkBufferUsageFlagBits, VkBuffer_T*&, CCommandProcessorFragment_Vulkan::SDeviceMemoryBlock&, unsigned long&, void const*, unsigned long)  (in DDNet) + 232  [0x1022d35b8]  backend_vulkan.cpp:6462
+                  1519 CCommandProcessorFragment_Vulkan::CreateBuffer(unsigned long long, CCommandProcessorFragment_Vulkan::EMemoryBlockUsage, unsigned int, unsigned int, VkBuffer_T*&, CCommandProcessorFragment_Vulkan::SDeviceMemoryBlock&)  (in DDNet) + 404  [0x1022c951c]  backend_vulkan.cpp:5825
+                    1519 CCommandProcessorFragment_Vulkan::AllocateVulkanMemory(VkMemoryAllocateInfo const*, VkDeviceMemory_T**)  (in DDNet) + 312  [0x1022c21c8]  backend_vulkan.cpp:1659
+                      1519 CCommandProcessorFragment_Vulkan::WaitFrame()  (in DDNet) + 48  [0x1022c2260]  backend_vulkan.cpp:2303
+                        1519 CCommandProcessorFragment_Vulkan::FinishRenderThreads()  (in DDNet) + 160  [0x1022c2934]  backend_vulkan.cpp:2258
+                          1519 std::mutex::lock()  (in libc++.1.dylib) + 16  [0x187ecc010]
+                            1519 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x187fb48e0]
+                              1519 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x187fb6e9c]
+                                1519 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x187f789dc]
+
+## Main command-processor thread — also blocked in FinishRenderThreads:
+    +         1519 CCommandProcessor_SDL_GL::RunBuffer(CCommandBuffer*)  (in DDNet) + 112  [0x1022db4f4]  backend_sdl.cpp:382
+    +           1519 CCommandProcessorFragment_Vulkan::RunCommand(CCommandBuffer::SCommand const*)  (in DDNet) + 736  [0x1022b9610]  backend_vulkan.cpp:6624
+    +             1519 std::__function::__func<CCommandProcessorFragment_Vulkan::RegisterCommands()::'lambda24'(CCommandBuffer::SCommand const*, CCommandProcessorFragment_Vulkan::SRenderCommandExecuteBuffer&), bool (CCommandBuffer::SCommand const*, CCommandProcessorFragment_Vulkan::SRenderCommandExecuteBuffer&)>::operator()(CCommandBuffer::SCommand const*&&, CCommandProcessorFragment_Vulkan::SRenderCommandExecuteBuffer&)  (in DDNet) + 48  [0x1022d8f44]  function.h:174
+    +               1519 CCommandProcessorFragment_Vulkan::WaitFrame()  (in DDNet) + 48  [0x1022c2260]  backend_vulkan.cpp:2303
+    +                 1519 CCommandProcessorFragment_Vulkan::FinishRenderThreads()  (in DDNet) + 332  [0x1022c29e0]  backend_vulkan.cpp:2268
+    +                   1519 std::mutex::lock()  (in libc++.1.dylib) + 16  [0x187ecc010]
+    +                     1519 _pthread_mutex_firstfit_lock_slow  (in libsystem_pthread.dylib) + 216  [0x187fb48e0]
+    +                       1519 _pthread_mutex_firstfit_lock_wait  (in libsystem_pthread.dylib) + 84  [0x187fb6e9c]
+    +                         1519 __psynch_mutexwait  (in libsystem_kernel.dylib) + 8  [0x187f789dc]
+
+## Second render worker thread — idle, waiting for work it will never get:
+    +     1519 std::__thread_proxy[abi:nqn210106]<std::tuple<std::unique_ptr<std::__thread_struct>, CCommandProcessorFragment_Vulkan::Cmd_PreInit(CCommandProcessorFragment_GLBase::SCommand_PreInit const*)::'lambda'()>>(void*)  (in DDNet) + 44  [0x1022da368]  thread.h:168
+    +       1519 CCommandProcessorFragment_Vulkan::RunThread(unsigned long)  (in DDNet) + 156  [0x1022da430]  backend_vulkan.cpp:7767
+    +         1519 std::condition_variable::wait(std::unique_lock<std::mutex>&)  (in libc++.1.dylib) + 32  [0x187ecf858]
+    +           1519 _pthread_cond_wait  (in libsystem_pthread.dylib) + 980  [0x187fba128]
+    +             1519 __psynch_cvwait  (in libsystem_kernel.dylib) + 8  [0x187f7950c]
+
+## Blocked-frame summary:
+        __psynch_mutexwait  (in libsystem_kernel.dylib)        4557
+        __psynch_cvwait  (in libsystem_kernel.dylib)        1519

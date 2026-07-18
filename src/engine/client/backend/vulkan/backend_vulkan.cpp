@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
@@ -38,6 +39,35 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// ============================================================================
+// [DEBUG REPRODUCER - do not merge] VK_ERROR_DEVICE_LOST via OOM-recovery
+// re-entrancy on a render worker thread.
+//
+// AllocateVulkanMemory()'s allocation-failure recovery drives the whole frame
+// loop (vkDeviceWaitIdle + NextFrame -> WaitFrame -> FinishRenderThreads ->
+// vkQueueSubmit/vkQueuePresentKHR). That is only valid on the main render
+// thread. With the default gfx_render_thread_count (>= 3) the failing
+// allocation can happen on a render *worker* thread, where:
+//   * FinishRenderThreads() waits on the worker that is currently executing it
+//     and re-locks that worker's own std::mutex -> deadlock (renderer freezes),
+//   * and, on drivers that slip past, the worker issues queue submit/present
+//     concurrently with the main thread -> VK_ERROR_DEVICE_LOST.
+//
+// Setting the env var DBG_VK_FORCE_OOM_WORKER forces the first allocation made
+// on a worker thread to report VK_ERROR_OUT_OF_DEVICE_MEMORY, exercising the
+// recovery path exactly as real VRAM pressure would.
+// ============================================================================
+static thread_local bool s_ReproThreadIsRenderWorker = false;
+static std::atomic_flag s_ReproOomFired = ATOMIC_FLAG_INIT;
+
+static bool ReproShouldForceWorkerOom()
+{
+	static const bool s_Enabled = getenv("DBG_VK_FORCE_OOM_WORKER") != nullptr;
+	if(!s_Enabled || !s_ReproThreadIsRenderWorker)
+		return false;
+	return !s_ReproOomFired.test_and_set();
+}
 
 #ifndef VK_API_VERSION_MAJOR
 #define VK_API_VERSION_MAJOR VK_VERSION_MAJOR
@@ -1607,6 +1637,16 @@ protected:
 	[[nodiscard]] bool AllocateVulkanMemory(const VkMemoryAllocateInfo *pAllocateInfo, VkDeviceMemory *pMemory)
 	{
 		VkResult Res = vkAllocateMemory(m_VKDevice, pAllocateInfo, nullptr, pMemory);
+		if(ReproShouldForceWorkerOom())
+		{
+			log_error("gfx/vulkan", "[repro] forcing VK_ERROR_OUT_OF_DEVICE_MEMORY on render worker thread to trigger OOM recovery");
+			if(Res == VK_SUCCESS && *pMemory != VK_NULL_HANDLE)
+			{
+				vkFreeMemory(m_VKDevice, *pMemory, nullptr);
+				*pMemory = VK_NULL_HANDLE;
+			}
+			Res = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		}
 		if(Res != VK_SUCCESS)
 		{
 			log_warn("gfx/vulkan", "Memory allocation failed, trying to recover.");
@@ -7716,6 +7756,7 @@ public:
 
 	void RunThread(size_t ThreadIndex)
 	{
+		s_ReproThreadIsRenderWorker = true; // [DEBUG REPRODUCER] mark render worker threads
 		auto *pThread = m_vpRenderThreads[ThreadIndex].get();
 		std::unique_lock<std::mutex> Lock(pThread->m_Mutex);
 		pThread->m_Started = true;

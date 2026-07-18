@@ -1,4 +1,7 @@
 find_package(PkgConfig QUIET)
 pkg_check_modules(NOTIFY QUIET libnotify)
+if(NOTIFY_FOUND)
+  set(NOTIFY_LIBRARIES ${NOTIFY_LDFLAGS})
+endif()
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(Notify DEFAULT_MSG NOTIFY_LIBRARIES NOTIFY_INCLUDE_DIRS)

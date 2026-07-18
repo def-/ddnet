@@ -673,10 +673,15 @@ def client_can_connect_7(test_env):
 	client = test_env.client()
 	server = test_env.server()
 	wait_for_startup([client, server])
+	client.command("debug 1")
+	client.command("stdout_output_level 2; loglevel 2")
 	client.command(f"connect tw-0.7+udp://127.0.0.1:{server.port}")  # FIXME(#11693): Work around missing domain support.
 	join = server.wait_for_log_prefix("server: player has entered the game", timeout=10).line
 	if "sixup=1" not in join:
 		raise AssertionError(f"sixup=0 not found in {join!r}")
+	# Wait until the client received snapshots, otherwise the server is shut
+	# down before it creates the first snapshot for the 0.7 client (#11954).
+	client.wait_for_log_exact("client: state change. last=2 current=3", timeout=15)
 	server.exit()
 	client.wait_for_log_exact("client: offline error='Server shutdown'")
 	client.exit()

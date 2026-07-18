@@ -1401,6 +1401,9 @@ void CGameTeams::SetPractice(int Team, bool Enabled)
 
 bool CGameTeams::IsPractice(int Team)
 {
+	// Super players are moved to TEAM_SUPER, keep practice commands available for them on practice-by-default servers
+	if(Team == TEAM_SUPER)
+		return GameServer()->PracticeByDefault();
 	if(!IsValidTeamNumber(Team))
 		return false;
 	if(g_Config.m_SvTeam != SV_TEAM_FORCED_SOLO && Team == TEAM_FLOCK)

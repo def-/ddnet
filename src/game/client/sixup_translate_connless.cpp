@@ -4,6 +4,8 @@
 
 #include <game/client/gameclient.h>
 
+#include <algorithm>
+
 void CClient::PreprocessConnlessPacket7(CNetChunk *pPacket)
 {
 	if(mem_comp(pPacket->m_pData, SERVERBROWSE_INFO, sizeof(SERVERBROWSE_INFO)) == 0)
@@ -31,18 +33,35 @@ void CClient::PreprocessConnlessPacket7(CNetChunk *pPacket)
 		Info.m_NumClients = Up.GetInt();
 		Info.m_MaxClients = Up.GetInt();
 
-		for(int i = 0; i < Info.m_NumClients; i++)
+		int NumReceivedClients = 0;
+		int NumBotPlayers = 0;
+		int NumBotSpectators = 0;
+		for(int i = 0; i < Info.m_NumClients && NumReceivedClients < SERVERINFO_MAX_CLIENTS; i++)
 		{
-			GetString(Info.m_aClients[i].m_aName);
-			GetString(Info.m_aClients[i].m_aClan);
-			Info.m_aClients[i].m_Country = Up.GetInt();
-			if(!in_range(Info.m_aClients[i].m_Country, CountryCode::MINIMUM, CountryCode::MAXIMUM))
+			CServerInfo::CClient *pClient = &Info.m_aClients[NumReceivedClients];
+			GetString(pClient->m_aName);
+			GetString(pClient->m_aClan);
+			pClient->m_Country = Up.GetInt();
+			if(!in_range(pClient->m_Country, CountryCode::MINIMUM, CountryCode::MAXIMUM))
 			{
-				Info.m_aClients[i].m_Country = CountryCode::DEFAULT;
+				pClient->m_Country = CountryCode::DEFAULT;
 			}
-			Info.m_aClients[i].m_Score = Up.GetInt();
-			Info.m_aClients[i].m_Player = !(Up.GetInt() & 1);
+			pClient->m_Score = Up.GetInt();
+			const int PlayerFlags = Up.GetInt(); // flag spectator=1, bot=2 (player=0)
+			if(PlayerFlags & 2)
+			{
+				// don't show bots in the server browser
+				if(PlayerFlags & 1)
+					NumBotSpectators++;
+				else
+					NumBotPlayers++;
+				continue;
+			}
+			pClient->m_Player = !(PlayerFlags & 1);
+			NumReceivedClients++;
 		}
+		Info.m_NumPlayers = std::max(Info.m_NumPlayers - NumBotPlayers, 0);
+		Info.m_NumClients = std::max(Info.m_NumClients - NumBotPlayers - NumBotSpectators, 0);
 
 		const bool IsNotVanilla = Info.m_MaxPlayers > VANILLA_MAX_CLIENTS || Info.m_MaxClients > VANILLA_MAX_CLIENTS;
 		CPacker Packer;
@@ -82,7 +101,7 @@ void CClient::PreprocessConnlessPacket7(CNetChunk *pPacket)
 			Packer.AddString(""); // extra info, reserved
 		}
 
-		for(int i = 0; i < Info.m_NumClients; i++)
+		for(int i = 0; i < NumReceivedClients; i++)
 		{
 			Packer.AddString(Info.m_aClients[i].m_aName);
 			Packer.AddString(Info.m_aClients[i].m_aClan);

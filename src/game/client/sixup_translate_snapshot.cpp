@@ -157,6 +157,14 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 
 	bool NewGameData = false;
 
+	// Assign new ids to all sound and damage indicator events because
+	// multiple 0.6 events can be created from one 0.7 snap item and
+	// the ids of synthesized events could collide with the 0.7 event ids,
+	// which would create items with duplicate keys.
+	// The client does not look at the ids of these events so they only
+	// have to be unique.
+	int EventId = 0;
+
 	for(int i = 0; i < pSnapSrcSeven->NumItems(); i++)
 	{
 		const CSnapshotItem *pItem7 = pSnapSrcSeven->GetItem(i);
@@ -237,7 +245,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 				Sound.m_X = pChar7->m_X;
 				Sound.m_Y = pChar7->m_Y;
 				Sound.m_SoundId = SOUND_HOOK_ATTACH_PLAYER;
-				Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, pItem7->Id(), &Sound, sizeof(Sound));
+				Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, EventId++, &Sound, sizeof(Sound));
 			}
 
 			if(TranslationContext.m_aLocalClientId[Conn] != pItem7->Id())
@@ -248,7 +256,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 					Sound.m_X = pChar7->m_X;
 					Sound.m_Y = pChar7->m_Y;
 					Sound.m_SoundId = SOUND_PLAYER_JUMP;
-					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, pItem7->Id(), &Sound, sizeof(Sound));
+					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, EventId++, &Sound, sizeof(Sound));
 				}
 				if(pChar7->m_TriggeredEvents & protocol7::COREEVENTFLAG_HOOK_ATTACH_GROUND)
 				{
@@ -256,7 +264,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 					Sound.m_X = pChar7->m_X;
 					Sound.m_Y = pChar7->m_Y;
 					Sound.m_SoundId = SOUND_HOOK_ATTACH_GROUND;
-					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, pItem7->Id(), &Sound, sizeof(Sound));
+					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, EventId++, &Sound, sizeof(Sound));
 				}
 				if(pChar7->m_TriggeredEvents & protocol7::COREEVENTFLAG_HOOK_HIT_NOHOOK)
 				{
@@ -264,7 +272,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 					Sound.m_X = pChar7->m_X;
 					Sound.m_Y = pChar7->m_Y;
 					Sound.m_SoundId = SOUND_HOOK_NOATTACH;
-					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, pItem7->Id(), &Sound, sizeof(Sound));
+					Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, EventId++, &Sound, sizeof(Sound));
 				}
 			}
 		}
@@ -335,7 +343,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 			SoundWorld6.m_X = pSoundWorld7->m_X;
 			SoundWorld6.m_Y = pSoundWorld7->m_Y;
 			SoundWorld6.m_SoundId = pSoundWorld7->m_SoundId;
-			Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, pItem7->Id(), &SoundWorld6, sizeof(SoundWorld6));
+			Builder.NewItem(NETEVENTTYPE_SOUNDWORLD, EventId++, &SoundWorld6, sizeof(SoundWorld6));
 		}
 		else if(ItemType == protocol7::NETEVENTTYPE_DAMAGE)
 		{
@@ -375,10 +383,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 				Dmg6.m_Y = pDmg7->m_Y;
 				float f = mix(s, e, float(k + 1) / float(Amount + 2));
 				Dmg6.m_Angle = (int)(f * 256.0f);
-				// pItem7->Id() is reused that is technically wrong
-				// but the client implementation does not look at the ids
-				// and renders the damage indicators just fine
-				Builder.NewItem(NETEVENTTYPE_DAMAGEIND, pItem7->Id(), &Dmg6, sizeof(Dmg6));
+				Builder.NewItem(NETEVENTTYPE_DAMAGEIND, EventId++, &Dmg6, sizeof(Dmg6));
 			}
 		}
 		else if(ItemType == protocol7::NETOBJTYPE_DE_CLIENTINFO)

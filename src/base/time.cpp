@@ -6,10 +6,15 @@
 #include "dbg.h"
 #include "detect.h"
 #include "str.h"
+#include "windows.h"
 
 #include <cmath>
 #include <iomanip> // std::get_time
 #include <sstream> // std::istringstream
+
+#if defined(CONF_FAMILY_WINDOWS)
+#include <cwchar> // wcsftime
+#endif
 
 static int new_tick = -1;
 
@@ -173,8 +178,23 @@ void str_timestamp_format(char *buffer, int buffer_size, const char *format)
 void str_timestamp_ex(time_t time_data, char *buffer, int buffer_size, const char *format)
 {
 	const tm time_info = time_localtime_threadlocal(&time_data);
+#if defined(CONF_FAMILY_WINDOWS)
+	// Use wcsftime instead of strftime on Windows, because the strings inserted
+	// by some format specifiers (e.g. the timezone name for %Z) are encoded with
+	// the ANSI codepage by strftime, which may result in invalid UTF-8.
+	const std::wstring wide_format = windows_utf8_to_wide(format);
+	std::wstring wide_buffer(buffer_size, L'\0');
+	if(wcsftime(wide_buffer.data(), wide_buffer.size(), wide_format.c_str(), &time_info) == 0)
+	{
+		wide_buffer[0] = L'\0';
+	}
+	const std::optional<std::string> utf8_buffer = windows_wide_to_utf8(wide_buffer.c_str());
+	dbg_assert(utf8_buffer.has_value(), "wcsftime result is invalid UTF-16");
+	str_copy(buffer, utf8_buffer.value().c_str(), buffer_size);
+#else
 	strftime(buffer, buffer_size, format, &time_info);
 	buffer[buffer_size - 1] = 0; /* assure null termination */
+#endif
 }
 
 bool timestamp_from_str(const char *string, const char *format, time_t *timestamp)

@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>DDNet Teehistorian Replayer</title>
+		<style>
+		body {
+			background: #ccc;
+			font-family: sans-serif;
+		}
+		body, html, #canvas, #output {
+			margin: 0;
+			width: 100%;
+			height: 100%;
+		}
+		#canvas {
+			position: absolute;
+			top: 0px;
+			left: 0px;
+			border: 0;
+			overflow: hidden;
+			display: block;
+		}
+		#output {
+			padding: 10px;
+			overflow: hidden scroll;
+			box-sizing: border-box;
+		}
+		#output .line {
+			border-left: 5px solid;
+			padding-left: 10px;
+		}
+		#overlay {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: rgba(20, 25, 40, 0.92);
+			color: #eee;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 10;
+		}
+		#panel {
+			max-width: 600px;
+			width: 90%;
+			background: #1c2333;
+			border: 1px solid #39415a;
+			border-radius: 12px;
+			padding: 28px 32px;
+			box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+		}
+		#panel h1 {
+			margin: 0 0 4px 0;
+			font-size: 22px;
+		}
+		#panel .subtitle {
+			color: #9aa4bf;
+			margin-bottom: 18px;
+			font-size: 13px;
+		}
+		#dropzone {
+			border: 2px dashed #4a5578;
+			border-radius: 8px;
+			padding: 34px 16px;
+			text-align: center;
+			cursor: pointer;
+			transition: border-color 0.15s, background 0.15s;
+			font-size: 15px;
+			color: #c8d0e8;
+		}
+		#dropzone:hover, #dropzone.hover {
+			border-color: #8fa4ff;
+			background: rgba(143, 164, 255, 0.06);
+		}
+		#dropzone small {
+			display: block;
+			margin-top: 8px;
+			color: #7d87a8;
+		}
+		#urlrow {
+			margin-top: 12px;
+			display: flex;
+			gap: 8px;
+		}
+		#urlrow input {
+			flex: 1;
+			background: #12182a;
+			color: #dde4f8;
+			border: 1px solid #39415a;
+			border-radius: 6px;
+			padding: 6px 8px;
+			font-size: 13px;
+		}
+		#urlrow button {
+			background: #33406680;
+			color: #dde4f8;
+			border: 1px solid #4a5578;
+			border-radius: 6px;
+			padding: 6px 14px;
+			cursor: pointer;
+			font-size: 13px;
+		}
+		#urlrow button:hover {
+			background: #415080;
+		}
+		#rangerow {
+			margin-top: 12px;
+			font-size: 13px;
+			color: #9aa4bf;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex-wrap: wrap;
+		}
+		#rangerow input {
+			background: #12182a;
+			color: #dde4f8;
+			border: 1px solid #39415a;
+			border-radius: 6px;
+			padding: 6px 8px;
+			font-size: 13px;
+			font-family: monospace;
+			width: 130px;
+		}
+		#fileinfo {
+			margin: 14px 0 0 0;
+			font-size: 13px;
+			color: #b6c0dc;
+			line-height: 1.6;
+			display: none;
+		}
+		#fileinfo b {
+			color: #e8ecf8;
+		}
+		#status {
+			margin-top: 14px;
+			font-size: 13px;
+			font-family: monospace;
+			color: #9aa4bf;
+			max-height: 180px;
+			overflow-y: auto;
+			line-height: 1.5;
+		}
+		#status .error {
+			color: #ff7a7a;
+		}
+		#status .ok {
+			color: #7ade8a;
+		}
+		#mapupload, #retryconvert {
+			display: none;
+			margin-top: 12px;
+		}
+		#mapupload button, #retryconvert button, #reopen {
+			background: #33406680;
+			color: #dde4f8;
+			border: 1px solid #4a5578;
+			border-radius: 6px;
+			padding: 8px 14px;
+			cursor: pointer;
+			font-size: 14px;
+		}
+		#mapupload button:hover, #retryconvert button:hover, #reopen:hover {
+			background: #415080;
+		}
+		#reopen {
+			position: absolute;
+			top: 10px;
+			right: 10px;
+			z-index: 5;
+			display: none;
+			opacity: 0.65;
+		}
+		#reopen:hover {
+			opacity: 1;
+		}
+		#closepanel {
+			display: none;
+			margin-top: 14px;
+			background: none;
+			color: #7d87a8;
+			border: none;
+			cursor: pointer;
+			font-size: 13px;
+			text-decoration: underline;
+		}
+		input[type=file] {
+			display: none;
+		}
+		</style>
+	</head>
+	<body>
+		<div id="output" style="display: none"></div>
+		<canvas id="canvas">Canvas not supported.</canvas>
+		<button id="reopen">Load another teehistorian file</button>
+		<div id="overlay">
+			<div id="panel">
+				<h1>DDNet Teehistorian Replayer</h1>
+				<div class="subtitle">Upload a teehistorian recording &mdash; the map is fetched automatically and the replay plays right here in your browser.</div>
+				<div id="dropzone">
+					Drop a <b>.teehistorian</b> file here or click to select
+					<small>Compressed recordings (.xz) must be decompressed first</small>
+				</div>
+				<div id="urlrow">
+					<input type="text" id="urlinput" placeholder="… or stream from a URL (https://archive…/region/game-uuid)">
+					<button id="urlgo">Stream</button>
+				</div>
+				<div id="rangerow">
+					Time window (optional):
+					<input type="text" id="starttime" placeholder="start, e.g. 12:00:00">
+					<input type="text" id="endtime" placeholder="end, e.g. 12:30:00">
+				</div>
+				<input type="file" id="fileinput">
+				<input type="file" id="mapinput" accept=".map">
+				<div id="fileinfo"></div>
+				<div id="mapupload"><button>Select map file manually&hellip;</button></div>
+				<div id="retryconvert"><button>Convert with this time window</button></div>
+				<div id="status"></div>
+				<button id="closepanel">Close and return to the running replay</button>
+			</div>
+		</div>
+		<script>
+			var output = document.getElementById('output');
+			function appendOutput(message, bold, textColor, borderColor) {
+				const span = document.createElement("span");
+				span.textContent = message;
+				span.className = "line";
+				if (textColor) {
+					span.style.color = textColor;
+				}
+				if (borderColor) {
+					span.style.borderColor = borderColor;
+				}
+				if (bold) {
+					span.style.fontWeight = "bold";
+				}
+				output.appendChild(span);
+				output.appendChild(document.createElement("br"));
+				output.scrollTop = output.scrollHeight;
+			}
+			function parseAnsiColorRgb(line) {
+				// Only handles RGB format because our logging system only uses that.
+				const match = line.match(/^\x1b\[38;2;(\d+);(\d+);(\d+)m([\s\S]*?)\x1b\[0m$/);
+				if (!match) {
+					return { color: "black", message: line };
+				}
+				const [, r, g, b, message] = match;
+				return { color: `rgb(${r}, ${g}, ${b})`, message: message };
+			}
+			var clientRuntimeReady = null;
+			var signalClientRuntimeReady = null;
+			clientRuntimeReady = new Promise(resolve => { signalClientRuntimeReady = resolve; });
+			var Module = {
+				print: function(text) {
+					console.log(parseAnsiColorRgb(text).message);
+				},
+				printErr: function(text) {
+					console.error(text);
+				},
+				onRuntimeInitialized: function() {
+					signalClientRuntimeReady();
+				},
+				onExit: function() {
+					Module['canvas'].style.display = "none";
+					Module['canvas'].style.cursor = "default";
+					document.body.style.cursor = "default";
+					output.style.display = "block";
+					appendOutput("Client closed. Reload the page to restart.", true);
+					const restartButton = document.createElement("button");
+					restartButton.textContent = "Reload page";
+					restartButton.style.marginTop = "10px";
+					restartButton.style.padding = "5px";
+					restartButton.addEventListener('click', e => location.reload());
+					output.appendChild(restartButton);
+					output.scrollTop = output.scrollHeight;
+				},
+				canvas: document.getElementById('canvas')
+			};
+			window.onerror = function(message, url, line, column, error) {
+				appendOutput(message, true, "red");
+				if (error && error.stack) {
+					for (const line of error.stack.split("\n")) {
+						if (line.length > 0) {
+							appendOutput(line, false, "red");
+						}
+					}
+				}
+				// Force stop audio processing because the client does not do so when force quit on
+				// assertion errors and segmentation faults. This would otherwise cause many error
+				// messages to be emitted when audio processing continues after the runtime exited.
+				var SDL2 = Module['SDL2'];
+				if (SDL2 !== undefined) {
+					if (SDL2.audio !== undefined) {
+						if (SDL2.audio.scriptProcessorNode !== undefined) {
+							SDL2.audio.scriptProcessorNode.disconnect();
+						}
+						if (SDL2.audio.silenceTimer !== undefined) {
+							clearInterval(SDL2.audio.silenceTimer);
+						}
+						SDL2.audio = undefined;
+					}
+					if (SDL2.audioContext !== undefined) {
+						SDL2.audioContext.close();
+						SDL2.audioContext = undefined;
+					}
+				}
+				// Force quit the client on errors, because the runtime does not exit otherwise.
+				if (typeof ABORT !== 'undefined' && !ABORT) {
+					Module.ccall('EmscriptenCallbackQuitForce', null, [], []);
+				}
+			};
+			document.addEventListener('keydown', e => {
+				// Always use default browser actions for Ctrl+F5 (refresh), F11 (fullscreen), F12 (developer console).
+				if ((e.ctrlKey && e.key === 'F5') || e.key === 'F11' || e.key == 'F12') {
+					e.stopPropagation();
+				}
+			}, true);
+			Module['canvas'].addEventListener('contextmenu', e => e.preventDefault());
+			Module['canvas'].addEventListener('webglcontextcreationerror', e => {
+				appendOutput(`Failed to create WebGL context: ${e.statusMessage || "Unknown error"}`, true, "red");
+			});
+			Module['canvas'].addEventListener('webglcontextlost', e => {
+				appendOutput(`The WebGL context was lost: ${e.statusMessage || "Unknown error"}`, true, "red");
+				Module.ccall('EmscriptenCallbackQuit', null, [], []);
+			});
+
+			// ------------------------------------------------------------------
+			// Teehistorian replayer
+			// ------------------------------------------------------------------
+			const MAP_DOWNLOAD_URL = "https://maps.ddnet.org";
+			const CLIENT_HOME = "/home/web_user/.local/share/ddnet";
+			const TEEHISTORIAN_UUID = [0x69, 0x9d, 0xb1, 0x7b, 0x8e, 0xfb, 0x34, 0xff, 0xb1, 0xd8, 0xda, 0x6f, 0x60, 0xc1, 0x5d, 0xd1];
+			// Without a time window, the produced demo is roughly 2-3x the size of
+			// the recording. Beyond this input size, require a time window so the
+			// tab does not run out of memory.
+			const MAX_FULL_CONVERT_SIZE = 400 * 1024 * 1024;
+
+			const overlay = document.getElementById('overlay');
+			const dropzone = document.getElementById('dropzone');
+			const fileinput = document.getElementById('fileinput');
+			const mapinput = document.getElementById('mapinput');
+			const fileinfo = document.getElementById('fileinfo');
+			const mapupload = document.getElementById('mapupload');
+			const retryconvert = document.getElementById('retryconvert');
+			const statusBox = document.getElementById('status');
+			const reopenButton = document.getElementById('reopen');
+			const closePanelButton = document.getElementById('closepanel');
+			const startTimeInput = document.getElementById('starttime');
+			const endTimeInput = document.getElementById('endtime');
+
+			let busy = false;
+			let playingDemo = false;
+			let demoCounter = 0;
+			// A source is either a File object or a URL string
+			let lastSource = null;
+			let pendingHeader = null;
+			let pendingSource = null;
+
+			function status(message, cls) {
+				const div = document.createElement('div');
+				div.textContent = message;
+				if (cls) {
+					div.className = cls;
+				}
+				statusBox.appendChild(div);
+				statusBox.scrollTop = statusBox.scrollHeight;
+				console.log(`[replayer] ${message}`);
+			}
+			function statusError(message) {
+				status(message, 'error');
+				busy = false;
+			}
+			function clearStatus() {
+				statusBox.textContent = '';
+				fileinfo.style.display = 'none';
+				mapupload.style.display = 'none';
+				retryconvert.style.display = 'none';
+			}
+
+			function parseTimeInput(value) {
+				// Same formats as the converter: seconds, M:SS or H:MM:SS
+				if (!/^\d+(:\d{1,2}){0,2}$/.test(value)) {
+					return null;
+				}
+				return value.split(':').reduce((total, part) => total * 60 + parseInt(part, 10), 0);
+			}
+
+			function parseHeader(data) {
+				if (data.length < 17) {
+					return { error: "File too short to be a teehistorian file." };
+				}
+				const magics = [
+					{ bytes: [0xfd, 0x37, 0x7a, 0x58, 0x5a], name: "xz", hint: "Decompress it first: xz -d <file>" },
+					{ bytes: [0x1f, 0x8b], name: "gzip", hint: "Decompress it first: gzip -d <file>" },
+					{ bytes: [0x28, 0xb5, 0x2f, 0xfd], name: "zstd", hint: "Decompress it first: zstd -d <file>" },
+				];
+				for (const magic of magics) {
+					if (magic.bytes.every((b, i) => data[i] === b)) {
+						return { error: `This is a ${magic.name}-compressed file. ${magic.hint}` };
+					}
+				}
+				if (!TEEHISTORIAN_UUID.every((b, i) => data[i] === b)) {
+					return { error: "Not a teehistorian file (wrong magic bytes)." };
+				}
+				const nul = data.indexOf(0, 16);
+				if (nul < 0) {
+					return { error: "Corrupted teehistorian file (unterminated header)." };
+				}
+				try {
+					const header = JSON.parse(new TextDecoder().decode(data.subarray(16, nul)));
+					return { header: header };
+				} catch (parseError) {
+					return { error: `Corrupted teehistorian header: ${parseError.message}` };
+				}
+			}
+
+			async function fetchMap(header) {
+				if (!header.map_sha256) {
+					status("Old teehistorian version without map_sha256, cannot fetch the map automatically.");
+					return null;
+				}
+				const url = `${MAP_DOWNLOAD_URL}/${encodeURIComponent(header.map_name)}_${header.map_sha256}.map`;
+				status(`Downloading map ${header.map_name} ...`);
+				try {
+					const response = await fetch(url);
+					if (!response.ok) {
+						status(`Map download failed (HTTP ${response.status}).`);
+						return null;
+					}
+					const map = new Uint8Array(await response.arrayBuffer());
+					status(`Map downloaded (${(map.length / 1024).toFixed(0)} KiB).`, 'ok');
+					return map;
+				} catch (fetchError) {
+					status(`Map download failed: ${fetchError.message}`);
+					return null;
+				}
+			}
+
+			async function convert(source, mapData, startTime, endTime) {
+				status("Converting to demo ...");
+				// The tool is built with ASYNCIFY (like the whole client), so main()
+				// can suspend and callMain returns early. Wait for onExit before
+				// reading the result from the filesystem.
+				let signalExit = null;
+				const exitPromise = new Promise(resolve => { signalExit = resolve; });
+				const converter = await createTeehistorian2Demo({
+					print: text => status(parseAnsiColorRgb(text).message.replace(/^[0-9:\- ]*[IWE] /, "")),
+					printErr: text => status(text, 'error'),
+					onExit: exitCode => signalExit(exitCode),
+				});
+				let inputName;
+				if (typeof source === 'string') {
+					// The converter streams the URL itself and only downloads what it needs
+					inputName = source;
+				} else {
+					// Copy the recording into the converter in slices, so the page never
+					// holds the whole file in a single buffer next to the copy in the
+					// converter's filesystem.
+					inputName = 'input.teehistorian';
+					const SLICE_SIZE = 32 * 1024 * 1024;
+					const stream = converter.FS.open('/input.teehistorian', 'w');
+					for (let offset = 0; offset < source.size; offset += SLICE_SIZE) {
+						const end = Math.min(offset + SLICE_SIZE, source.size);
+						const slice = new Uint8Array(await source.slice(offset, end).arrayBuffer());
+						converter.FS.write(stream, slice, 0, slice.length, offset);
+						if (source.size > 256 * 1024 * 1024 && (offset / SLICE_SIZE) % 8 === 7) {
+							status(`Loading recording: ${(end / 1024 / 1024).toFixed(0)} / ${(source.size / 1024 / 1024).toFixed(0)} MiB ...`);
+						}
+					}
+					converter.FS.close(stream);
+				}
+				converter.FS.writeFile('/map.map', mapData);
+				const args = [inputName, 'map.map', 'output.demo'];
+				if (startTime || endTime) {
+					args.push(startTime || '0');
+					if (endTime) {
+						args.push(endTime);
+					}
+				}
+				try {
+					converter.callMain(args);
+				} catch (exitException) {
+					if (exitException && exitException.name !== 'ExitStatus') {
+						throw exitException;
+					}
+				}
+				const timeout = new Promise(resolve => setTimeout(() => resolve('timeout'), 1800000));
+				const exitCode = await Promise.race([exitPromise, timeout]);
+				if (exitCode !== 0) {
+					status(`Converter exited with ${exitCode}.`, 'error');
+					return null;
+				}
+				try {
+					const demoData = converter.FS.readFile('/output.demo');
+					if (typeof source !== 'string') {
+						converter.FS.unlink('/input.teehistorian');
+					}
+					return demoData;
+				} catch (readError) {
+					return null;
+				}
+			}
+
+			async function playDemo(demoData, name) {
+				await clientRuntimeReady;
+				const demoDir = `${CLIENT_HOME}/demos/teehistorian`;
+				FS.createPath(`${CLIENT_HOME}/demos`, "teehistorian", true, true);
+				// Unique name so switching to another replay always triggers a reload
+				demoCounter++;
+				const demoPath = `${demoDir}/${name}_${demoCounter}.demo`;
+				FS.writeFile(demoPath, demoData);
+				Module.ccall('EmscriptenCallbackDropFile', null, ['string'], [demoPath]);
+			}
+
+			// Read the first bytes of a URL (until the header's null terminator is
+			// found) without downloading the whole file. Returns the bytes and the
+			// content length, which is unknown for on-the-fly decompressed streams.
+			async function prefetchUrlHeader(url) {
+				const response = await fetch(url);
+				if (!response.ok || !response.body) {
+					throw new Error(`HTTP ${response.status}`);
+				}
+				const contentLength = response.headers.has('Content-Length') ? parseInt(response.headers.get('Content-Length'), 10) : null;
+				const reader = response.body.getReader();
+				const chunks = [];
+				let total = 0;
+				let sawNul = false;
+				while (total < 8 * 1024 * 1024 && !sawNul) {
+					const { value, done } = await reader.read();
+					if (done) {
+						break;
+					}
+					chunks.push(value);
+					total += value.length;
+					sawNul = value.includes(0);
+				}
+				reader.cancel();
+				const data = new Uint8Array(total);
+				let offset = 0;
+				for (const chunk of chunks) {
+					data.set(chunk, offset);
+					offset += chunk.length;
+				}
+				return { data, contentLength };
+			}
+
+			async function handleTeehistorian(source) {
+				if (busy) {
+					return;
+				}
+				busy = true;
+				lastSource = source;
+				clearStatus();
+				try {
+					const isUrl = typeof source === 'string';
+					let headerData;
+					let sourceSize;
+					if (isUrl) {
+						status(`Fetching ${source} ...`);
+						try {
+							const prefetch = await prefetchUrlHeader(source);
+							headerData = prefetch.data;
+							sourceSize = prefetch.contentLength;
+						} catch (fetchError) {
+							statusError(`Fetching the URL failed: ${fetchError.message}. The server needs to allow cross-origin requests.`);
+							return;
+						}
+					} else {
+						status(`Reading ${source.name} (${(source.size / 1024 / 1024).toFixed(1)} MiB) ...`);
+						headerData = new Uint8Array(await source.slice(0, 8 * 1024 * 1024).arrayBuffer());
+						sourceSize = source.size;
+					}
+					const parsed = parseHeader(headerData);
+					if (parsed.error) {
+						statusError(parsed.error);
+						return;
+					}
+					const header = parsed.header;
+					fileinfo.innerHTML = '';
+					const infoLines = [
+						['Server', header.server_name],
+						['Game type', header.game_type],
+						['Map', header.map_name],
+						['Recorded', header.start_time],
+					];
+					for (const [key, value] of infoLines) {
+						if (value) {
+							const div = document.createElement('div');
+							const b = document.createElement('b');
+							b.textContent = `${key}: `;
+							div.appendChild(b);
+							div.appendChild(document.createTextNode(value));
+							fileinfo.appendChild(div);
+						}
+					}
+					fileinfo.style.display = 'block';
+
+					const startTime = startTimeInput.value.trim();
+					const endTime = endTimeInput.value.trim();
+					for (const [label, value] of [['start', startTime], ['end', endTime]]) {
+						if (value && parseTimeInput(value) === null) {
+							statusError(`Invalid ${label} time '${value}', use seconds, M:SS or H:MM:SS.`);
+							return;
+						}
+					}
+					if (startTime && endTime && parseTimeInput(endTime) <= parseTimeInput(startTime)) {
+						statusError("The end time must be after the start time.");
+						return;
+					}
+					if (sourceSize !== null && sourceSize > MAX_FULL_CONVERT_SIZE && !startTime && !endTime) {
+						status(`This recording is ${(sourceSize / 1024 / 1024).toFixed(0)} MiB and likely covers many hours. ` +
+							`Converting all of it would produce a demo too large for the browser.`, 'error');
+						status("Enter a time window above, then convert. (The full recording can be converted with the native teehistorian2demo tool.)");
+						retryconvert.style.display = 'block';
+						busy = false;
+						return;
+					}
+					if (isUrl && sourceSize === null && !endTime) {
+						status("The length of this stream is unknown (on-the-fly decompression), so an end time is required.", 'error');
+						retryconvert.style.display = 'block';
+						busy = false;
+						return;
+					}
+
+					const mapData = await fetchMap(header);
+					if (mapData === null) {
+						status("Please select the map file manually.");
+						mapupload.style.display = 'block';
+						pendingHeader = header;
+						pendingSource = source;
+						busy = false;
+						return;
+					}
+					await convertAndPlay(source, mapData, header, startTime, endTime);
+				} catch (unexpectedError) {
+					statusError(`Unexpected error: ${unexpectedError.message}`);
+					console.error(unexpectedError);
+				}
+			}
+
+			async function convertAndPlay(source, mapData, header, startTime, endTime) {
+				const demoData = await convert(source, mapData, startTime, endTime);
+				if (demoData === null || demoData.length === 0) {
+					statusError("Conversion failed, no demo was produced.");
+					return;
+				}
+				status(`Demo ready (${(demoData.length / 1024 / 1024).toFixed(1)} MiB), starting playback ...`, 'ok');
+				const safeName = (header.map_name || "replay").replace(/[^A-Za-z0-9_\-]/g, "_");
+				await playDemo(demoData, safeName);
+				playingDemo = true;
+				busy = false;
+				overlay.style.display = 'none';
+				reopenButton.style.display = 'block';
+			}
+
+			dropzone.addEventListener('click', () => fileinput.click());
+			fileinput.addEventListener('change', () => {
+				if (fileinput.files.length > 0) {
+					handleTeehistorian(fileinput.files[0]);
+					fileinput.value = '';
+				}
+			});
+			const urlinput = document.getElementById('urlinput');
+			document.getElementById('urlgo').addEventListener('click', () => {
+				const url = urlinput.value.trim();
+				if (!/^https?:\/\//.test(url)) {
+					statusError("Enter a http(s):// URL.");
+					return;
+				}
+				handleTeehistorian(url);
+			});
+			urlinput.addEventListener('keydown', e => {
+				if (e.key === 'Enter') {
+					document.getElementById('urlgo').click();
+				}
+			});
+			retryconvert.querySelector('button').addEventListener('click', () => {
+				if (lastSource !== null && !busy) {
+					handleTeehistorian(lastSource);
+				}
+			});
+			mapupload.querySelector('button').addEventListener('click', () => mapinput.click());
+			mapinput.addEventListener('change', async () => {
+				if (mapinput.files.length > 0 && pendingSource !== null && !busy) {
+					busy = true;
+					mapupload.style.display = 'none';
+					const mapData = new Uint8Array(await mapinput.files[0].arrayBuffer());
+					await convertAndPlay(pendingSource, mapData, pendingHeader, startTimeInput.value.trim(), endTimeInput.value.trim());
+					mapinput.value = '';
+				}
+			});
+			dropzone.addEventListener('dragover', e => {
+				e.preventDefault();
+				dropzone.classList.add('hover');
+			});
+			dropzone.addEventListener('dragleave', () => dropzone.classList.remove('hover'));
+			dropzone.addEventListener('drop', e => {
+				e.preventDefault();
+				dropzone.classList.remove('hover');
+				if (e.dataTransfer.files.length > 0) {
+					handleTeehistorian(e.dataTransfer.files[0]);
+				}
+			});
+			reopenButton.addEventListener('click', () => {
+				overlay.style.display = 'flex';
+				reopenButton.style.display = 'none';
+				closePanelButton.style.display = playingDemo ? 'block' : 'none';
+			});
+			closePanelButton.addEventListener('click', () => {
+				overlay.style.display = 'none';
+				reopenButton.style.display = 'block';
+			});
+			// Also accept teehistorian files dropped onto the running replay
+			Module['canvas'].addEventListener('dragover', e => {
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "copy";
+			});
+			Module['canvas'].addEventListener('drop', e => {
+				e.preventDefault();
+				if (e.dataTransfer.files.length > 0) {
+					overlay.style.display = 'flex';
+					reopenButton.style.display = 'none';
+					closePanelButton.style.display = 'block';
+					handleTeehistorian(e.dataTransfer.files[0]);
+				}
+			});
+		</script>
+		<script src="teehistorian2demo.js"></script>
+		<script src="DDNet.js"></script>
+	</body>
+</html>

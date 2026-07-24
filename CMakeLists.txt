@@ -3135,6 +3135,7 @@ if(TOOLS)
     map_test.cpp
     packetgen.cpp
     stun.cpp
+    teehistorian2demo.cpp
     twping.cpp
     unicode_confusables.cpp
     uuid.cpp
@@ -3173,6 +3174,18 @@ if(TOOLS)
       list(APPEND TARGETS_TOOLS ${TOOL})
     endif()
   endforeach()
+
+  if(TARGET_OS STREQUAL "emscripten")
+    # Build the teehistorian converter as a JS module usable from the browser
+    set_target_properties(teehistorian2demo PROPERTIES SUFFIX ".js")
+    target_link_options(teehistorian2demo PRIVATE
+      "SHELL:-s MODULARIZE=1"
+      "SHELL:-s EXPORT_NAME=createTeehistorian2Demo"
+      "SHELL:-s EXPORTED_FUNCTIONS=_main"
+      "SHELL:-s EXPORTED_RUNTIME_METHODS=FS,callMain"
+      "SHELL:-s INVOKE_RUN=0"
+    )
+  endif()
 
   list(APPEND TARGETS_OWN ${TARGETS_TOOLS})
   list(APPEND TARGETS_LINK ${TARGETS_TOOLS})
@@ -3873,7 +3886,7 @@ foreach(target ${TARGETS})
   if(ENABLE_IPO)
     set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   endif()
-  if(TARGET_OS STREQUAL "emscripten")
+  if(TARGET_OS STREQUAL "emscripten" AND target STREQUAL "game-client")
     # Preload data directory into the filesystem
     target_link_options(${target} PRIVATE --preload-file data)
   endif()

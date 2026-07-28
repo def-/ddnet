@@ -2295,10 +2295,28 @@ set_src(GAME_ENTITIES GLOB src/game/entities
   # tidy-alphabetical-start
   character.cpp
   character.h
+  door.cpp
+  door.h
+  dragger.cpp
+  dragger.h
+  dragger_beam.cpp
+  dragger_beam.h
   entity.cpp
   entity.h
   gameworld.cpp
   gameworld.h
+  gun.cpp
+  gun.h
+  laser.cpp
+  laser.h
+  light.cpp
+  light.h
+  pickup.cpp
+  pickup.h
+  plasma.cpp
+  plasma.h
+  projectile.cpp
+  projectile.h
   # tidy-alphabetical-end
 )
 set_src(GAME_SHARED GLOB src/game
@@ -2981,24 +2999,7 @@ if(SERVER)
     ddracechat.cpp
     ddracecommands.cpp
     entities/character_server.cpp
-    entities/door.cpp
-    entities/door.h
-    entities/dragger.cpp
-    entities/dragger.h
-    entities/dragger_beam.cpp
-    entities/dragger_beam.h
-    entities/gun.cpp
-    entities/gun.h
-    entities/laser.cpp
-    entities/laser.h
-    entities/light.cpp
-    entities/light.h
-    entities/pickup.cpp
-    entities/pickup.h
-    entities/plasma.cpp
-    entities/plasma.h
-    entities/projectile.cpp
-    entities/projectile.h
+    entities/entities_server.cpp
     eventhandler.cpp
     eventhandler.h
     gamecontext.cpp

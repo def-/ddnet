@@ -3,12 +3,12 @@
 #include "gamecontroller.h"
 
 #include <game/entities/character.h>
-#include "entities/door.h"
-#include "entities/dragger.h"
-#include "entities/gun.h"
-#include "entities/light.h"
-#include "entities/pickup.h"
-#include "entities/projectile.h"
+#include <game/entities/door.h>
+#include <game/entities/dragger.h>
+#include <game/entities/gun.h>
+#include <game/entities/light.h>
+#include <game/entities/pickup.h>
+#include <game/entities/projectile.h>
 #include "gamecontext.h"
 #include "player.h"
 

@@ -2,7 +2,6 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "gamecontext.h"
 
-#include <game/entities/character.h>
 #include "gamemodes/ddnet.h"
 #include "gamemodes/mod.h"
 #include "player.h"
@@ -40,6 +39,7 @@
 #include <generated/protocolglue.h>
 
 #include <game/collision.h>
+#include <game/entities/character.h>
 #include <game/gamecore.h>
 #include <game/mapitems.h>
 #include <game/version.h>
@@ -420,6 +420,16 @@ bool CGameContext::TeeFinished(int ClientId)
 bool CGameContext::SetCharacterTeam(int ClientId, int Team, char *pError, int ErrorSize)
 {
 	return m_pController->Teams().SetCharacterTeam(ClientId, Team, pError, ErrorSize);
+}
+
+bool CGameContext::IsPlayerConnected(int ClientId) const
+{
+	return ClientId >= 0 && ClientId < MAX_CLIENTS && m_apPlayers[ClientId] != nullptr;
+}
+
+uint32_t CGameContext::GetUniqueCid(int ClientId) const
+{
+	return IsPlayerConnected(ClientId) ? m_apPlayers[ClientId]->GetUniqueCid() : 0;
 }
 
 bool CGameContext::IsPlayerInGame(int ClientId)
@@ -4251,7 +4261,8 @@ void CGameContext::OnInit(const void *pPersistentData)
 
 	m_Layers.Init(Map(), false, false);
 	m_Collision.Init(&m_Layers);
-	m_World.Init(&m_Collision, m_aTuningList);
+	m_World.Init(&m_Collision, m_aTuningList, &m_MapBugs);
+	m_World.m_Core.InitSwitchers(m_Collision.m_HighestSwitchNumber);
 	m_MapBugs = CMapBugs::Create(Map()->BaseName(), Map()->Size(), Map()->Sha256());
 
 	// Reset Tunezones

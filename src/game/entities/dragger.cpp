@@ -1,16 +1,15 @@
 /* (c) Shereef Marzouk. See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
 #include "dragger.h"
 
-#include <game/entities/character.h>
 #include "dragger_beam.h"
 
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/player.h>
-#include <game/server/teams.h>
 
 CDragger::CDragger(CGameWorld *pGameWorld, vec2 Pos, float Strength, bool IgnoreWalls, int Layer, int Number) :
 	CEntity(pGameWorld, EEntityClass::DRAGGER, true)

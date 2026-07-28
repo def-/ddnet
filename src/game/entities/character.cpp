@@ -5,26 +5,25 @@
 #include <antibot/antibot_data.h>
 
 #include <base/log.h>
+#include <base/str.h>
 #include <base/time.h>
 
 #include <engine/antibot.h>
 #include <engine/shared/config.h>
 
 #include <generated/protocol.h>
+#include <generated/protocol7.h>
 #include <generated/server_data.h>
 
+#include <game/collision.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
 // Still reached for by FireWeapon and the pickup tiles. These three classes are
 // the rest of what has to move here before this file can be compiled once and
 // shared with the prediction rather than only built into the server.
-#include <game/server/entities/laser.h>
-#include <game/server/entities/pickup.h>
-#include <game/server/entities/projectile.h>
-#include <game/server/gamecontext.h>
-#include <game/server/gamecontroller.h>
-#include <game/server/player.h>
-#include <game/server/score.h>
-#include <game/server/teams.h>
+#include <game/entities/laser.h>
+#include <game/entities/pickup.h>
+#include <game/entities/projectile.h>
 #include <game/team_state.h>
 
 MACRO_ALLOC_POOL_ID_IMPL(CCharacter, MAX_CLIENTS)

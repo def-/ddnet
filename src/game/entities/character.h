@@ -3,7 +3,8 @@
 #ifndef GAME_ENTITIES_CHARACTER_H
 #define GAME_ENTITIES_CHARACTER_H
 
-#include <game/entities/entity.h>
+#include "entity.h"
+
 #include <game/race_state.h>
 #include <game/server/save.h>
 
@@ -77,7 +78,6 @@ public:
 	void ResetInput();
 	void FireWeapon();
 
-	void Die(int Killer, int Weapon, bool SendKillMsg = true);
 	bool TakeDamage(vec2 Force, int Dmg, int From, int Weapon);
 	void SendDeathMessageIfNotInLockedTeam(int Killer, int Weapon, int ModeSpecial);
 	void CancelSwapRequests();
@@ -122,6 +122,38 @@ public:
 	void SetDefaultEmote();
 	int GetDieTick() const;
 	void SetDieTick(int Tick);
+	void Die(int Killer, int Weapon, bool SendKillMsg = true);
+	void SetTimeCheckpoint(int TimeCheckpoint);
+	void SendZoneMsgs();
+	bool TrySetRescue(int RescueMode);
+	void HandleBroadcast();
+	void StopRecording();
+
+	/*
+		Prediction only, defined in
+		src/game/client/prediction/character_predict.cpp. Read takes the
+		character out of a snapshot, Match asks whether the character the
+		prediction already has is the same one, and ResetPrediction throws away
+		what was predicted so it can start again from what the server sent.
+	*/
+	CCharacter(CGameWorld *pGameWorld, int Id, CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended = nullptr);
+	void Read(CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended, bool IsLocal);
+	bool Match(CCharacter *pChar) const;
+	void ResetPrediction();
+	void SetCoreWorld(CGameWorld *pGameWorld);
+	void SetTuneZone(int Zone);
+	int GetOverriddenTuneZone() const;
+	int GetPureTuneZone() const;
+
+	bool m_IsLocal = false;
+	bool m_KeepHooked = false;
+	bool m_CanMoveInFreeze = false;
+	int m_GameTeam = 0;
+	int m_LastSnapWeapon = -1;
+	int m_TuneZoneOverride = -1;
+	int m_LastWeaponSwitchTick = 0;
+	int m_LastTuneZoneTick = 0;
+	vec2 m_PrevPrevPos = vec2(0, 0);
 
 	void SetPosition(const vec2 &Position);
 	void Move(vec2 RelPos);
@@ -191,7 +223,6 @@ private:
 
 	void SnapCharacter(int SnappingClient, int Id);
 	static bool IsSwitchActiveCb(unsigned char Number, void *pUser);
-	void SetTimeCheckpoint(int TimeCheckpoint);
 	void HandleTiles(int Index);
 	float m_Time;
 	int m_LastBroadcast;
@@ -200,9 +231,7 @@ private:
 	void ForceSetRescue(int RescueMode);
 	void DDRaceTick();
 	void DDRacePostCoreTick();
-	void HandleBroadcast();
 	void HandleTuneLayer();
-	void SendZoneMsgs();
 	IAntibot *Antibot();
 
 	bool m_SetSavePos[NUM_RESCUEMODES];
@@ -214,7 +243,6 @@ public:
 	// core but none of the rest of CGameTeams.
 	CTeamsCore *TeamsCore();
 	void SetTeams(CGameTeams *pTeams);
-	bool TrySetRescue(int RescueMode);
 
 	void FillAntibot(CAntibotCharacterData *pData);
 	void Pause(bool Pause);
@@ -228,7 +256,6 @@ public:
 	int Team();
 	bool CanCollide(int ClientId) override;
 	bool SameTeam(int ClientId);
-	void StopRecording();
 	bool m_NinjaJetpack;
 	int m_TeamBeforeSuper;
 	int m_FreezeTime;

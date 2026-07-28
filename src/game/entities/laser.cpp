@@ -2,17 +2,15 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "laser.h"
 
-#include <game/entities/character.h>
-
 #include <engine/shared/config.h>
 #include <engine/shared/protocol.h>
 
 #include <generated/protocol.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/gamemodes/ddnet.h>
-#include <game/server/player.h>
 
 CLaser::CLaser(CGameWorld *pGameWorld, vec2 Pos, vec2 Direction, float StartEnergy, int Owner, int Type) :
 	CEntity(pGameWorld, EEntityClass::LASER, true)
@@ -31,10 +29,9 @@ CLaser::CLaser(CGameWorld *pGameWorld, vec2 Pos, vec2 Direction, float StartEner
 	m_ZeroEnergyBounceInLastTick = false;
 	m_TuneZone = Collision()->IsTune(Collision()->GetMapIndex(m_Pos));
 	CCharacter *pOwnerChar = GameWorld()->GetCharacterById(m_Owner);
-	m_BelongsToPracticeTeam = pOwnerChar && pOwnerChar->Teams()->IsPractice(pOwnerChar->Team());
+	m_BelongsToPracticeTeam = pOwnerChar && Env()->TeamIsPractice(pOwnerChar->Team());
 
-	CPlayer *pOwnerPlayer = (Owner >= 0 && Owner < MAX_CLIENTS) ? GameServer()->m_apPlayers[m_Owner] : nullptr;
-	m_InteractState.Init(Owner, pOwnerPlayer ? pOwnerPlayer->GetUniqueCid() : 0);
+	m_InteractState.Init(Owner, Env()->GetUniqueCid(Owner));
 	SyncInteractState();
 	GameWorld()->InsertEntity(this);
 	DoBounce();
@@ -54,7 +51,7 @@ bool CLaser::HitCharacter(vec2 From, vec2 To)
 	else
 		pHit = GameWorld()->IntersectCharacter(m_Pos, To, 0.f, At, pDontHitSelf ? pOwnerChar : nullptr, m_Owner, pOwnerChar);
 
-	if(!pHit || !m_InteractState.CanHit(GameServer(), pHit->GetCid()))
+	if(!pHit || !CanHit(pHit->GetCid()))
 		return false;
 	m_From = From;
 	m_Pos = At;
@@ -158,7 +155,7 @@ void CLaser::DoBounce()
 			}
 			else
 			{
-				m_Energy -= Distance + GameServer()->TuningList()[m_TuneZone].m_LaserBounceCost;
+				m_Energy -= Distance + GetTuning(m_TuneZone)->m_LaserBounceCost;
 			}
 			m_ZeroEnergyBounceInLastTick = Distance == 0.0f;
 
@@ -179,7 +176,7 @@ void CLaser::DoBounce()
 			if(m_Bounces > BounceNum)
 				m_Energy = -1;
 
-			Env()->CreateSound(m_Pos, SOUND_LASER_BOUNCE, m_InteractState.CanSeeMask(GameServer()), GetId().value_or(-1));
+			Env()->CreateSound(m_Pos, SOUND_LASER_BOUNCE, BounceMask(), GetId().value_or(-1));
 		}
 	}
 	else
@@ -282,31 +279,4 @@ void CLaser::TickPaused()
 void CLaser::SwapClients(int Client1, int Client2)
 {
 	m_Owner = m_Owner == Client1 ? Client2 : (m_Owner == Client2 ? Client1 : m_Owner);
-}
-
-void CLaser::SyncInteractState()
-{
-	CPlayer *pOwnerPlayer = (m_Owner >= 0 && m_Owner < MAX_CLIENTS) ? GameServer()->m_apPlayers[m_Owner] : nullptr;
-	CCharacter *pOwnerChar = GameWorld()->GetCharacterById(m_Owner);
-
-	// as long as the owner is connected
-	// refill the state on tick
-	// as soon as the owner disconnects keep that state
-	if(pOwnerPlayer)
-	{
-		bool NoHitOthers = g_Config.m_SvHit;
-		if(pOwnerChar)
-			NoHitOthers = (m_Type == WEAPON_LASER && pOwnerChar->LaserHitDisabled()) || (m_Type == WEAPON_SHOTGUN && pOwnerChar->ShotgunHitDisabled());
-		bool NoHitSelf = g_Config.m_SvOldLaser || (m_Bounces == 0 && !m_WasTele);
-		m_InteractState.FillOwnerConnected(
-			pOwnerChar && pOwnerChar->IsAlive(),
-			pOwnerPlayer ? GameServer()->GetDDRaceTeam(m_Owner) : 0,
-			pOwnerChar && pOwnerChar->Core()->m_Solo,
-			NoHitOthers,
-			NoHitSelf);
-	}
-	else
-	{
-		m_InteractState.FillOwnerDisconnected();
-	}
 }

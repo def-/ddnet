@@ -1,12 +1,17 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
-#ifndef GAME_SERVER_ENTITIES_PROJECTILE_H
-#define GAME_SERVER_ENTITIES_PROJECTILE_H
+#ifndef GAME_ENTITIES_PROJECTILE_H
+#define GAME_ENTITIES_PROJECTILE_H
 
-#include <game/entities/entity.h>
+#include "entity.h"
+
+class CProjectileData;
 
 class CProjectile : public CEntity
 {
+	friend class CGameWorld;
+	friend class CItems;
+
 public:
 	CProjectile(
 		CGameWorld *pGameWorld,
@@ -57,6 +62,14 @@ private:
 
 public:
 	void SetBouncing(int Value);
+
+	// Prediction only, defined in src/game/client/prediction/entities_predict.cpp.
+	CProjectile(CGameWorld *pGameWorld, int Id, const CProjectileData *pProj);
+	CProjectileData GetData() const;
+	bool Match(CProjectile *pProj);
+	const vec2 &GetDirection() const { return m_Direction; }
+	const int &GetOwner() const { return m_Owner; }
+	const int &GetStartTick() const { return m_StartTick; }
 
 	bool CanCollide(int ClientId) override;
 	int GetOwnerId() const override { return m_Owner; }

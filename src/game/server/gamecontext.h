@@ -317,7 +317,7 @@ public:
 	void SendChat(int ClientId, int Team, const char *pText, int SpamProtectionClientId = -1, int VersionFlags = FLAG_SIX | FLAG_SIXUP);
 	void SendStartWarning(int ClientId, const char *pMessage);
 	void SendEmoticon(int ClientId, int Emoticon, int TargetClientId) const;
-	void SendWeaponPickup(int ClientId, int Weapon) const;
+	void SendWeaponPickup(int ClientId, int Weapon) const override;
 	void SendMotd(int ClientId) const;
 	void SendSettings(int ClientId) const;
 	void SendServerAlert(const char *pMessage);
@@ -406,7 +406,9 @@ public:
 	bool OnClientDDNetVersionKnown(int ClientId);
 	void FillAntibot(CAntibotRoundData *pData) override;
 	bool ProcessSpamProtection(int ClientId, bool RespectChatInitialDelay = true);
-	int GetDDRaceTeam(int ClientId) const;
+	int GetDDRaceTeam(int ClientId) const override;
+	bool IsPlayerConnected(int ClientId) const override;
+	uint32_t GetUniqueCid(int ClientId) const override;
 	// Describes the time when the first player joined the server.
 	int64_t m_NonEmptySince;
 	int64_t m_LastMapVote;

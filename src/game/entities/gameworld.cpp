@@ -8,11 +8,10 @@
 #include <engine/shared/config.h>
 
 #include <game/collision.h>
+#include <game/mapbugs.h>
+#include <game/mapitems.h>
 #include <game/entities/character.h>
-#include <game/server/gamecontext.h>
-#include <game/server/gamecontroller.h>
-#include <game/server/player.h>
-#include <game/server/teams.h>
+#include <game/gameenv.h>
 
 #include <algorithm>
 #include <utility>
@@ -25,11 +24,70 @@ CGameWorld::CGameWorld()
 	m_pGameServer = nullptr;
 	m_pConfig = nullptr;
 	m_pServer = nullptr;
+	m_pCollision = nullptr;
+	m_pTuningList = nullptr;
+	m_pMapBugs = nullptr;
 
 	m_Paused = false;
 	m_ResetRequested = false;
 	for(auto &pFirstEntityType : m_apFirstEntityTypes)
 		pFirstEntityType = nullptr;
+	for(auto &pCharacter : m_apCharacters)
+		pCharacter = nullptr;
+
+	// prediction only
+	m_GameTick = 0;
+	m_LocalClientId = -1;
+	m_IsValidCopy = false;
+	m_pParent = nullptr;
+	m_pChild = nullptr;
+	mem_zero(&m_WorldConfig, sizeof(m_WorldConfig));
+}
+
+bool CGameWorld::EmulateBug(int Bug) const
+{
+	return m_pMapBugs != nullptr && m_pMapBugs->Contains(Bug);
+}
+
+void CGameWorld::Init(CCollision *pCollision, CTuningParams *pTuningList, const CMapBugs *pMapBugs)
+{
+	m_pCollision = pCollision;
+	m_pTuningList = pTuningList;
+	m_pMapBugs = pMapBugs;
+}
+
+CEntity *CGameWorld::FindLast(int Type)
+{
+	CEntity *pLast = FindFirst(Type);
+	if(pLast)
+		while(pLast->TypeNext())
+			pLast = pLast->TypeNext();
+	return pLast;
+}
+
+// Timed switches expire here for the prediction. The server does it in
+// CGameContext::OnTick instead, at a different point in the tick, so the flag
+// keeps it from happening twice.
+void CGameWorld::ExpireSwitchers()
+{
+	for(auto &Switcher : Switchers())
+	{
+		for(int j = 0; j < NUM_DDRACE_TEAMS; ++j)
+		{
+			if(Switcher.m_aEndTick[j] <= GameTick() && Switcher.m_aType[j] == TILE_SWITCHTIMEDOPEN)
+			{
+				Switcher.m_aStatus[j] = false;
+				Switcher.m_aEndTick[j] = 0;
+				Switcher.m_aType[j] = TILE_SWITCHCLOSE;
+			}
+			else if(Switcher.m_aEndTick[j] <= GameTick() && Switcher.m_aType[j] == TILE_SWITCHTIMEDCLOSE)
+			{
+				Switcher.m_aStatus[j] = true;
+				Switcher.m_aEndTick[j] = 0;
+				Switcher.m_aType[j] = TILE_SWITCHOPEN;
+			}
+		}
+	}
 }
 
 CGameWorld::~CGameWorld()
@@ -59,11 +117,8 @@ void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage,
 		if(l)
 			ForceDir = normalize(Diff);
 		l = 1 - std::clamp((l - InnerRadius) / (Radius - InnerRadius), 0.0f, 1.0f);
-		float Strength;
-		if(Owner == -1 || !GameServer()->m_apPlayers[Owner] || !GameServer()->m_apPlayers[Owner]->m_TuneZone)
-			Strength = GlobalTuning()->m_ExplosionStrength;
-		else
-			Strength = TuningList()[GameServer()->m_apPlayers[Owner]->m_TuneZone].m_ExplosionStrength;
+		const int TuneZone = ExplosionTuneZone(Owner);
+		const float Strength = TuneZone == 0 ? GlobalTuning()->m_ExplosionStrength : GetTuning(TuneZone)->m_ExplosionStrength;
 
 		float Dmg = Strength * l;
 		if(!(int)Dmg)
@@ -118,7 +173,7 @@ int CGameWorld::FindEntities(vec2 Pos, float Radius, CEntity **ppEnts, int Max, 
 	return Num;
 }
 
-void CGameWorld::InsertEntity(CEntity *pEnt)
+void CGameWorld::InsertEntity(CEntity *pEnt, bool Last)
 {
 #ifdef CONF_DEBUG
 	for(CEntity *pCur = m_apFirstEntityTypes[pEnt->m_ObjType]; pCur; pCur = pCur->m_pNextTypeEntity)
@@ -126,11 +181,31 @@ void CGameWorld::InsertEntity(CEntity *pEnt)
 #endif
 
 	// insert it
-	if(m_apFirstEntityTypes[pEnt->m_ObjType])
-		m_apFirstEntityTypes[pEnt->m_ObjType]->m_pPrevTypeEntity = pEnt;
-	pEnt->m_pNextTypeEntity = m_apFirstEntityTypes[pEnt->m_ObjType];
-	pEnt->m_pPrevTypeEntity = nullptr;
-	m_apFirstEntityTypes[pEnt->m_ObjType] = pEnt;
+	if(!Last)
+	{
+		if(m_apFirstEntityTypes[pEnt->m_ObjType])
+			m_apFirstEntityTypes[pEnt->m_ObjType]->m_pPrevTypeEntity = pEnt;
+		pEnt->m_pNextTypeEntity = m_apFirstEntityTypes[pEnt->m_ObjType];
+		pEnt->m_pPrevTypeEntity = nullptr;
+		m_apFirstEntityTypes[pEnt->m_ObjType] = pEnt;
+	}
+	else
+	{
+		// insert it at the end of the list
+		CEntity *pLast = m_apFirstEntityTypes[pEnt->m_ObjType];
+		if(pLast)
+		{
+			while(pLast->m_pNextTypeEntity)
+				pLast = pLast->m_pNextTypeEntity;
+			pLast->m_pNextTypeEntity = pEnt;
+		}
+		else
+		{
+			m_apFirstEntityTypes[pEnt->m_ObjType] = pEnt;
+		}
+		pEnt->m_pPrevTypeEntity = pLast;
+		pEnt->m_pNextTypeEntity = nullptr;
+	}
 }
 
 void CGameWorld::RemoveEntity(CEntity *pEnt)
@@ -250,6 +325,9 @@ void CGameWorld::Tick()
 	}
 
 	RemoveEntities();
+
+	if(m_ExpireSwitchersInTick)
+		ExpireSwitchers();
 
 	// find the characters' strong/weak id
 	int StrongWeakId = 0;

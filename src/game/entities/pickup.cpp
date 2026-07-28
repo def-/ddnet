@@ -2,13 +2,12 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "pickup.h"
 
-#include <game/entities/character.h>
-
 #include <generated/protocol.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/player.h>
 #include <game/teamscore.h>
 
 static constexpr int PICKUP_PHYSICS_RADIUS = 14;
@@ -143,8 +142,7 @@ void CPickup::Tick()
 					else if(m_Subtype == WEAPON_LASER)
 						Env()->CreateSound(m_Pos, SOUND_PICKUP_SHOTGUN, pChr->TeamMask(), pChr->GetCid());
 
-					if(pChr->GetPlayer())
-						GameServer()->SendWeaponPickup(pChr->GetCid(), m_Subtype);
+					Env()->SendWeaponPickup(pChr->GetCid(), m_Subtype);
 				}
 				break;
 

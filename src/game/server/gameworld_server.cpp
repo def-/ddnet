@@ -17,9 +17,9 @@
 #include "teams.h"
 
 #include <game/collision.h>
+#include <game/entities/character.h>
 #include <game/entities/entity.h>
 #include <game/entities/gameworld.h>
-#include <game/entities/character.h>
 
 //////////////////////////////////////////////////
 // CGameWorld
@@ -30,17 +30,7 @@ void CGameWorld::SetGameServer(CGameContext *pGameServer)
 	m_pGameServer = pGameServer;
 	m_pConfig = m_pGameServer->Config();
 	m_pServer = m_pGameServer->Server();
-}
-
-IGameEnvironment *CGameWorld::Env()
-{
-	return m_pGameServer;
-}
-
-void CGameWorld::Init(CCollision *pCollision, CTuningParams *pTuningList)
-{
-	m_Core.InitSwitchers(pCollision->m_HighestSwitchNumber);
-	m_pTuningList = pTuningList;
+	m_pEnv = m_pGameServer;
 }
 
 int CGameWorld::GameTick() const
@@ -53,11 +43,6 @@ int CGameWorld::GameTickSpeed() const
 	return m_pServer->TickSpeed();
 }
 
-CCollision *CGameWorld::Collision()
-{
-	return m_pGameServer->Collision();
-}
-
 CCharacter *CGameWorld::GetCharacterById(int ClientId)
 {
 	return m_pGameServer->GetPlayerChar(ClientId);
@@ -66,6 +51,13 @@ CCharacter *CGameWorld::GetCharacterById(int ClientId)
 CTeamsCore *CGameWorld::TeamsCore()
 {
 	return &m_pGameServer->m_pController->Teams().m_Core;
+}
+
+int CGameWorld::ExplosionTuneZone(int Owner)
+{
+	if(Owner == -1 || !m_pGameServer->m_apPlayers[Owner])
+		return 0;
+	return m_pGameServer->m_apPlayers[Owner]->m_TuneZone;
 }
 
 void CGameWorld::Reset()

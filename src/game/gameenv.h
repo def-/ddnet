@@ -7,6 +7,7 @@
 
 #include <engine/shared/protocol.h>
 
+#include <cstdint>
 #include <optional>
 
 /*
@@ -87,6 +88,10 @@ public:
 
 	// Whether the client is connected and playing rather than spectating.
 	virtual bool IsPlayerInGame(int ClientId) { return true; }
+	virtual int GetDDRaceTeam(int ClientId) const { return 0; }
+	virtual void SendWeaponPickup(int ClientId, int Weapon) const {}
+	virtual bool IsPlayerConnected(int ClientId) const { return true; }
+	virtual uint32_t GetUniqueCid(int ClientId) const { return 0; }
 
 	/*
 		Teams. The prediction has the teams core, which is what the simulation

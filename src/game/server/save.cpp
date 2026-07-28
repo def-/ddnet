@@ -9,7 +9,7 @@
 
 #include <game/entities/gameworld.h>
 #include <game/entities/character.h>
-#include <game/server/entities/dragger_beam.h>
+#include <game/entities/dragger_beam.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamemodes/ddnet.h>
 #include <game/team_state.h>

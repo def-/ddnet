@@ -25,9 +25,9 @@
 
 #include <game/entities/character.h>
 #include <game/mapitems.h>
-#include <game/server/entities/laser.h>
-#include <game/server/entities/pickup.h>
-#include <game/server/entities/projectile.h>
+#include <game/entities/laser.h>
+#include <game/entities/pickup.h>
+#include <game/entities/projectile.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamecontroller.h>
 #include <game/server/player.h>

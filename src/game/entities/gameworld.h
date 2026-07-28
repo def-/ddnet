@@ -4,12 +4,16 @@
 #define GAME_ENTITIES_GAMEWORLD_H
 
 #include <game/gamecore.h>
+#include <game/teamscore.h>
 
+#include <list>
 #include <vector>
 
 class CCollision;
 class CEntity;
 class CCharacter;
+class CMapBugs;
+class IGameEnvironment;
 
 /*
 	Class: Game World
@@ -35,26 +39,40 @@ private:
 
 	CEntity *m_pNextTraverseEntity = nullptr;
 	CEntity *m_apFirstEntityTypes[NUM_ENTTYPES];
+	CCharacter *m_apCharacters[MAX_CLIENTS];
 
 	class CGameContext *m_pGameServer;
 	class CConfig *m_pConfig;
 	class IServer *m_pServer;
 	CTuningParams *m_pTuningList;
+	CCollision *m_pCollision;
+	const CMapBugs *m_pMapBugs;
+	IGameEnvironment *m_pEnv = nullptr;
 
 public:
+	// Server only.
 	class CGameContext *GameServer() { return m_pGameServer; }
 	class CConfig *Config() { return m_pConfig; }
 	class IServer *Server() { return m_pServer; }
-	class IGameEnvironment *Env();
+
+	IGameEnvironment *Env() { return m_pEnv; }
+	void SetEnv(IGameEnvironment *pEnv) { m_pEnv = pEnv; }
+	CCollision *Collision() { return m_pCollision; }
+	const CCollision *Collision() const { return m_pCollision; }
+	bool EmulateBug(int Bug) const;
+	std::vector<SSwitchers> &Switchers() { return m_Core.m_vSwitchers; }
 
 	// Spelled the same way as in the client's prediction, so that the game logic
 	// reading them can be shared. Defined in gameworld.cpp because they need the
 	// complete CGameContext and IServer.
 	int GameTick() const;
 	int GameTickSpeed() const;
-	CCollision *Collision();
 	CCharacter *GetCharacterById(int ClientId);
 	class CTeamsCore *TeamsCore();
+	// Which tuning an explosion takes its strength from. The server asks the
+	// owning player, whose tune zone follows their view; the prediction has only
+	// the character.
+	int ExplosionTuneZone(int Owner);
 	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask = CClientMask().set(), int Id = -1);
 
 	bool m_ResetRequested;
@@ -65,9 +83,10 @@ public:
 	~CGameWorld();
 
 	void SetGameServer(CGameContext *pGameServer);
-	void Init(CCollision *pCollision, CTuningParams *pTuningList);
+	void Init(CCollision *pCollision, CTuningParams *pTuningList, const CMapBugs *pMapBugs);
 
 	CEntity *FindFirst(int Type);
+	CEntity *FindLast(int Type);
 
 	/*
 		Function: FindEntities
@@ -142,7 +161,7 @@ public:
 		Arguments:
 			pEntity - Entity to add
 	*/
-	void InsertEntity(CEntity *pEntity);
+	void InsertEntity(CEntity *pEntity, bool Last = false);
 
 	/*
 		Function: RemoveEntity
@@ -199,12 +218,139 @@ public:
 	*/
 	std::vector<CCharacter *> IntersectedCharacters(vec2 Pos0, vec2 Pos1, float Radius, const CEntity *pNotThis = nullptr);
 
+	/*
+		Everything from here down belongs to the client's prediction. The server
+		carries the members - a few pointers per world and per entity - and never
+		looks at them; the functions are defined in
+		src/game/client/prediction/gameworld_predict.cpp.
+
+		The prediction keeps three worlds: the one built from the last snapshot,
+		the one it simulates forward, and the previous simulated one to
+		interpolate from. CopyWorld clones entities between them, and each copy
+		remembers the entity it came from so render state survives a
+		repredict. FindMatch pairs an entity in the snapshot with the one the
+		prediction already has, so it can be kept rather than rebuilt.
+	*/
+	CTeamsCore m_Teams;
+	int m_GameTick;
+	int m_LocalClientId;
+	bool m_IsValidCopy;
+	CGameWorld *m_pParent;
+	CGameWorld *m_pChild;
+
+	// The prediction expires timed switches as part of its own tick; the server
+	// does it in CGameContext::OnTick and must not do it twice.
+	bool m_ExpireSwitchersInTick = false;
+
+	struct
+	{
+		bool m_IsDDRace;
+		bool m_IsVanilla;
+		bool m_IsFNG;
+		bool m_InfiniteAmmo;
+		bool m_PredictTiles;
+		int m_PredictFreeze;
+		bool m_PredictWeapons;
+		bool m_PredictDDRace;
+		bool m_IsSolo;
+		bool m_UseTuneZones;
+		bool m_BugDDRaceInput;
+		bool m_NoWeakHookAndBounce;
+		bool m_PredictEvents;
+	} m_WorldConfig;
+
+	void RemoveCharacter(CCharacter *pChar);
+	bool IsLocalTeam(int OwnerId) const;
+	void OnModified() const;
+	void NetObjBegin(CTeamsCore Teams, int LocalClientId);
+	void NetCharAdd(int ObjId, CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended, int GameTeam, bool IsLocal);
+	void NetObjAdd(int ObjId, int ObjType, const void *pObjData, const CNetObj_EntityEx *pDataEx);
+	void NetObjEnd();
+	void CopyWorld(CGameWorld *pFrom);
+	CEntity *FindMatch(int ObjId, int ObjType, const void *pObjData);
+	CEntity *GetEntity(int Id, int EntityType);
+	void Clear();
+	void ExpireSwitchers();
+
+	class CPredictedEvent
+	{
+	public:
+		int m_EventId;
+		vec2 m_Pos; // NetEvent's Pos are integers
+		int m_Id; // identifier to prevent adding the same event multiple times
+		int m_Tick;
+
+		int m_ExtraInfo;
+		bool m_Handled = false;
+
+		CPredictedEvent(int EventId, vec2 Pos, int Id, int Tick, int ExtraInfo = -1) :
+			m_EventId(EventId), m_Pos(vec2((int)Pos.x, (int)Pos.y)), m_Id(Id), m_Tick(Tick), m_ExtraInfo(ExtraInfo)
+		{
+		}
+	};
+
+	std::vector<CPredictedEvent> m_PredictedEvents;
+
+	void CreatePredictedEvent(const CPredictedEvent &NewEvent);
+	bool CheckPredictedEventHandled(const CPredictedEvent &CheckEvent);
+	void PlayPredictedEvents(int Tick);
+
+	void CreatePredictedSound(vec2 Pos, int SoundId, int Id = -1);
+	void CreatePredictedExplosionEvent(vec2 Pos, int Id = -1);
+	void CreatePredictedHammerHitEvent(vec2 Pos, int Id = -1);
+	void CreatePredictedDamageIndEvent(vec2 Pos, float Angle, int Amount, int Id = -1);
+
 	const CTuningParams *TuningList() const { return m_pTuningList; }
 	CTuningParams *TuningList() { return m_pTuningList; }
 	const CTuningParams *GlobalTuning() const { return &TuningList()[0]; }
 	CTuningParams *GlobalTuning() { return &TuningList()[0]; }
 	const CTuningParams *GetTuning(int i) const { return &TuningList()[i]; }
 	CTuningParams *GetTuning(int i) { return &TuningList()[i]; }
+};
+
+// Prediction only: the order in which the client believes characters were
+// inserted, which decides who has the strong hook against whom.
+class CCharOrder
+{
+public:
+	std::list<int> m_Ids; // reverse of the order in the gameworld, since entities will be inserted in reverse
+	CCharOrder()
+	{
+		Reset();
+	}
+	void Reset()
+	{
+		m_Ids.clear();
+		for(int i = 0; i < MAX_CLIENTS; i++)
+			m_Ids.push_back(i);
+	}
+	void GiveStrong(int c)
+	{
+		if(0 <= c && c < MAX_CLIENTS)
+		{
+			m_Ids.remove(c);
+			m_Ids.push_front(c);
+		}
+	}
+	void GiveWeak(int c)
+	{
+		if(0 <= c && c < MAX_CLIENTS)
+		{
+			m_Ids.remove(c);
+			m_Ids.push_back(c);
+		}
+	}
+	bool HasStrongAgainst(int From, int To)
+	{
+		for(int i : m_Ids)
+		{
+			if(i == To)
+				return false;
+			else if(i == From)
+				return true;
+		}
+		return false;
+	}
 };
 
 #endif

@@ -193,6 +193,25 @@ public: // TODO: Maybe make protected
 
 	int m_Number;
 	int m_Layer;
+
+	/*
+		Prediction only. A predicted entity points at the entity it was copied
+		from in the world one tick earlier, which is how the client carries
+		render state across repredictions and notices when an entity is gone.
+		The server carries the pointers and never looks at them.
+	*/
+	int m_SnapTicks = -1;
+	int m_DestroyTick = -1;
+	int m_LastRenderTick = -1;
+	CEntity *m_pParent = nullptr;
+	CEntity *m_pChild = nullptr;
+	CEntity *NextEntity() { return m_pNextTypeEntity; }
+	void Keep()
+	{
+		m_SnapTicks = 0;
+		m_MarkedForDestroy = false;
+	}
+	void SetId(int Id) { m_Id = Id; }
 };
 
 bool NetworkClipped(const CGameContext *pGameServer, int SnappingClient, vec2 CheckPos);

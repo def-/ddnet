@@ -1,8 +1,8 @@
 /* (c) Shereef Marzouk. See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
-#ifndef GAME_SERVER_ENTITIES_DRAGGER_H
-#define GAME_SERVER_ENTITIES_DRAGGER_H
+#ifndef GAME_ENTITIES_DRAGGER_H
+#define GAME_ENTITIES_DRAGGER_H
 
-#include <game/entities/entity.h>
+#include "entity.h"
 class CDraggerBeam;
 
 /**
@@ -19,6 +19,8 @@ class CDraggerBeam;
  * A created dragger beam remains for the selected player until one of the criteria is no longer fulfilled. Only then
  * can a new dragger beam be created for that team, which may drag another team partner.
  */
+class CLaserData;
+
 class CDragger : public CEntity
 {
 	// m_Core is the direction vector by which a dragger is shifted at each movement tick (every 150ms)
@@ -28,6 +30,8 @@ class CDragger : public CEntity
 	int m_EvalTick;
 
 	int m_aTargetIdInTeam[MAX_CLIENTS];
+	// Prediction only: it models the one beam it can see.
+	int m_TargetId = -1;
 	CDraggerBeam *m_apDraggerBeam[MAX_CLIENTS];
 
 	void LookForPlayersToDrag();
@@ -40,9 +44,17 @@ public:
 
 	void Reset() override;
 	void Tick() override;
+
+	// Prediction only, defined in src/game/client/prediction/entities_predict.cpp.
+	CDragger(CGameWorld *pGameWorld, int Id, const CLaserData *pData);
+	bool Match(CDragger *pDragger);
+	void Read(const CLaserData *pData);
+	float GetStrength() const { return m_Strength; }
+	void DraggerBeamTick();
+	void DraggerBeamReset();
 	// Server only, defined in src/game/server/snap.cpp
 	void Snap(int SnappingClient);
 	void SwapClients(int Client1, int Client2) override;
 };
 
-#endif // GAME_SERVER_ENTITIES_DRAGGER_H
+#endif // GAME_ENTITIES_DRAGGER_H

@@ -1,15 +1,15 @@
 /* See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
 #include "dragger_beam.h"
 
-#include <game/entities/character.h>
 #include "dragger.h"
 
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/save.h>
 
 CDraggerBeam::CDraggerBeam(CGameWorld *pGameWorld, CDragger *pDragger, vec2 Pos, float Strength, bool IgnoreWalls,
 	int ForClientId, int Layer, int Number) :

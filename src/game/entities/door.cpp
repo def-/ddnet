@@ -1,8 +1,9 @@
 /* (c) Shereef Marzouk. See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
 #include "door.h"
 
+#include <game/collision.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
 
 CDoor::CDoor(CGameWorld *pGameWorld, vec2 Pos, float Rotation, int Length,
 	int Number) :

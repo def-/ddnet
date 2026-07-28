@@ -1,16 +1,15 @@
 /* copyright (c) 2007 magnus auvinen, see licence.txt for more info */
 #include "gun.h"
 
-#include <game/entities/character.h>
 #include "plasma.h"
 
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/player.h>
-#include <game/server/teams.h>
 
 CGun::CGun(CGameWorld *pGameWorld, vec2 Pos, bool Freeze, bool Explosive, int Layer, int Number) :
 	CEntity(pGameWorld, EEntityClass::GUN, true)

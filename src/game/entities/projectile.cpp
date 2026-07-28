@@ -2,15 +2,15 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "projectile.h"
 
-#include <game/entities/character.h>
-
 #include <engine/shared/config.h>
 
 #include <generated/protocol.h>
 
+#include <game/collision.h>
+#include <game/entities/character.h>
+#include <game/gameenv.h>
+#include <game/mapbugs.h>
 #include <game/mapitems.h>
-#include <game/server/gamecontext.h>
-#include <game/server/gamemodes/ddnet.h>
 
 CProjectile::CProjectile(
 	CGameWorld *pGameWorld,
@@ -45,8 +45,8 @@ CProjectile::CProjectile(
 	m_TuneZone = Collision()->IsTune(Collision()->GetMapIndex(m_Pos));
 
 	CCharacter *pOwnerChar = GameWorld()->GetCharacterById(m_Owner);
-	m_BelongsToPracticeTeam = pOwnerChar && pOwnerChar->Teams()->IsPractice(pOwnerChar->Team());
-	m_DDRaceTeam = m_Owner == -1 ? 0 : GameServer()->GetDDRaceTeam(m_Owner);
+	m_BelongsToPracticeTeam = pOwnerChar && Env()->TeamIsPractice(pOwnerChar->Team());
+	m_DDRaceTeam = m_Owner == -1 ? 0 : Env()->GetDDRaceTeam(m_Owner);
 	m_IsSolo = pOwnerChar && pOwnerChar->GetCore().m_Solo;
 
 	GameWorld()->InsertEntity(this);
@@ -132,7 +132,7 @@ void CProjectile::Tick()
 		if(m_Explosive /*??*/ && (!pTargetChr || (pTargetChr && (!m_Freeze || (m_Type == WEAPON_SHOTGUN && Collide)))))
 		{
 			int Number = 1;
-			if(GameServer()->EmulateBug(BUG_GRENADE_DOUBLEEXPLOSION) && m_LifeSpan == -1)
+			if(GameWorld()->EmulateBug(BUG_GRENADE_DOUBLEEXPLOSION) && m_LifeSpan == -1)
 			{
 				Number = 2;
 			}
@@ -278,7 +278,7 @@ void CProjectile::SwapClients(int Client1, int Client2)
 
 bool CProjectile::CanCollide(int ClientId)
 {
-	if(m_DDRaceTeam != GameServer()->GetDDRaceTeam(ClientId))
+	if(m_DDRaceTeam != Env()->GetDDRaceTeam(ClientId))
 		return false;
 	if(m_IsSolo)
 		return m_Owner == ClientId;

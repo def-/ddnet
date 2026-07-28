@@ -12,15 +12,15 @@
 */
 
 #include <game/entities/character.h>
-#include "entities/door.h"
-#include "entities/dragger.h"
-#include "entities/dragger_beam.h"
-#include "entities/gun.h"
-#include "entities/laser.h"
-#include "entities/light.h"
-#include "entities/pickup.h"
-#include "entities/plasma.h"
-#include "entities/projectile.h"
+#include <game/entities/door.h>
+#include <game/entities/dragger.h>
+#include <game/entities/dragger_beam.h>
+#include <game/entities/gun.h>
+#include <game/entities/laser.h>
+#include <game/entities/light.h>
+#include <game/entities/pickup.h>
+#include <game/entities/plasma.h>
+#include <game/entities/projectile.h>
 #include "gamecontext.h"
 #include "gamecontroller.h"
 #include <game/entities/gameworld.h>

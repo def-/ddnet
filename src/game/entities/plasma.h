@@ -1,8 +1,8 @@
 /* (c) Shereef Marzouk. See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
-#ifndef GAME_SERVER_ENTITIES_PLASMA_H
-#define GAME_SERVER_ENTITIES_PLASMA_H
+#ifndef GAME_ENTITIES_PLASMA_H
+#define GAME_ENTITIES_PLASMA_H
 
-#include <game/entities/entity.h>
+#include "entity.h"
 
 /**
  * Plasma Bullets are projectiles fired from turrets at a specific target
@@ -20,6 +20,8 @@
  * - They have had a collision with a player, a solid block or a laser stopper
  * - Their life time of 1.5 seconds has expired
  */
+class CLaserData;
+
 class CPlasma : public CEntity
 {
 	vec2 m_Core;
@@ -39,9 +41,14 @@ public:
 
 	void Reset() override;
 	void Tick() override;
+
+	// Prediction only, defined in src/game/client/prediction/entities_predict.cpp.
+	CPlasma(CGameWorld *pGameWorld, int Id, const CLaserData *pData);
+	bool Match(const CPlasma *pPlasma) const;
+	void Read(const CLaserData *pData);
 	// Server only, defined in src/game/server/snap.cpp
 	void Snap(int SnappingClient);
 	void SwapClients(int Client1, int Client2) override;
 };
 
-#endif // GAME_SERVER_ENTITIES_PLASMA_H
+#endif // GAME_ENTITIES_PLASMA_H

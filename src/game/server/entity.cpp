@@ -11,12 +11,38 @@
 //////////////////////////////////////////////////
 // Entity
 //////////////////////////////////////////////////
-CEntity::CEntity(CGameWorld *pGameWorld, int ObjType, bool SnapFreeId, vec2 Pos, int ProximityRadius)
+// Which entity list a class lives in. Several classes share ENTTYPE_LASER; that
+// grouping decides tick order, so it is kept exactly as it was.
+static int ObjTypeOf(EEntityClass EntityClass)
+{
+	switch(EntityClass)
+	{
+	case EEntityClass::CHARACTER:
+		return CGameWorld::ENTTYPE_CHARACTER;
+	case EEntityClass::PROJECTILE:
+		return CGameWorld::ENTTYPE_PROJECTILE;
+	case EEntityClass::PICKUP:
+		return CGameWorld::ENTTYPE_PICKUP;
+	case EEntityClass::LASER:
+	case EEntityClass::DOOR:
+	case EEntityClass::DRAGGER:
+	case EEntityClass::DRAGGER_BEAM:
+	case EEntityClass::PLASMA:
+	case EEntityClass::LIGHT:
+	case EEntityClass::GUN:
+		return CGameWorld::ENTTYPE_LASER;
+	}
+	dbg_assert(false, "unhandled EEntityClass");
+	dbg_break();
+}
+
+CEntity::CEntity(CGameWorld *pGameWorld, EEntityClass EntityClass, bool SnapFreeId, vec2 Pos, int ProximityRadius)
 {
 	m_pGameWorld = pGameWorld;
 	m_pCCollision = GameServer()->Collision();
 
-	m_ObjType = ObjType;
+	m_EntityClass = EntityClass;
+	m_ObjType = ObjTypeOf(EntityClass);
 	m_Pos = Pos;
 	m_ProximityRadius = ProximityRadius;
 

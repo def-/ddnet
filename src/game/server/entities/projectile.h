@@ -32,7 +32,8 @@ public:
 	void Reset() override;
 	void Tick() override;
 	void TickPaused() override;
-	void Snap(int SnappingClient) override;
+	// Server only, defined in src/game/server/snap.cpp
+	void Snap(int SnappingClient);
 	void SwapClients(int Client1, int Client2) override;
 
 private:

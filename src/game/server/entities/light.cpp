@@ -5,16 +5,12 @@
 
 #include <engine/server.h>
 
-#include <generated/protocol.h>
-
 #include <game/mapitems.h>
 #include <game/server/gamecontext.h>
-#include <game/server/player.h>
-#include <game/teamscore.h>
 
 CLight::CLight(CGameWorld *pGameWorld, vec2 Pos, float Rotation, int Length,
 	int Layer, int Number) :
-	CEntity(pGameWorld, CGameWorld::ENTTYPE_LASER, true)
+	CEntity(pGameWorld, EEntityClass::LIGHT, true)
 {
 	m_To = vec2(0.0f, 0.0f);
 	m_Core = vec2(0.0f, 0.0f);
@@ -94,50 +90,4 @@ void CLight::Tick()
 	}
 
 	HitCharacter();
-}
-
-void CLight::Snap(int SnappingClient)
-{
-	if((NetworkClipped(SnappingClient, m_Pos) && NetworkClipped(SnappingClient, m_To)) || !GetId().has_value())
-		return;
-
-	int SnappingClientVersion = GameServer()->GetClientVersion(SnappingClient);
-
-	CCharacter *pChr = GameServer()->GetPlayerChar(SnappingClient);
-
-	if(SnappingClient != SERVER_DEMO_CLIENT && (GameServer()->m_apPlayers[SnappingClient]->GetTeam() == TEAM_SPECTATORS || GameServer()->m_apPlayers[SnappingClient]->IsPaused()) && GameServer()->m_apPlayers[SnappingClient]->SpectatorId() != SPEC_FREEVIEW)
-		pChr = GameServer()->GetPlayerChar(GameServer()->m_apPlayers[SnappingClient]->SpectatorId());
-
-	vec2 From = m_Pos;
-	int StartTick = -1;
-
-	if(pChr && pChr->Team() == TEAM_SUPER)
-	{
-		From = m_Pos;
-	}
-	else if(pChr && m_Layer == LAYER_SWITCH && m_Number > 0 && Switchers()[m_Number].m_aStatus[pChr->Team()])
-	{
-		From = m_To;
-	}
-	// light on game and switch layer with a number 0 is always on
-	else if(m_Layer != LAYER_SWITCH || (m_Layer == LAYER_SWITCH && m_Number == 0))
-	{
-		From = m_To;
-	}
-
-	if(SnappingClientVersion < VERSION_DDNET_ENTITY_NETOBJS)
-	{
-		int Tick = (Server()->Tick() % Server()->TickSpeed()) % 6;
-		if(pChr && pChr->IsAlive() && m_Layer == LAYER_SWITCH && m_Number > 0 && !Switchers()[m_Number].m_aStatus[pChr->Team()] && Tick)
-			return;
-
-		StartTick = m_EvalTick;
-		if(StartTick < Server()->Tick() - 4)
-			StartTick = Server()->Tick() - 4;
-		else if(StartTick > Server()->Tick())
-			StartTick = Server()->Tick();
-	}
-
-	GameServer()->SnapLaserObject(CSnapContext(SnappingClientVersion, Server()->IsSixup(SnappingClient), SnappingClient), GetId().value(),
-		m_Pos, From, StartTick, -1, LASERTYPE_FREEZE, 0, m_Number);
 }

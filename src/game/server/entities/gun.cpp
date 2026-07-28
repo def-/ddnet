@@ -7,15 +7,13 @@
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
-#include <generated/protocol.h>
-
 #include <game/mapitems.h>
 #include <game/server/gamecontext.h>
 #include <game/server/player.h>
 #include <game/server/teams.h>
 
 CGun::CGun(CGameWorld *pGameWorld, vec2 Pos, bool Freeze, bool Explosive, int Layer, int Number) :
-	CEntity(pGameWorld, CGameWorld::ENTTYPE_LASER, true)
+	CEntity(pGameWorld, EEntityClass::GUN, true)
 {
 	m_Core = vec2(0.0f, 0.0f);
 	m_Pos = Pos;
@@ -134,41 +132,4 @@ void CGun::Fire()
 void CGun::Reset()
 {
 	m_MarkedForDestroy = true;
-}
-
-void CGun::Snap(int SnappingClient)
-{
-	if(NetworkClipped(SnappingClient) || !GetId().has_value())
-		return;
-
-	int SnappingClientVersion = GameServer()->GetClientVersion(SnappingClient);
-
-	int Subtype = (m_Explosive ? 1 : 0) | (m_Freeze ? 2 : 0);
-
-	int StartTick;
-	if(SnappingClientVersion >= VERSION_DDNET_ENTITY_NETOBJS)
-	{
-		StartTick = -1;
-	}
-	else
-	{
-		// Emulate turned off blinking turret for old clients
-		CCharacter *pChar = GameServer()->GetPlayerChar(SnappingClient);
-
-		if(SnappingClient != SERVER_DEMO_CLIENT &&
-			(GameServer()->m_apPlayers[SnappingClient]->GetTeam() == TEAM_SPECTATORS ||
-				GameServer()->m_apPlayers[SnappingClient]->IsPaused()) &&
-			GameServer()->m_apPlayers[SnappingClient]->SpectatorId() != SPEC_FREEVIEW)
-			pChar = GameServer()->GetPlayerChar(GameServer()->m_apPlayers[SnappingClient]->SpectatorId());
-
-		int Tick = (Server()->Tick() % Server()->TickSpeed()) % 11;
-		if(pChar && m_Layer == LAYER_SWITCH && m_Number > 0 &&
-			!Switchers()[m_Number].m_aStatus[pChar->Team()] && (!Tick))
-			return;
-
-		StartTick = m_EvalTick;
-	}
-
-	GameServer()->SnapLaserObject(CSnapContext(SnappingClientVersion, Server()->IsSixup(SnappingClient), SnappingClient), GetId().value(),
-		m_Pos, m_Pos, StartTick, -1, LASERTYPE_GUN, Subtype, m_Number);
 }

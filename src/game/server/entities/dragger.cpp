@@ -7,15 +7,13 @@
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
-#include <generated/protocol.h>
-
 #include <game/mapitems.h>
 #include <game/server/gamecontext.h>
 #include <game/server/player.h>
 #include <game/server/teams.h>
 
 CDragger::CDragger(CGameWorld *pGameWorld, vec2 Pos, float Strength, bool IgnoreWalls, int Layer, int Number) :
-	CEntity(pGameWorld, CGameWorld::ENTTYPE_LASER, true)
+	CEntity(pGameWorld, EEntityClass::DRAGGER, true)
 {
 	m_Core = vec2(0.0f, 0.0f);
 	m_Pos = Pos;
@@ -154,84 +152,9 @@ void CDragger::RemoveDraggerBeam(int ClientId)
 	m_apDraggerBeam[ClientId] = nullptr;
 }
 
-bool CDragger::WillDraggerBeamUseDraggerId(int TargetClientId, int SnappingClientId)
-{
-	// For each snapping client, this must return true for at most one target (i.e. only one of the dragger beams),
-	// in which case the dragger itself must not be snapped
-	CCharacter *pTargetChar = GameServer()->GetPlayerChar(TargetClientId);
-	CCharacter *pSnapChar = GameServer()->GetPlayerChar(SnappingClientId);
-	if(pTargetChar && pSnapChar && m_apDraggerBeam[TargetClientId] != nullptr)
-	{
-		const int SnapTeam = pSnapChar->Team();
-		const int TargetTeam = pTargetChar->Team();
-		if(SnapTeam == TargetTeam && SnapTeam < MAX_CLIENTS)
-		{
-			if(pSnapChar->Teams()->m_Core.GetSolo(SnappingClientId) || m_aTargetIdInTeam[SnapTeam] < 0)
-			{
-				return SnappingClientId == TargetClientId;
-			}
-			else
-			{
-				return m_aTargetIdInTeam[SnapTeam] == TargetClientId;
-			}
-		}
-	}
-	return false;
-}
-
 void CDragger::Reset()
 {
 	m_MarkedForDestroy = true;
-}
-
-void CDragger::Snap(int SnappingClient)
-{
-	// Only players with the dragger in their field of view or who want to see everything will receive the snap
-	if(NetworkClipped(SnappingClient) || !GetId().has_value())
-		return;
-
-	// Send the dragger in its resting position if the player would not otherwise see a dragger beam within its own team
-	for(int i = 0; i < MAX_CLIENTS; i++)
-	{
-		if(WillDraggerBeamUseDraggerId(i, SnappingClient))
-		{
-			return;
-		}
-	}
-
-	int SnappingClientVersion = GameServer()->GetClientVersion(SnappingClient);
-
-	int Subtype = (m_IgnoreWalls ? 1 : 0) | (std::clamp(round_to_int(m_Strength - 1.f), 0, 2) << 1);
-
-	int StartTick;
-	if(SnappingClientVersion >= VERSION_DDNET_ENTITY_NETOBJS)
-	{
-		StartTick = -1;
-	}
-	else
-	{
-		// Emulate turned off blinking dragger for old clients
-		CCharacter *pChar = GameServer()->GetPlayerChar(SnappingClient);
-		if(SnappingClient != SERVER_DEMO_CLIENT &&
-			(GameServer()->m_apPlayers[SnappingClient]->GetTeam() == TEAM_SPECTATORS ||
-				GameServer()->m_apPlayers[SnappingClient]->IsPaused()) &&
-			GameServer()->m_apPlayers[SnappingClient]->SpectatorId() != SPEC_FREEVIEW)
-			pChar = GameServer()->GetPlayerChar(GameServer()->m_apPlayers[SnappingClient]->SpectatorId());
-
-		int Tick = (Server()->Tick() % Server()->TickSpeed()) % 11;
-		if(pChar && m_Layer == LAYER_SWITCH && m_Number > 0 &&
-			!Switchers()[m_Number].m_aStatus[pChar->Team()] && !Tick)
-			return;
-
-		StartTick = m_EvalTick;
-		if(StartTick < Server()->Tick() - 4)
-			StartTick = Server()->Tick() - 4;
-		else if(StartTick > Server()->Tick())
-			StartTick = Server()->Tick();
-	}
-
-	GameServer()->SnapLaserObject(CSnapContext(SnappingClientVersion, Server()->IsSixup(SnappingClient), SnappingClient), GetId().value(),
-		m_Pos, m_Pos, StartTick, -1, LASERTYPE_DRAGGER, Subtype, m_Number);
 }
 
 void CDragger::SwapClients(int Client1, int Client2)

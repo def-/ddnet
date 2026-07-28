@@ -14,6 +14,30 @@ class CCollision;
 class CGameContext;
 
 /*
+	Enum: EEntityClass
+		Which kind of entity this is.
+
+		This is not the same thing as the entity type that CGameWorld buckets
+		entities into: several classes share ENTTYPE_LASER, and that grouping
+		determines tick order, so it cannot be split up without changing how the
+		world simulates. EEntityClass identifies the class itself, which is what
+		snapshotting and the client's entity matching need.
+*/
+enum class EEntityClass
+{
+	CHARACTER,
+	PROJECTILE,
+	LASER,
+	DOOR,
+	DRAGGER,
+	DRAGGER_BEAM,
+	PLASMA,
+	LIGHT,
+	GUN,
+	PICKUP,
+};
+
+/*
 	Class: Entity
 		Basic entity class.
 */
@@ -31,6 +55,7 @@ private:
 	CCollision *m_pCCollision;
 
 	std::optional<int> m_Id;
+	EEntityClass m_EntityClass;
 	int m_ObjType;
 
 	/*
@@ -52,9 +77,10 @@ public: // TODO: Maybe make protected
 
 	/* Getters */
 	std::optional<int> GetId() const { return m_Id; }
+	EEntityClass EntityClass() const { return m_EntityClass; }
 
 	/* Constructor */
-	CEntity(CGameWorld *pGameWorld, int Objtype, bool SnapFreeId, vec2 Pos = vec2(0, 0), int ProximityRadius = 0);
+	CEntity(CGameWorld *pGameWorld, EEntityClass EntityClass, bool SnapFreeId, vec2 Pos = vec2(0, 0), int ProximityRadius = 0);
 
 	/* Destructor */
 	virtual ~CEntity();
@@ -111,17 +137,12 @@ public: // TODO: Maybe make protected
 	virtual void TickPaused() {}
 
 	/*
-		Function: Snap
-			Called when a new snapshot is being generated for a specific
-			client.
-
-		Arguments:
-			SnappingClient - ID of the client which snapshot is
-				being generated. Could be -1 to create a complete
-				snapshot of everything in the game for demo
-				recording.
+		Snapping is not a virtual on CEntity. Each entity declares its own
+		non-virtual Snap(int SnappingClient), defined in
+		src/game/server/snap.cpp, and CGameWorld::Snap dispatches to it on
+		EntityClass(). Keeping it off the vtable is what lets the entity classes
+		be shared with the client, which has no snapshots to build.
 	*/
-	virtual void Snap(int SnappingClient) {}
 
 	/*
 		Function: SwapClients

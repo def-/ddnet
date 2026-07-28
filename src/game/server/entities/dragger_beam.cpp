@@ -7,15 +7,13 @@
 #include <engine/server.h>
 #include <engine/shared/config.h>
 
-#include <generated/protocol.h>
-
 #include <game/mapitems.h>
 #include <game/server/gamecontext.h>
 #include <game/server/save.h>
 
 CDraggerBeam::CDraggerBeam(CGameWorld *pGameWorld, CDragger *pDragger, vec2 Pos, float Strength, bool IgnoreWalls,
 	int ForClientId, int Layer, int Number) :
-	CEntity(pGameWorld, CGameWorld::ENTTYPE_LASER, true)
+	CEntity(pGameWorld, EEntityClass::DRAGGER_BEAM, true)
 {
 	m_pDragger = pDragger;
 	m_Pos = Pos;
@@ -88,57 +86,6 @@ void CDraggerBeam::Reset()
 	m_Active = false;
 
 	m_pDragger->RemoveDraggerBeam(m_ForClientId);
-}
-
-void CDraggerBeam::Snap(int SnappingClient)
-{
-	if(!m_Active)
-	{
-		return;
-	}
-
-	// Only players who can see the player attached to the dragger can see the dragger beam
-	CCharacter *pTarget = GameServer()->GetPlayerChar(m_ForClientId);
-	if(!pTarget || !pTarget->CanSnapCharacter(SnappingClient))
-	{
-		return;
-	}
-	// Only players with the dragger beam in their field of view or who want to see everything will receive the snap
-	vec2 TargetPos = vec2(pTarget->m_Pos.x, pTarget->m_Pos.y);
-	if(distance(pTarget->m_Pos, m_Pos) >= g_Config.m_SvDraggerRange || NetworkClippedLine(SnappingClient, m_Pos, TargetPos))
-	{
-		return;
-	}
-
-	int Subtype = (m_IgnoreWalls ? 1 : 0) | (std::clamp(round_to_int(m_Strength - 1.f), 0, 2) << 1);
-
-	int StartTick = m_EvalTick;
-	if(StartTick < Server()->Tick() - 4)
-	{
-		StartTick = Server()->Tick() - 4;
-	}
-	else if(StartTick > Server()->Tick())
-	{
-		StartTick = Server()->Tick();
-	}
-
-	int SnappingClientVersion = GameServer()->GetClientVersion(SnappingClient);
-	if(SnappingClientVersion >= VERSION_DDNET_ENTITY_NETOBJS)
-	{
-		StartTick = -1;
-	}
-
-	std::optional<int> SnapObjId = GetId();
-	if(m_pDragger->WillDraggerBeamUseDraggerId(m_ForClientId, SnappingClient) && m_pDragger->GetId().has_value())
-	{
-		SnapObjId = m_pDragger->GetId();
-	}
-
-	if(!SnapObjId.has_value())
-		return;
-
-	GameServer()->SnapLaserObject(CSnapContext(SnappingClientVersion, Server()->IsSixup(SnappingClient), SnappingClient), SnapObjId.value(),
-		TargetPos, m_Pos, StartTick, m_ForClientId, LASERTYPE_DRAGGER, Subtype, m_Number);
 }
 
 void CDraggerBeam::SwapClients(int Client1, int Client2)

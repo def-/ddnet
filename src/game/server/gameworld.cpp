@@ -119,30 +119,6 @@ void CGameWorld::RemoveEntity(CEntity *pEnt)
 	pEnt->m_pPrevTypeEntity = nullptr;
 }
 
-//
-void CGameWorld::Snap(int SnappingClient)
-{
-	for(CEntity *pEnt = m_apFirstEntityTypes[ENTTYPE_CHARACTER]; pEnt;)
-	{
-		m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
-		pEnt->Snap(SnappingClient);
-		pEnt = m_pNextTraverseEntity;
-	}
-
-	for(int i = 0; i < NUM_ENTTYPES; i++)
-	{
-		if(i == ENTTYPE_CHARACTER)
-			continue;
-
-		for(CEntity *pEnt = m_apFirstEntityTypes[i]; pEnt;)
-		{
-			m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
-			pEnt->Snap(SnappingClient);
-			pEnt = m_pNextTraverseEntity;
-		}
-	}
-}
-
 void CGameWorld::Reset()
 {
 	// reset all entities

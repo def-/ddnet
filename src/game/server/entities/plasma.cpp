@@ -14,7 +14,7 @@ const float PLASMA_ACCEL = 1.1f;
 
 CPlasma::CPlasma(CGameWorld *pGameWorld, vec2 Pos, vec2 Dir, bool Freeze,
 	bool Explosive, int ForClientId) :
-	CEntity(pGameWorld, CGameWorld::ENTTYPE_LASER, true)
+	CEntity(pGameWorld, EEntityClass::PLASMA, true)
 {
 	m_Pos = Pos;
 	m_Core = Dir;
@@ -104,26 +104,6 @@ bool CPlasma::HitObstacle(CCharacter *pTarget)
 void CPlasma::Reset()
 {
 	m_MarkedForDestroy = true;
-}
-
-void CPlasma::Snap(int SnappingClient)
-{
-	// Only players who can see the targeted player can see the plasma bullet
-	CCharacter *pTarget = GameServer()->GetPlayerChar(m_ForClientId);
-	if(!pTarget || !pTarget->CanSnapCharacter(SnappingClient))
-	{
-		return;
-	}
-
-	// Only players with the plasma bullet in their field of view or who want to see everything will receive the snap
-	if(NetworkClipped(SnappingClient) || !GetId().has_value())
-		return;
-
-	int SnappingClientVersion = GameServer()->GetClientVersion(SnappingClient);
-
-	int Subtype = (m_Explosive ? 1 : 0) | (m_Freeze ? 2 : 0);
-	GameServer()->SnapLaserObject(CSnapContext(SnappingClientVersion, Server()->IsSixup(SnappingClient), SnappingClient), GetId().value(),
-		m_Pos, m_Pos, m_EvalTick, m_ForClientId, LASERTYPE_PLASMA, Subtype, m_Number);
 }
 
 void CPlasma::SwapClients(int Client1, int Client2)

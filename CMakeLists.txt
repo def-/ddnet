@@ -3015,6 +3015,7 @@ if(SERVER)
     score.h
     scoreworker.cpp
     scoreworker.h
+    snap.cpp
     teams.cpp
     teams.h
     teehistorian.cpp

@@ -301,36 +301,12 @@ jobs:
         cp src/mastersrv/target/debug/mastersrv${{ matrix.executable-suffix }} headless
         python scripts/integration_test.py --show-full-output --test-mastersrv --test-websockets headless
 
-    - name: Upload integration test results
-      id: integration_test_artifact_upload
+    - name: Report integration test results
       if: steps.integration_test.outcome == 'failure' || steps.integration_test_coverage.outcome == 'failure'
-      uses: actions/upload-artifact@v4
+      uses: ./.github/actions/integration-test-report
       with:
         name: ddnet-${{ matrix.name }}-integration-test-results
-        path: headless/integration_*
-        if-no-files-found: error
-
-    - name: Summarize integration test results
-      if: steps.integration_test.outcome == 'failure' || steps.integration_test_coverage.outcome == 'failure'
-      shell: bash
-      run: |
-        echo -e "\033[31mFAILED: Integration test failed. Refer to the workflow logs and uploaded artifacts in the steps above for details.\033[m"
-        echo "### Integration test failed" >> $GITHUB_STEP_SUMMARY
-        echo >> $GITHUB_STEP_SUMMARY
-        echo "See summary below. Refer to the workflow logs and uploaded artifacts for details." >> $GITHUB_STEP_SUMMARY
-        echo >> $GITHUB_STEP_SUMMARY
-        echo "Artifact URL: ${{ steps.integration_test_artifact_upload.outputs.artifact-url }}" >> $GITHUB_STEP_SUMMARY
-        for integration_dir in headless/integration_*; do
-          echo >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Test $(basename "$integration_dir")</summary>" >> $GITHUB_STEP_SUMMARY
-          echo >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat "$integration_dir/test_failure.log" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
-        done
-        exit 1
+        dir: headless
 
     - name: Upload Codecov report (integration tests)
       if: contains(matrix.os, 'ubuntu-latest')
@@ -376,31 +352,19 @@ jobs:
         packages=(
           # tidy-alphabetical-start
           cmake
-          libavcodec-dev
-          libavformat-dev
-          libavutil-dev
           libfreetype6-dev
           libglew-dev
           libnotify-dev
           libpng-dev
           libsdl2-dev
           libsqlite3-dev
-          libswresample-dev
-          libswscale-dev
           libwebsockets-dev
-          libx264-dev
           ninja-build
           pkg-config
           valgrind
           # tidy-alphabetical-end
         )
         sudo apt-get install -y "${packages[@]}"
-
-    - name: Install Vulkan SDK
-      uses: humbletim/install-vulkan-sdk@v1.2
-      with:
-        version: 1.3.296.0
-        cache: true
 
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
@@ -427,7 +391,7 @@ jobs:
       run: |
         mkdir headless
         cd headless
-        cmake -E env CXXFLAGS=-Werror cmake -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DHEADLESS_CLIENT=ON -DWEBSOCKETS=ON -DCMAKE_BUILD_TYPE=Debug -Werror=dev -DDEV=ON -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG=. ..
+        cmake -E env CXXFLAGS=-Werror cmake -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DHEADLESS_CLIENT=ON -DWEBSOCKETS=ON -DVIDEORECORDER=OFF -DVULKAN=OFF -DCMAKE_BUILD_TYPE=Debug -Werror=dev -DDEV=ON -DCMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG=. ..
         cmake --build . --config Debug --target game-client game-server
 
     - name: Run integration tests with Valgrind's Memcheck
@@ -437,36 +401,12 @@ jobs:
         cp src/mastersrv/target/debug/mastersrv headless
         python scripts/integration_test.py --show-full-output --test-mastersrv --test-websockets --valgrind-memcheck headless ${{ matrix.test-args }}
 
-    - name: Upload integration test results
-      id: integration_test_artifact_upload
+    - name: Report integration test results
       if: steps.integration_test.outcome == 'failure'
-      uses: actions/upload-artifact@v4
+      uses: ./.github/actions/integration-test-report
       with:
         name: ddnet-valgrind-${{ matrix.shard }}-integration-test-results
-        path: headless/integration_*
-        if-no-files-found: error
-
-    - name: Summarize integration test results
-      if: steps.integration_test.outcome == 'failure'
-      shell: bash
-      run: |
-        echo -e "\033[31mFAILED: Integration test failed. Refer to the workflow logs and uploaded artifacts in the steps above for details.\033[m"
-        echo "### Integration test failed" >> $GITHUB_STEP_SUMMARY
-        echo >> $GITHUB_STEP_SUMMARY
-        echo "See summary below. Refer to the workflow logs and uploaded artifacts for details." >> $GITHUB_STEP_SUMMARY
-        echo >> $GITHUB_STEP_SUMMARY
-        echo "Artifact URL: ${{ steps.integration_test_artifact_upload.outputs.artifact-url }}" >> $GITHUB_STEP_SUMMARY
-        for integration_dir in headless/integration_*; do
-          echo >> $GITHUB_STEP_SUMMARY
-          echo "<details><summary>Test $(basename "$integration_dir")</summary>" >> $GITHUB_STEP_SUMMARY
-          echo >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat "$integration_dir/test_failure.log" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
-        done
-        exit 1
+        dir: headless
 
   build-android:
     runs-on: ubuntu-24.04

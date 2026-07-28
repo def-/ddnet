@@ -290,7 +290,6 @@ public:
 	// The trailing Id is what IGameEnvironment uses to deduplicate predicted
 	// effects on the client. The server has no use for it.
 	void CreateDamageInd(vec2 Pos, float AngleMod, int Amount, CClientMask Mask = CClientMask().set(), int Id = -1) override;
-	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask = CClientMask().set());
 	void CreateExplosionEvent(vec2 Pos, CClientMask Mask = CClientMask().set(), int Id = -1) override;
 	void CreateHammerHit(vec2 Pos, CClientMask Mask = CClientMask().set(), int Id = -1) override;
 	void CreatePlayerSpawn(vec2 Pos, CClientMask Mask = CClientMask().set());

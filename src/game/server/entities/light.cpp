@@ -16,18 +16,18 @@ CLight::CLight(CGameWorld *pGameWorld, vec2 Pos, float Rotation, int Length,
 	m_Core = vec2(0.0f, 0.0f);
 	m_Layer = Layer;
 	m_Number = Number;
-	m_Tick = (Server()->TickSpeed() * 0.15f);
+	m_Tick = (GameWorld()->GameTickSpeed() * 0.15f);
 	m_Pos = Pos;
 	m_Rotation = Rotation;
 	m_Length = Length;
-	m_EvalTick = Server()->Tick();
+	m_EvalTick = GameWorld()->GameTick();
 	GameWorld()->InsertEntity(this);
 	Step();
 }
 
 bool CLight::HitCharacter()
 {
-	std::vector<CCharacter *> vpHitCharacters = GameServer()->m_World.IntersectedCharacters(m_Pos, m_To, 0.0f, nullptr);
+	std::vector<CCharacter *> vpHitCharacters = GameWorld()->IntersectedCharacters(m_Pos, m_To, 0.0f, nullptr);
 	if(vpHitCharacters.empty())
 		return false;
 	for(auto *pChar : vpHitCharacters)
@@ -71,7 +71,7 @@ void CLight::Step()
 	Move();
 	const vec2 Direction = vec2(std::sin(m_Rotation), std::cos(m_Rotation));
 	const vec2 NextPosition = m_Pos + normalize(Direction) * m_CurveLength;
-	GameServer()->Collision()->IntersectNoLaser(m_Pos, NextPosition, &m_To, nullptr);
+	Collision()->IntersectNoLaser(m_Pos, NextPosition, &m_To, nullptr);
 }
 
 void CLight::Reset()
@@ -81,10 +81,10 @@ void CLight::Reset()
 
 void CLight::Tick()
 {
-	if(Server()->Tick() % (int)(Server()->TickSpeed() * 0.15f) == 0)
+	if(GameWorld()->GameTick() % (int)(GameWorld()->GameTickSpeed() * 0.15f) == 0)
 	{
-		m_EvalTick = Server()->Tick();
-		GameServer()->Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
+		m_EvalTick = GameWorld()->GameTick();
+		Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
 		m_Pos += m_Core;
 		Step();
 	}

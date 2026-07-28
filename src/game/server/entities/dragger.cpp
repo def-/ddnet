@@ -21,7 +21,7 @@ CDragger::CDragger(CGameWorld *pGameWorld, vec2 Pos, float Strength, bool Ignore
 	m_IgnoreWalls = IgnoreWalls;
 	m_Layer = Layer;
 	m_Number = Number;
-	m_EvalTick = Server()->Tick();
+	m_EvalTick = GameWorld()->GameTick();
 
 	for(auto &TargetId : m_aTargetIdInTeam)
 	{
@@ -33,10 +33,10 @@ CDragger::CDragger(CGameWorld *pGameWorld, vec2 Pos, float Strength, bool Ignore
 
 void CDragger::Tick()
 {
-	if(Server()->Tick() % (int)(Server()->TickSpeed() * 0.15f) == 0)
+	if(GameWorld()->GameTick() % (int)(GameWorld()->GameTickSpeed() * 0.15f) == 0)
 	{
-		m_EvalTick = Server()->Tick();
-		GameServer()->Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
+		m_EvalTick = GameWorld()->GameTick();
+		Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
 		m_Pos += m_Core;
 
 		// Adopt the new position for all outgoing laser beams
@@ -58,7 +58,7 @@ void CDragger::LookForPlayersToDrag()
 	CEntity *apPlayersInRange[MAX_CLIENTS];
 	std::fill(std::begin(apPlayersInRange), std::end(apPlayersInRange), nullptr);
 
-	int NumPlayersInRange = GameServer()->m_World.FindEntities(m_Pos,
+	int NumPlayersInRange = GameWorld()->FindEntities(m_Pos,
 		g_Config.m_SvDraggerRange - CCharacterCore::PhysicalSize(),
 		apPlayersInRange, MAX_CLIENTS, CGameWorld::ENTTYPE_CHARACTER);
 
@@ -92,11 +92,11 @@ void CDragger::LookForPlayersToDrag()
 		// Dragger beams can be created only for reachable, alive players
 		int IsReachable =
 			m_IgnoreWalls ?
-				!GameServer()->Collision()->IntersectNoLaserNoWalls(m_Pos, pTarget->m_Pos, nullptr, nullptr) :
-				!GameServer()->Collision()->IntersectNoLaser(m_Pos, pTarget->m_Pos, nullptr, nullptr);
+				!Collision()->IntersectNoLaserNoWalls(m_Pos, pTarget->m_Pos, nullptr, nullptr) :
+				!Collision()->IntersectNoLaser(m_Pos, pTarget->m_Pos, nullptr, nullptr);
 		if(IsReachable && pTarget->IsAlive())
 		{
-			const int &TargetClientId = pTarget->GetPlayer()->GetCid();
+			const int &TargetClientId = pTarget->GetCid();
 			// Solo players are dragged independently from the rest of the team
 			if(pTarget->Teams()->m_Core.GetSolo(TargetClientId))
 			{
@@ -133,7 +133,7 @@ void CDragger::LookForPlayersToDrag()
 		// Create Dragger Beams which have not been created yet
 		if(aIsTarget[i] && m_apDraggerBeam[i] == nullptr)
 		{
-			m_apDraggerBeam[i] = new CDraggerBeam(&GameServer()->m_World, this, m_Pos, m_Strength, m_IgnoreWalls, i, m_Layer, m_Number);
+			m_apDraggerBeam[i] = new CDraggerBeam(GameWorld(), this, m_Pos, m_Strength, m_IgnoreWalls, i, m_Layer, m_Number);
 			// The generated dragger beam is placed in the first position in the tick sequence and would therefore
 			// no longer be executed automatically in this tick. To execute the dragger beam nevertheless already
 			// this tick we call it manually (we do this to keep the old game logic)

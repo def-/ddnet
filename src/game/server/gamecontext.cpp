@@ -385,58 +385,6 @@ void CGameContext::CreateExplosionEvent(vec2 Pos, CClientMask Mask, int Id)
 	}
 }
 
-void CGameContext::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask)
-{
-	CreateExplosionEvent(Pos, Mask);
-
-	// deal damage
-	CEntity *apEnts[MAX_CLIENTS];
-	float Radius = 135.0f;
-	float InnerRadius = 48.0f;
-	int Num = m_World.FindEntities(Pos, Radius, apEnts, MAX_CLIENTS, CGameWorld::ENTTYPE_CHARACTER);
-	CClientMask TeamMask = CClientMask().set();
-	for(int i = 0; i < Num; i++)
-	{
-		auto *pChr = static_cast<CCharacter *>(apEnts[i]);
-		vec2 Diff = pChr->m_Pos - Pos;
-		vec2 ForceDir(0, 1);
-		float l = length(Diff);
-		if(l)
-			ForceDir = normalize(Diff);
-		l = 1 - std::clamp((l - InnerRadius) / (Radius - InnerRadius), 0.0f, 1.0f);
-		float Strength;
-		if(Owner == -1 || !m_apPlayers[Owner] || !m_apPlayers[Owner]->m_TuneZone)
-			Strength = GlobalTuning()->m_ExplosionStrength;
-		else
-			Strength = TuningList()[m_apPlayers[Owner]->m_TuneZone].m_ExplosionStrength;
-
-		float Dmg = Strength * l;
-		if(!(int)Dmg)
-			continue;
-
-		if((GetPlayerChar(Owner) ? !GetPlayerChar(Owner)->GrenadeHitDisabled() : g_Config.m_SvHit) || NoDamage || Owner == pChr->GetPlayer()->GetCid())
-		{
-			if(Owner != -1 && pChr->IsAlive() && !pChr->CanCollide(Owner))
-				continue;
-			if(Owner == -1 && ActivatedTeam != -1 && pChr->IsAlive() && pChr->Team() != ActivatedTeam)
-				continue;
-
-			// Explode at most once per team
-			int PlayerTeam = pChr->Team();
-			if((GetPlayerChar(Owner) ? GetPlayerChar(Owner)->GrenadeHitDisabled() : !g_Config.m_SvHit) || NoDamage)
-			{
-				if(PlayerTeam == TEAM_SUPER)
-					continue;
-				if(!TeamMask.test(PlayerTeam))
-					continue;
-				TeamMask.reset(PlayerTeam);
-			}
-
-			pChr->TakeDamage(ForceDir * Dmg * 2, (int)Dmg, Owner, Weapon);
-		}
-	}
-}
-
 void CGameContext::CreatePlayerSpawn(vec2 Pos, CClientMask Mask)
 {
 	CNetEvent_Spawn *pEvent = m_Events.Create<CNetEvent_Spawn>(Mask);

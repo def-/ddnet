@@ -21,8 +21,8 @@ CPlasma::CPlasma(CGameWorld *pGameWorld, vec2 Pos, vec2 Dir, bool Freeze,
 	m_Freeze = Freeze;
 	m_Explosive = Explosive;
 	m_ForClientId = ForClientId;
-	m_EvalTick = Server()->Tick();
-	m_LifeTime = Server()->TickSpeed() * 1.5f;
+	m_EvalTick = GameWorld()->GameTick();
+	m_LifeTime = GameWorld()->GameTickSpeed() * 1.5f;
 
 	GameWorld()->InsertEntity(this);
 }
@@ -35,7 +35,7 @@ void CPlasma::Tick()
 		Reset();
 		return;
 	}
-	CCharacter *pTarget = GameServer()->GetPlayerChar(m_ForClientId);
+	CCharacter *pTarget = GameWorld()->GetCharacterById(m_ForClientId);
 	// Without a target, a plasma bullet has no reason to live
 	if(!pTarget)
 	{
@@ -58,7 +58,7 @@ void CPlasma::Move()
 bool CPlasma::HitCharacter(CCharacter *pTarget)
 {
 	vec2 IntersectPos;
-	CCharacter *pHitPlayer = GameServer()->m_World.IntersectCharacter(
+	CCharacter *pHitPlayer = GameWorld()->IntersectCharacter(
 		m_Pos, m_Pos + m_Core, 0.0f, IntersectPos, nullptr, m_ForClientId);
 	if(!pHitPlayer)
 	{
@@ -76,7 +76,7 @@ bool CPlasma::HitCharacter(CCharacter *pTarget)
 	{
 		// Plasma Turrets are very precise weapons only one tee gets speed from it,
 		// other tees near the explosion remain unaffected
-		GameServer()->CreateExplosion(
+		GameWorld()->CreateExplosion(
 			m_Pos, m_ForClientId, WEAPON_GRENADE, true, pTarget->Team(), pTarget->TeamMask());
 	}
 	Reset();
@@ -86,13 +86,13 @@ bool CPlasma::HitCharacter(CCharacter *pTarget)
 bool CPlasma::HitObstacle(CCharacter *pTarget)
 {
 	// Check if the plasma bullet is stopped by a solid block or a laser stopper
-	int HasIntersection = GameServer()->Collision()->IntersectNoLaser(m_Pos, m_Pos + m_Core, nullptr, nullptr);
+	int HasIntersection = Collision()->IntersectNoLaser(m_Pos, m_Pos + m_Core, nullptr, nullptr);
 	if(HasIntersection)
 	{
 		if(m_Explosive)
 		{
 			// Even in the case of an explosion due to a collision with obstacles, only one player is affected
-			GameServer()->CreateExplosion(
+			GameWorld()->CreateExplosion(
 				m_Pos, m_ForClientId, WEAPON_GRENADE, true, pTarget->Team(), pTarget->TeamMask());
 		}
 		Reset();

@@ -23,7 +23,7 @@ CDraggerBeam::CDraggerBeam(CGameWorld *pGameWorld, CDragger *pDragger, vec2 Pos,
 	m_Active = true;
 	m_Layer = Layer;
 	m_Number = Number;
-	m_EvalTick = Server()->Tick();
+	m_EvalTick = GameWorld()->GameTick();
 
 	GameWorld()->InsertEntity(this);
 }
@@ -36,7 +36,7 @@ void CDraggerBeam::Tick()
 	}
 
 	// Drag only if the player is reachable and alive
-	CCharacter *pTarget = GameServer()->GetPlayerChar(m_ForClientId);
+	CCharacter *pTarget = GameWorld()->GetCharacterById(m_ForClientId);
 	if(!pTarget)
 	{
 		Reset();
@@ -47,7 +47,7 @@ void CDraggerBeam::Tick()
 	// after CDraggerBeam::Tick and only every 150ms
 	// When the dragger is disabled for the target player's team, the dragger beam dissolves. The check if a dragger
 	// is disabled is only executed every 150ms, so the beam can stay activated up to 6 extra ticks
-	if(Server()->Tick() % (int)(Server()->TickSpeed() * 0.15f) == 0)
+	if(GameWorld()->GameTick() % (int)(GameWorld()->GameTickSpeed() * 0.15f) == 0)
 	{
 		if(m_Layer == LAYER_SWITCH && m_Number > 0 &&
 			!Switchers()[m_Number].m_aStatus[pTarget->Team()])
@@ -60,8 +60,8 @@ void CDraggerBeam::Tick()
 	// When the dragger can no longer reach the target player, the dragger beam dissolves
 	int IsReachable =
 		m_IgnoreWalls ?
-			!GameServer()->Collision()->IntersectNoLaserNoWalls(m_Pos, pTarget->m_Pos, nullptr, nullptr) :
-			!GameServer()->Collision()->IntersectNoLaser(m_Pos, pTarget->m_Pos, nullptr, nullptr);
+			!Collision()->IntersectNoLaserNoWalls(m_Pos, pTarget->m_Pos, nullptr, nullptr) :
+			!Collision()->IntersectNoLaser(m_Pos, pTarget->m_Pos, nullptr, nullptr);
 	if(!IsReachable ||
 		distance(pTarget->m_Pos, m_Pos) >= g_Config.m_SvDraggerRange || !pTarget->IsAlive())
 	{

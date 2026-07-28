@@ -7,6 +7,7 @@
 #include "entity.h"
 #include "gamecontext.h"
 #include "gamecontroller.h"
+#include "player.h"
 
 #include <engine/shared/config.h>
 
@@ -48,6 +49,78 @@ void CGameWorld::SetGameServer(CGameContext *pGameServer)
 IGameEnvironment *CGameWorld::Env()
 {
 	return m_pGameServer;
+}
+
+int CGameWorld::GameTick() const
+{
+	return m_pServer->Tick();
+}
+
+int CGameWorld::GameTickSpeed() const
+{
+	return m_pServer->TickSpeed();
+}
+
+CCollision *CGameWorld::Collision()
+{
+	return m_pGameServer->Collision();
+}
+
+CCharacter *CGameWorld::GetCharacterById(int ClientId)
+{
+	return m_pGameServer->GetPlayerChar(ClientId);
+}
+
+void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask, int Id)
+{
+	Env()->CreateExplosionEvent(Pos, Mask, Id);
+
+	// deal damage
+	CEntity *apEnts[MAX_CLIENTS];
+	float Radius = 135.0f;
+	float InnerRadius = 48.0f;
+	int Num = FindEntities(Pos, Radius, apEnts, MAX_CLIENTS, CGameWorld::ENTTYPE_CHARACTER);
+	CClientMask TeamMask = CClientMask().set();
+	for(int i = 0; i < Num; i++)
+	{
+		auto *pChr = static_cast<CCharacter *>(apEnts[i]);
+		vec2 Diff = pChr->m_Pos - Pos;
+		vec2 ForceDir(0, 1);
+		float l = length(Diff);
+		if(l)
+			ForceDir = normalize(Diff);
+		l = 1 - std::clamp((l - InnerRadius) / (Radius - InnerRadius), 0.0f, 1.0f);
+		float Strength;
+		if(Owner == -1 || !GameServer()->m_apPlayers[Owner] || !GameServer()->m_apPlayers[Owner]->m_TuneZone)
+			Strength = GlobalTuning()->m_ExplosionStrength;
+		else
+			Strength = TuningList()[GameServer()->m_apPlayers[Owner]->m_TuneZone].m_ExplosionStrength;
+
+		float Dmg = Strength * l;
+		if(!(int)Dmg)
+			continue;
+
+		if((GetCharacterById(Owner) ? !GetCharacterById(Owner)->GrenadeHitDisabled() : g_Config.m_SvHit) || NoDamage || Owner == pChr->GetCid())
+		{
+			if(Owner != -1 && pChr->IsAlive() && !pChr->CanCollide(Owner))
+				continue;
+			if(Owner == -1 && ActivatedTeam != -1 && pChr->IsAlive() && pChr->Team() != ActivatedTeam)
+				continue;
+
+			// Explode at most once per team
+			int PlayerTeam = pChr->Team();
+			if((GetCharacterById(Owner) ? GetCharacterById(Owner)->GrenadeHitDisabled() : !g_Config.m_SvHit) || NoDamage)
+			{
+				if(PlayerTeam == TEAM_SUPER)
+					continue;
+				if(!TeamMask.test(PlayerTeam))
+					continue;
+				TeamMask.reset(PlayerTeam);
+			}
+
+			pChr->TakeDamage(ForceDir * Dmg * 2, (int)Dmg, Owner, Weapon);
+		}
+	}
 }
 
 void CGameWorld::Init(CCollision *pCollision, CTuningParams *pTuningList)

@@ -49,6 +49,15 @@ public:
 	class IServer *Server() { return m_pServer; }
 	class IGameEnvironment *Env();
 
+	// Spelled the same way as in the client's prediction, so that the game logic
+	// reading them can be shared. Defined in gameworld.cpp because they need the
+	// complete CGameContext and IServer.
+	int GameTick() const;
+	int GameTickSpeed() const;
+	CCollision *Collision();
+	CCharacter *GetCharacterById(int ClientId);
+	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask = CClientMask().set(), int Id = -1);
+
 	bool m_ResetRequested;
 	bool m_Paused;
 	CWorldCore m_Core;
@@ -199,6 +208,8 @@ public:
 
 	const CTuningParams *TuningList() const { return m_pTuningList; }
 	CTuningParams *TuningList() { return m_pTuningList; }
+	const CTuningParams *GlobalTuning() const { return &TuningList()[0]; }
+	CTuningParams *GlobalTuning() { return &TuningList()[0]; }
 	const CTuningParams *GetTuning(int i) const { return &TuningList()[i]; }
 	CTuningParams *GetTuning(int i) { return &TuningList()[i]; }
 };

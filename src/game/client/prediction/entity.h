@@ -32,6 +32,7 @@ public:
 
 	std::vector<SSwitchers> &Switchers() { return m_pGameWorld->Switchers(); }
 	CGameWorld *GameWorld() { return m_pGameWorld; }
+	class IGameEnvironment *Env() { return m_pGameWorld->Env(); }
 	CTuningParams *GlobalTuning() { return &GameWorld()->TuningList()[0]; }
 	CTuningParams *TuningList() { return GameWorld()->TuningList(); }
 	CTuningParams *GetTuning(int i) { return GameWorld()->GetTuning(i); }

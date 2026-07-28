@@ -21,7 +21,7 @@ CGun::CGun(CGameWorld *pGameWorld, vec2 Pos, bool Freeze, bool Explosive, int La
 	m_Explosive = Explosive;
 	m_Layer = Layer;
 	m_Number = Number;
-	m_EvalTick = Server()->Tick();
+	m_EvalTick = GameWorld()->GameTick();
 
 	std::fill(std::begin(m_aLastFireTeam), std::end(m_aLastFireTeam), 0);
 	std::fill(std::begin(m_aLastFireSolo), std::end(m_aLastFireSolo), 0);
@@ -30,10 +30,10 @@ CGun::CGun(CGameWorld *pGameWorld, vec2 Pos, bool Freeze, bool Explosive, int La
 
 void CGun::Tick()
 {
-	if(Server()->Tick() % (int)(Server()->TickSpeed() * 0.15f) == 0)
+	if(GameWorld()->GameTick() % (int)(GameWorld()->GameTickSpeed() * 0.15f) == 0)
 	{
-		m_EvalTick = Server()->Tick();
-		GameServer()->Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
+		m_EvalTick = GameWorld()->GameTick();
+		Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
 		m_Pos += m_Core;
 	}
 	if(g_Config.m_SvPlasmaPerSec > 0)
@@ -48,7 +48,7 @@ void CGun::Fire()
 	CEntity *apPlayersInRange[MAX_CLIENTS];
 	std::fill(std::begin(apPlayersInRange), std::end(apPlayersInRange), nullptr);
 
-	int NumPlayersInRange = GameServer()->m_World.FindEntities(m_Pos, g_Config.m_SvPlasmaRange,
+	int NumPlayersInRange = GameWorld()->FindEntities(m_Pos, g_Config.m_SvPlasmaRange,
 		apPlayersInRange, MAX_CLIENTS, CGameWorld::ENTTYPE_CHARACTER);
 
 	// The closest player (within range) in a team is selected as the target
@@ -76,25 +76,25 @@ void CGun::Fire()
 		}
 
 		// Turrets can only shoot at a speed of sv_plasma_per_sec
-		const int &TargetClientId = pTarget->GetPlayer()->GetCid();
+		const int &TargetClientId = pTarget->GetCid();
 		const bool &TargetIsSolo = pTarget->Teams()->m_Core.GetSolo(TargetClientId);
 		if((TargetIsSolo &&
-			   m_aLastFireSolo[TargetClientId] + Server()->TickSpeed() / g_Config.m_SvPlasmaPerSec > Server()->Tick()) ||
+			   m_aLastFireSolo[TargetClientId] + GameWorld()->GameTickSpeed() / g_Config.m_SvPlasmaPerSec > GameWorld()->GameTick()) ||
 			(!TargetIsSolo &&
-				m_aLastFireTeam[TargetTeam] + Server()->TickSpeed() / g_Config.m_SvPlasmaPerSec > Server()->Tick()))
+				m_aLastFireTeam[TargetTeam] + GameWorld()->GameTickSpeed() / g_Config.m_SvPlasmaPerSec > GameWorld()->GameTick()))
 		{
 			continue;
 		}
 
 		// Turrets can shoot only at reachable, alive players
-		int IsReachable = !GameServer()->Collision()->IntersectLine(m_Pos, pTarget->m_Pos, nullptr, nullptr);
+		int IsReachable = !Collision()->IntersectLine(m_Pos, pTarget->m_Pos, nullptr, nullptr);
 		if(IsReachable && pTarget->IsAlive())
 		{
 			// Turrets fire on solo players regardless of the rest of the team
 			if(TargetIsSolo)
 			{
 				aIsTarget[TargetClientId] = true;
-				m_aLastFireSolo[TargetClientId] = Server()->Tick();
+				m_aLastFireSolo[TargetClientId] = GameWorld()->GameTick();
 			}
 			else
 			{
@@ -114,7 +114,7 @@ void CGun::Fire()
 		if(aTargetIdInTeam[i] != -1)
 		{
 			aIsTarget[aTargetIdInTeam[i]] = true;
-			m_aLastFireTeam[i] = Server()->Tick();
+			m_aLastFireTeam[i] = GameWorld()->GameTick();
 		}
 	}
 
@@ -123,8 +123,8 @@ void CGun::Fire()
 		// Fire at each target
 		if(aIsTarget[i])
 		{
-			CCharacter *pTarget = GameServer()->GetPlayerChar(i);
-			new CPlasma(&GameServer()->m_World, m_Pos, normalize(pTarget->m_Pos - m_Pos), m_Freeze, m_Explosive, i);
+			CCharacter *pTarget = GameWorld()->GetCharacterById(i);
+			new CPlasma(GameWorld(), m_Pos, normalize(pTarget->m_Pos - m_Pos), m_Freeze, m_Explosive, i);
 		}
 	}
 }

@@ -53,7 +53,7 @@ void CPickup::Tick()
 			{
 			case POWERUP_HEALTH:
 				if(pChr->Freeze())
-					GameServer()->CreateSound(m_Pos, SOUND_PICKUP_HEALTH, pChr->TeamMask());
+					Env()->CreateSound(m_Pos, SOUND_PICKUP_HEALTH, pChr->TeamMask(), pChr->GetCid());
 				break;
 
 			case POWERUP_ARMOR:
@@ -74,7 +74,7 @@ void CPickup::Tick()
 				if(Sound)
 				{
 					pChr->SetLastWeapon(WEAPON_GUN);
-					GameServer()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask());
+					Env()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask(), pChr->GetCid());
 				}
 				if(pChr->GetActiveWeapon() >= WEAPON_SHOTGUN)
 					pChr->SetActiveWeapon(WEAPON_HAMMER);
@@ -88,7 +88,7 @@ void CPickup::Tick()
 					pChr->SetWeaponGot(WEAPON_SHOTGUN, false);
 					pChr->SetWeaponAmmo(WEAPON_SHOTGUN, 0);
 					pChr->SetLastWeapon(WEAPON_GUN);
-					GameServer()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask());
+					Env()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask(), pChr->GetCid());
 				}
 				if(pChr->GetActiveWeapon() == WEAPON_SHOTGUN)
 					pChr->SetActiveWeapon(WEAPON_HAMMER);
@@ -102,7 +102,7 @@ void CPickup::Tick()
 					pChr->SetWeaponGot(WEAPON_GRENADE, false);
 					pChr->SetWeaponAmmo(WEAPON_GRENADE, 0);
 					pChr->SetLastWeapon(WEAPON_GUN);
-					GameServer()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask());
+					Env()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask(), pChr->GetCid());
 				}
 				if(pChr->GetActiveWeapon() == WEAPON_GRENADE)
 					pChr->SetActiveWeapon(WEAPON_HAMMER);
@@ -124,7 +124,7 @@ void CPickup::Tick()
 					pChr->SetWeaponGot(WEAPON_LASER, false);
 					pChr->SetWeaponAmmo(WEAPON_LASER, 0);
 					pChr->SetLastWeapon(WEAPON_GUN);
-					GameServer()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask());
+					Env()->CreateSound(m_Pos, SOUND_PICKUP_ARMOR, pChr->TeamMask(), pChr->GetCid());
 				}
 				if(pChr->GetActiveWeapon() == WEAPON_LASER)
 					pChr->SetActiveWeapon(WEAPON_HAMMER);
@@ -137,14 +137,14 @@ void CPickup::Tick()
 					pChr->GiveWeapon(m_Subtype);
 
 					if(m_Subtype == WEAPON_GRENADE)
-						GameServer()->CreateSound(m_Pos, SOUND_PICKUP_GRENADE, pChr->TeamMask());
+						Env()->CreateSound(m_Pos, SOUND_PICKUP_GRENADE, pChr->TeamMask(), pChr->GetCid());
 					else if(m_Subtype == WEAPON_SHOTGUN)
-						GameServer()->CreateSound(m_Pos, SOUND_PICKUP_SHOTGUN, pChr->TeamMask());
+						Env()->CreateSound(m_Pos, SOUND_PICKUP_SHOTGUN, pChr->TeamMask(), pChr->GetCid());
 					else if(m_Subtype == WEAPON_LASER)
-						GameServer()->CreateSound(m_Pos, SOUND_PICKUP_SHOTGUN, pChr->TeamMask());
+						Env()->CreateSound(m_Pos, SOUND_PICKUP_SHOTGUN, pChr->TeamMask(), pChr->GetCid());
 
 					if(pChr->GetPlayer())
-						GameServer()->SendWeaponPickup(pChr->GetPlayer()->GetCid(), m_Subtype);
+						GameServer()->SendWeaponPickup(pChr->GetCid(), m_Subtype);
 				}
 				break;
 
@@ -167,9 +167,9 @@ void CPickup::TickPaused()
 
 void CPickup::Move()
 {
-	if(Server()->Tick() % (int)(Server()->TickSpeed() * 0.15f) == 0)
+	if(GameWorld()->GameTick() % (int)(GameWorld()->GameTickSpeed() * 0.15f) == 0)
 	{
-		GameServer()->Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
+		Collision()->MoverSpeed(m_Pos.x, m_Pos.y, &m_Core);
 		m_Pos += m_Core;
 	}
 }

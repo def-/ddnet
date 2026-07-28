@@ -103,6 +103,9 @@ public:
 	bool IsPaused() const { return m_Paused; }
 	CPlayer *GetPlayer() { return m_pPlayer; }
 	const CPlayer *GetPlayer() const { return m_pPlayer; }
+	// Spelled the same way as in the client's prediction, where a character is
+	// identified by its entity id rather than by a player.
+	int GetCid() const;
 	CClientMask TeamMask();
 
 	void SetPosition(const vec2 &Position);

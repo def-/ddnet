@@ -94,6 +94,7 @@ public: // TODO: Maybe make protected
 	class CConfig *Config() { return m_pGameWorld->Config(); }
 	class CGameContext *GameServer() { return m_pGameWorld->GameServer(); }
 	class IServer *Server() { return m_pGameWorld->Server(); }
+	class IGameEnvironment *Env() { return m_pGameWorld->Env(); }
 	CCollision *Collision() { return m_pCCollision; }
 
 	/* Getters */

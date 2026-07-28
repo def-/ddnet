@@ -2293,6 +2293,8 @@ set_src(ENGINE_GFX GLOB src/engine/gfx
 )
 set_src(GAME_ENTITIES GLOB src/game/entities
   # tidy-alphabetical-start
+  character.cpp
+  character.h
   entity.cpp
   entity.h
   gameworld.cpp
@@ -2978,8 +2980,7 @@ if(SERVER)
     # tidy-alphabetical-start
     ddracechat.cpp
     ddracecommands.cpp
-    entities/character.cpp
-    entities/character.h
+    entities/character_server.cpp
     entities/door.cpp
     entities/door.h
     entities/dragger.cpp

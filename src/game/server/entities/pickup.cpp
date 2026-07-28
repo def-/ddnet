@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "pickup.h"
 
-#include "character.h"
+#include <game/entities/character.h>
 
 #include <generated/protocol.h>
 

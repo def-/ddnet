@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "gamecontext.h"
 
-#include "entities/character.h"
+#include <game/entities/character.h>
 #include "gamemodes/ddnet.h"
 #include "gamemodes/mod.h"
 #include "player.h"

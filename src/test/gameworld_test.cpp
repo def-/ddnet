@@ -17,7 +17,7 @@
 #include <generated/protocol.h>
 
 #include <game/prng.h>
-#include <game/server/entities/character.h>
+#include <game/entities/character.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamecontroller.h>
 #include <game/entities/gameworld.h>

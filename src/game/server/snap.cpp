@@ -11,7 +11,7 @@
 	non-virtual Snap() of the concrete class, all of which are defined here.
 */
 
-#include "entities/character.h"
+#include <game/entities/character.h>
 #include "entities/door.h"
 #include "entities/dragger.h"
 #include "entities/dragger_beam.h"

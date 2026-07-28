@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "player.h"
 
-#include "entities/character.h"
+#include <game/entities/character.h>
 #include "gamecontext.h"
 #include "gamecontroller.h"
 #include "score.h"

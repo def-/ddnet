@@ -1,7 +1,7 @@
 /* (c) Shereef Marzouk. See "licence DDRace.txt" and the readme.txt in the root of the distribution for more information. */
 #include "dragger.h"
 
-#include "character.h"
+#include <game/entities/character.h>
 #include "dragger_beam.h"
 
 #include <engine/server.h>

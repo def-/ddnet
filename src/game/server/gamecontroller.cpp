@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "gamecontroller.h"
 
-#include "entities/character.h"
+#include <game/entities/character.h>
 #include "entities/door.h"
 #include "entities/dragger.h"
 #include "entities/gun.h"

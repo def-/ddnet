@@ -1,7 +1,7 @@
 /* copyright (c) 2007 magnus auvinen, see licence.txt for more info */
 #include "gun.h"
 
-#include "character.h"
+#include <game/entities/character.h>
 #include "plasma.h"
 
 #include <engine/server.h>

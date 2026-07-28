@@ -19,7 +19,7 @@
 #include <game/collision.h>
 #include <game/entities/entity.h>
 #include <game/entities/gameworld.h>
-#include <game/server/entities/character.h>
+#include <game/entities/character.h>
 
 //////////////////////////////////////////////////
 // CGameWorld

@@ -8,7 +8,7 @@
 #include <engine/shared/protocol.h>
 
 #include <game/entities/gameworld.h>
-#include <game/server/entities/character.h>
+#include <game/entities/character.h>
 #include <game/server/entities/dragger_beam.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamemodes/ddnet.h>

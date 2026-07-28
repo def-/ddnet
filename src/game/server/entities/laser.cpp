@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "laser.h"
 
-#include "character.h"
+#include <game/entities/character.h>
 
 #include <engine/shared/config.h>
 #include <engine/shared/protocol.h>

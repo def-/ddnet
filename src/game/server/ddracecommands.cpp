@@ -9,7 +9,7 @@
 #include <engine/shared/config.h>
 
 #include <game/mapitems.h>
-#include <game/server/entities/character.h>
+#include <game/entities/character.h>
 #include <game/server/gamemodes/ddnet.h>
 #include <game/server/player.h>
 #include <game/server/save.h>

@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "projectile.h"
 
-#include "character.h"
+#include <game/entities/character.h>
 
 #include <engine/shared/config.h>
 

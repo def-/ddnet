@@ -64,6 +64,49 @@ public:
 	*/
 	virtual std::optional<int> AllocateSnapId() { return std::nullopt; }
 	virtual void FreeSnapId(int Id) {}
+
+	/*
+		Things the game logic tells a player about, or asks the rest of the
+		server for. None of it changes the simulation, so the prediction ignores
+		it or answers with what it can see.
+	*/
+	virtual void SendChatInfo(int ClientId, const char *pText) {}
+	virtual void SendStartWarningInfo(int ClientId, const char *pMessage) {}
+	virtual void SendZoneMessage(int ClientId, int TuneZone, bool Entering) {}
+	virtual void SendBroadcastInfo(int ClientId, const char *pText, bool Important) {}
+	virtual void PrintDebug(const char *pMessage) {}
+
+	/*
+		The game mode's say in what a tile does and where a player may spawn.
+		The prediction has no game controller, so tiles the controller owns -
+		start, finish, checkpoints - simply do nothing, and nothing may spawn.
+	*/
+	virtual void OnCharacterTiles(class CCharacter *pChr, int MapIndex) {}
+	virtual void SetArmorProgress(class CCharacter *pChr, int Progress) {}
+	virtual bool CanSpawn(int Team, vec2 *pOutPos, int ClientId) { return false; }
+
+	// Whether the client is connected and playing rather than spectating.
+	virtual bool IsPlayerInGame(int ClientId) { return true; }
+
+	/*
+		Teams. The prediction has the teams core, which is what the simulation
+		reads, but none of the bookkeeping around it.
+	*/
+	virtual bool TeamFlock(int Team) { return false; }
+	virtual bool TeamIsPractice(int Team) { return false; }
+	virtual bool TeeFinished(int ClientId) { return false; }
+	virtual bool SetCharacterTeam(int ClientId, int Team, char *pError, int ErrorSize) { return true; }
+	virtual void SetForceCharacterTeam(int ClientId, int Team) {}
+
+	/*
+		Antibot only ever observes.
+	*/
+	virtual void AntibotOnCharacterTick(int ClientId) {}
+	virtual void AntibotOnHookAttach(int ClientId, bool Player) {}
+	virtual void AntibotOnDirectInput(int ClientId) {}
+	virtual void AntibotOnHammerFire(int ClientId) {}
+	virtual void AntibotOnHammerFireReloading(int ClientId) {}
+	virtual void AntibotOnHammerHit(int ClientId, int TargetClientId) {}
 };
 
 #endif

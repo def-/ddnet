@@ -414,6 +414,26 @@ public:
 	CClientMask ClientsMaskExcludeClientVersionAndHigher(int Version) const override;
 	std::optional<int> AllocateSnapId() override;
 	void FreeSnapId(int Id) override;
+	void SendChatInfo(int ClientId, const char *pText) override { SendChatTarget(ClientId, pText); }
+	void SendStartWarningInfo(int ClientId, const char *pMessage) override { SendStartWarning(ClientId, pMessage); }
+	void SendZoneMessage(int ClientId, int TuneZone, bool Entering) override;
+	void SendBroadcastInfo(int ClientId, const char *pText, bool Important) override { SendBroadcast(pText, ClientId, Important); }
+	void PrintDebug(const char *pMessage) override;
+	void OnCharacterTiles(class CCharacter *pChr, int MapIndex) override;
+	void SetArmorProgress(class CCharacter *pChr, int Progress) override;
+	bool CanSpawn(int Team, vec2 *pOutPos, int ClientId) override;
+	bool TeamFlock(int Team) override;
+	bool TeamIsPractice(int Team) override;
+	bool TeeFinished(int ClientId) override;
+	bool SetCharacterTeam(int ClientId, int Team, char *pError, int ErrorSize) override;
+	bool IsPlayerInGame(int ClientId) override;
+	void SetForceCharacterTeam(int ClientId, int Team) override;
+	void AntibotOnCharacterTick(int ClientId) override;
+	void AntibotOnHookAttach(int ClientId, bool Player) override;
+	void AntibotOnDirectInput(int ClientId) override;
+	void AntibotOnHammerFire(int ClientId) override;
+	void AntibotOnHammerFireReloading(int ClientId) override;
+	void AntibotOnHammerHit(int ClientId, int TargetClientId) override;
 	bool PlayerExists(int ClientId) const override { return m_apPlayers[ClientId]; }
 	// Returns true if someone is actively moderating.
 	bool PlayerModerating() const;

@@ -3,8 +3,8 @@
 #ifndef GAME_SERVER_ENTITIES_CHARACTER_H
 #define GAME_SERVER_ENTITIES_CHARACTER_H
 
-#include <game/race_state.h>
 #include <game/entities/entity.h>
+#include <game/race_state.h>
 #include <game/server/save.h>
 
 class CPlayer;
@@ -106,7 +106,22 @@ public:
 	// Spelled the same way as in the client's prediction, where a character is
 	// identified by its entity id rather than by a player.
 	int GetCid() const;
+
+	/*
+		Everything below is answered differently by the server and by the
+		prediction, so each defines its own: the server in
+		src/game/server/entities/character.cpp, the prediction in
+		src/game/client/prediction/. The prediction has no player behind a
+		character, no teams bookkeeping, no demos and nobody to tell.
+	*/
 	CClientMask TeamMask();
+	CClientMask TeamMaskWithoutSelfAndSixup();
+	CClientMask TeamMaskWithoutSixup();
+	int GetPlayerTeam() const;
+	bool HasNinjaJetpack() const;
+	void SetDefaultEmote();
+	int GetDieTick() const;
+	void SetDieTick(int Tick);
 
 	void SetPosition(const vec2 &Position);
 	void Move(vec2 RelPos);

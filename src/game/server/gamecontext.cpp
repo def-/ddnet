@@ -375,6 +375,93 @@ void CGameContext::CreateHammerHit(vec2 Pos, CClientMask Mask, int Id)
 	}
 }
 
+void CGameContext::SendZoneMessage(int ClientId, int TuneZone, bool Entering)
+{
+	const char *pMsg = Entering ? m_aaZoneEnterMsg[TuneZone] : m_aaZoneLeaveMsg[TuneZone];
+	if(pMsg[0] != '\0')
+		SendChatTarget(ClientId, pMsg);
+}
+
+void CGameContext::PrintDebug(const char *pMessage)
+{
+	Console()->Print(IConsole::OUTPUT_LEVEL_DEBUG, "game", pMessage);
+}
+
+void CGameContext::OnCharacterTiles(CCharacter *pChr, int MapIndex)
+{
+	m_pController->HandleCharacterTiles(pChr, MapIndex);
+}
+
+void CGameContext::SetArmorProgress(CCharacter *pChr, int Progress)
+{
+	m_pController->SetArmorProgress(pChr, Progress);
+}
+
+bool CGameContext::CanSpawn(int Team, vec2 *pOutPos, int ClientId)
+{
+	return m_pController->CanSpawn(Team, pOutPos, ClientId);
+}
+
+bool CGameContext::TeamFlock(int Team)
+{
+	return m_pController->Teams().TeamFlock(Team);
+}
+
+bool CGameContext::TeamIsPractice(int Team)
+{
+	return m_pController->Teams().IsPractice(Team);
+}
+
+bool CGameContext::TeeFinished(int ClientId)
+{
+	return m_pController->Teams().TeeFinished(ClientId);
+}
+
+bool CGameContext::SetCharacterTeam(int ClientId, int Team, char *pError, int ErrorSize)
+{
+	return m_pController->Teams().SetCharacterTeam(ClientId, Team, pError, ErrorSize);
+}
+
+bool CGameContext::IsPlayerInGame(int ClientId)
+{
+	return m_apPlayers[ClientId] != nullptr && m_apPlayers[ClientId]->GetTeam() != TEAM_SPECTATORS;
+}
+
+void CGameContext::SetForceCharacterTeam(int ClientId, int Team)
+{
+	m_pController->Teams().SetForceCharacterTeam(ClientId, Team);
+}
+
+void CGameContext::AntibotOnCharacterTick(int ClientId)
+{
+	Antibot()->OnCharacterTick(ClientId);
+}
+
+void CGameContext::AntibotOnHookAttach(int ClientId, bool Player)
+{
+	Antibot()->OnHookAttach(ClientId, Player);
+}
+
+void CGameContext::AntibotOnDirectInput(int ClientId)
+{
+	Antibot()->OnDirectInput(ClientId);
+}
+
+void CGameContext::AntibotOnHammerFire(int ClientId)
+{
+	Antibot()->OnHammerFire(ClientId);
+}
+
+void CGameContext::AntibotOnHammerFireReloading(int ClientId)
+{
+	Antibot()->OnHammerFireReloading(ClientId);
+}
+
+void CGameContext::AntibotOnHammerHit(int ClientId, int TargetClientId)
+{
+	Antibot()->OnHammerHit(ClientId, TargetClientId);
+}
+
 std::optional<int> CGameContext::AllocateSnapId()
 {
 	return Server()->SnapNewId();

@@ -23,30 +23,30 @@ jobs:
         include:
         - name: ubuntu-latest-fancy
           os: ubuntu-latest
-          cmake-args: -G Ninja
+          cmake-args: -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake-init-env: CXXFLAGS=-Werror
           package-file: "*-linux_x86_64.tar.xz"
         - name: ubuntu-22.04
           os: ubuntu-22.04
           cmake-path: /usr/bin/
-          cmake-args: -G "Unix Makefiles" -DTEST_MYSQL=ON
+          cmake-args: -G "Unix Makefiles" -DTEST_MYSQL=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake-init-env: CXXFLAGS=-Werror
           gtest-env: GTEST_FILTER=-*SQLite*
           package-file: "*-linux_x86_64.tar.xz"
         - name: macOS-latest
           os: macOS-latest
-          cmake-args: -G Ninja
+          cmake-args: -G Ninja -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake-init-env: CXXFLAGS=-Werror
           package-file: "*-macos.dmg"
         - name: windows-latest
           os: windows-latest
-          cmake-args: -A x64 -DEXCEPTION_HANDLING=ON -DVULKAN=ON
+          cmake-args: -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DEXCEPTION_HANDLING=ON -DVULKAN=ON -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake-init-env: CXXFLAGS=/WX LDFLAGS=/WX
           package-file: "*-win64.zip"
           executable-suffix: .exe
         - name: windows-latest-mingw
           os: windows-latest
-          cmake-args: -G Ninja -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DEXCEPTION_HANDLING=ON -DCMAKE_RC_COMPILER=windres -DCMAKE_AR=ar -DVULKAN=ON
+          cmake-args: -G Ninja -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DEXCEPTION_HANDLING=ON -DCMAKE_RC_COMPILER=windres -DCMAKE_AR=ar -DVULKAN=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake-init-env: CXXFLAGS=-Werror LDFLAGS=-Werror
           package-file: "*-win64.zip"
           executable-suffix: .exe
@@ -155,6 +155,27 @@ jobs:
               src/mastersrv
               src/masterping
               ./
+
+    - name: Cache compiler output (ccache)
+      if: matrix.name != 'windows-latest'
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ matrix.name }}
+        save: ${{ github.event_name == 'push' }}
+        max-size: 1G
+
+    - name: Cache compiler output (sccache)
+      if: matrix.name == 'windows-latest'
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        variant: sccache
+        key: ${{ matrix.name }}
+        save: ${{ github.event_name == 'push' }}
+        max-size: 1G
+
+    - name: Set up MSVC environment
+      if: matrix.name == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
 
     - name: Build mastersrv
       if: ${{ !contains(matrix.os, 'ubuntu-22.04') }}

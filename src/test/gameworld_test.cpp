@@ -16,6 +16,7 @@
 
 #include <generated/protocol.h>
 
+#include <game/prng.h>
 #include <game/server/entities/character.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamecontroller.h>
@@ -25,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <thread>
 
@@ -306,4 +309,105 @@ TEST_F(GameWorld, CharacterEmote)
 	// /emote angry 3 chat command and frozen
 	pChr->Freeze(10);
 	ASSERT_EQ(pChr->DetermineEyeEmote(), EMOTE_ANGRY);
+}
+
+// Runs a world full of players through a scripted input sequence.
+//
+// The point is not to assert particular positions: gameplay involves floats and
+// the numbers are not portable between compilers and architectures. The point is
+// that a busy world survives a few hundred ticks with its entity lists, ids and
+// characters intact, which is what the refactoring that shares this code with
+// the client's prediction is most likely to break.
+TEST_F(GameWorld, ScriptedScenario)
+{
+	constexpr int NUM_PLAYERS = 8;
+	constexpr int NUM_TICKS = 300;
+
+	for(int ClientId = 0; ClientId < NUM_PLAYERS; ClientId++)
+	{
+		GameServer()->CreatePlayer(ClientId, TEAM_GAME, false, -1);
+		CPlayer *pPlayer = GameServer()->m_apPlayers[ClientId];
+		ASSERT_NE(pPlayer, nullptr);
+		CCharacter *pChr = pPlayer->ForceSpawn(vec2(200.0f + ClientId * 40.0f, 200.0f));
+		ASSERT_NE(pChr, nullptr);
+		pChr->GiveAllWeapons();
+	}
+
+	int aMaxEntities[CGameWorld::NUM_ENTTYPES] = {};
+
+	// A fixed sequence, so a failure is always the same failure.
+	CPrng Prng;
+	uint64_t aSeed[2] = {0x9e3779b97f4a7c15ull, 0xbf58476d1ce4e5b9ull};
+	Prng.Seed(aSeed);
+
+	for(int Tick = 0; Tick < NUM_TICKS; Tick++)
+	{
+		for(int ClientId = 0; ClientId < NUM_PLAYERS; ClientId++)
+		{
+			if(!GameServer()->m_apPlayers[ClientId])
+				continue;
+
+			const unsigned int Bits = Prng.RandomBits();
+			CNetObj_PlayerInput Input = {};
+			Input.m_Direction = (int)(Bits & 3) - 1;
+			Input.m_Jump = (Bits >> 2) & 1;
+			Input.m_Hook = (Bits >> 3) & 1;
+			Input.m_Fire = (Bits >> 4) & 3;
+			Input.m_WantedWeapon = 1 + (int)((Bits >> 6) % NUM_WEAPONS);
+			Input.m_TargetX = (int)((Bits >> 10) % 400) - 200;
+			Input.m_TargetY = (int)((Bits >> 20) % 400) - 200;
+			if(Input.m_TargetX == 0 && Input.m_TargetY == 0)
+				Input.m_TargetY = -1;
+
+			GameServer()->OnClientDirectInput(ClientId, &Input);
+			GameServer()->OnClientPredictedInput(ClientId, &Input);
+		}
+
+		GameServer()->OnTick();
+
+		for(int Type = 0; Type < CGameWorld::NUM_ENTTYPES; Type++)
+		{
+			int Count = 0;
+			for(CEntity *pEnt = GameServer()->m_World.FindFirst(Type); pEnt; pEnt = pEnt->TypeNext())
+				Count++;
+			aMaxEntities[Type] = std::max(aMaxEntities[Type], Count);
+		}
+	}
+
+	// Every character that is still alive must still be reachable through both
+	// the player and the world's entity list, and hold a usable id.
+	int NumAlive = 0;
+	for(CCharacter *pChr = (CCharacter *)GameServer()->m_World.FindFirst(CGameWorld::ENTTYPE_CHARACTER);
+		pChr; pChr = (CCharacter *)pChr->TypeNext())
+	{
+		const int ClientId = pChr->GetCid();
+		ASSERT_GE(ClientId, 0);
+		ASSERT_LT(ClientId, MAX_CLIENTS);
+		ASSERT_NE(GameServer()->m_apPlayers[ClientId], nullptr);
+		EXPECT_EQ(GameServer()->m_apPlayers[ClientId]->GetCharacter(), pChr);
+		EXPECT_TRUE(std::isfinite(pChr->m_Pos.x));
+		EXPECT_TRUE(std::isfinite(pChr->m_Pos.y));
+		NumAlive++;
+	}
+	EXPECT_GT(NumAlive, 0);
+
+	// Guard against the scenario quietly going vacuous: the players have to have
+	// actually fired something over those 300 ticks.
+	EXPECT_GT(aMaxEntities[CGameWorld::ENTTYPE_PROJECTILE], 0);
+	EXPECT_GT(aMaxEntities[CGameWorld::ENTTYPE_LASER], 0);
+	EXPECT_GT(aMaxEntities[CGameWorld::ENTTYPE_CHARACTER], 0);
+
+	// The other entity lists have to be walkable in both directions, and every
+	// entity in them has to agree about which class it is.
+	for(int Type = 0; Type < CGameWorld::NUM_ENTTYPES; Type++)
+	{
+		CEntity *pPrev = nullptr;
+		for(CEntity *pEnt = GameServer()->m_World.FindFirst(Type); pEnt; pEnt = pEnt->TypeNext())
+		{
+			EXPECT_EQ(pEnt->TypePrev(), pPrev);
+			EXPECT_TRUE(std::isfinite(pEnt->m_Pos.x));
+			EXPECT_TRUE(std::isfinite(pEnt->m_Pos.y));
+			pPrev = pEnt;
+		}
+	}
 }

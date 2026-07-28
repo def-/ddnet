@@ -13,6 +13,7 @@ class CCollision;
 class CCharacter;
 class CEntity;
 class CMapBugs;
+class IGameEnvironment;
 
 class CGameWorld
 {
@@ -38,6 +39,9 @@ public:
 	CGameWorld();
 	~CGameWorld();
 	void Init(CCollision *pCollision, CTuningParams *pTuningList, const CMapBugs *pMapBugs);
+	// Not copied by CopyWorld: every world records its predicted effects in its own list.
+	void SetEnv(IGameEnvironment *pEnv) { m_pEnv = pEnv; }
+	IGameEnvironment *Env() { return m_pEnv; }
 
 	CEntity *FindFirst(int Type);
 	CEntity *FindLast(int Type);
@@ -150,6 +154,7 @@ private:
 	CCollision *m_pCollision;
 	CTuningParams *m_pTuningList;
 	const CMapBugs *m_pMapBugs;
+	IGameEnvironment *m_pEnv = nullptr;
 };
 
 class CCharOrder

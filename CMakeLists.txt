@@ -2298,6 +2298,7 @@ set_src(GAME_SHARED GLOB src/game
   collision.h
   gamecore.cpp
   gamecore.h
+  gameenv.h
   layers.cpp
   layers.h
   localization.cpp
@@ -2624,6 +2625,7 @@ if(CLIENT)
     prediction/entity.h
     prediction/gameworld.cpp
     prediction/gameworld.h
+    prediction/prediction_env.h
     projectile_data.cpp
     projectile_data.h
     race.cpp

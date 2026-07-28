@@ -19,6 +19,7 @@
 #include <generated/protocolglue.h>
 
 #include <game/client/prediction/gameworld.h>
+#include <game/client/prediction/prediction_env.h>
 #include <game/client/race.h>
 #include <game/collision.h>
 #include <game/gamecore.h>
@@ -712,6 +713,10 @@ public:
 	CGameWorld m_GameWorld;
 	CGameWorld m_PredictedWorld;
 	CGameWorld m_PrevPredictedWorld;
+
+	CPredictionEnvironment m_GameWorldEnv{&m_GameWorld};
+	CPredictionEnvironment m_PredictedWorldEnv{&m_PredictedWorld};
+	CPredictionEnvironment m_PrevPredictedWorldEnv{&m_PrevPredictedWorld};
 
 	std::vector<SSwitchers> &Switchers() { return m_GameWorld.m_Core.m_vSwitchers; }
 	std::vector<SSwitchers> &PredSwitchers() { return m_PredictedWorld.m_Core.m_vSwitchers; }

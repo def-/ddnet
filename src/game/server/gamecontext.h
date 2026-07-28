@@ -15,6 +15,7 @@
 #include <generated/protocol.h>
 
 #include <game/collision.h>
+#include <game/gameenv.h>
 #include <game/layers.h>
 #include <game/mapbugs.h>
 #include <game/voting.h>
@@ -109,7 +110,7 @@ private:
 	std::map<NETADDR, CMute> m_Mutes;
 };
 
-class CGameContext : public IGameServer
+class CGameContext : public IGameServer, public IGameEnvironment
 {
 	IServer *m_pServer;
 	IConfigManager *m_pConfigManager;
@@ -286,14 +287,17 @@ public:
 	CVoteOptionServer *m_pVoteOptionLast;
 
 	// helper functions
-	void CreateDamageInd(vec2 Pos, float AngleMod, int Amount, CClientMask Mask = CClientMask().set());
+	// The trailing Id is what IGameEnvironment uses to deduplicate predicted
+	// effects on the client. The server has no use for it.
+	void CreateDamageInd(vec2 Pos, float AngleMod, int Amount, CClientMask Mask = CClientMask().set(), int Id = -1) override;
 	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask = CClientMask().set());
-	void CreateHammerHit(vec2 Pos, CClientMask Mask = CClientMask().set());
+	void CreateExplosionEvent(vec2 Pos, CClientMask Mask = CClientMask().set(), int Id = -1) override;
+	void CreateHammerHit(vec2 Pos, CClientMask Mask = CClientMask().set(), int Id = -1) override;
 	void CreatePlayerSpawn(vec2 Pos, CClientMask Mask = CClientMask().set());
-	void CreateDeath(vec2 Pos, int ClientId, CClientMask Mask = CClientMask().set());
+	void CreateDeath(vec2 Pos, int ClientId, CClientMask Mask = CClientMask().set()) override;
 	void CreateBirthdayEffect(vec2 Pos, CClientMask Mask = CClientMask().set());
 	void CreateFinishEffect(vec2 Pos, CClientMask Mask = CClientMask().set());
-	void CreateSound(vec2 Pos, int Sound, CClientMask Mask = CClientMask().set());
+	void CreateSound(vec2 Pos, int Sound, CClientMask Mask = CClientMask().set(), int Id = -1) override;
 	void CreateSoundGlobal(int Sound, int Target = -1) const;
 
 	void SnapSwitchers(int SnappingClient);
@@ -407,7 +411,7 @@ public:
 	int64_t m_NonEmptySince;
 	int64_t m_LastMapVote;
 	int GetClientVersion(int ClientId) const;
-	CClientMask ClientsMaskExcludeClientVersionAndHigher(int Version) const;
+	CClientMask ClientsMaskExcludeClientVersionAndHigher(int Version) const override;
 	bool PlayerExists(int ClientId) const override { return m_apPlayers[ClientId]; }
 	// Returns true if someone is actively moderating.
 	bool PlayerModerating() const;

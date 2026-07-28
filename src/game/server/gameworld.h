@@ -47,6 +47,7 @@ public:
 	class CGameContext *GameServer() { return m_pGameServer; }
 	class CConfig *Config() { return m_pConfig; }
 	class IServer *Server() { return m_pServer; }
+	class IGameEnvironment *Env();
 
 	bool m_ResetRequested;
 	bool m_Paused;

@@ -347,7 +347,7 @@ void CGameContext::FillAntibot(CAntibotRoundData *pData)
 	}
 }
 
-void CGameContext::CreateDamageInd(vec2 Pos, float Angle, int Amount, CClientMask Mask)
+void CGameContext::CreateDamageInd(vec2 Pos, float Angle, int Amount, CClientMask Mask, int Id)
 {
 	float a = 3 * pi / 2 + Angle;
 	float s = a - pi / 3;
@@ -365,7 +365,7 @@ void CGameContext::CreateDamageInd(vec2 Pos, float Angle, int Amount, CClientMas
 	}
 }
 
-void CGameContext::CreateHammerHit(vec2 Pos, CClientMask Mask)
+void CGameContext::CreateHammerHit(vec2 Pos, CClientMask Mask, int Id)
 {
 	CNetEvent_HammerHit *pEvent = m_Events.Create<CNetEvent_HammerHit>(Mask);
 	if(pEvent)
@@ -375,15 +375,19 @@ void CGameContext::CreateHammerHit(vec2 Pos, CClientMask Mask)
 	}
 }
 
-void CGameContext::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask)
+void CGameContext::CreateExplosionEvent(vec2 Pos, CClientMask Mask, int Id)
 {
-	// create the event
 	CNetEvent_Explosion *pEvent = m_Events.Create<CNetEvent_Explosion>(Mask);
 	if(pEvent)
 	{
 		pEvent->m_X = (int)Pos.x;
 		pEvent->m_Y = (int)Pos.y;
 	}
+}
+
+void CGameContext::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask)
+{
+	CreateExplosionEvent(Pos, Mask);
 
 	// deal damage
 	CEntity *apEnts[MAX_CLIENTS];
@@ -474,7 +478,7 @@ void CGameContext::CreateFinishEffect(vec2 Pos, CClientMask Mask)
 	}
 }
 
-void CGameContext::CreateSound(vec2 Pos, int Sound, CClientMask Mask)
+void CGameContext::CreateSound(vec2 Pos, int Sound, CClientMask Mask, int Id)
 {
 	if(Sound < 0)
 		return;

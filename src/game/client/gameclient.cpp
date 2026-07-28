@@ -426,6 +426,9 @@ void CGameClient::OnInit()
 	}
 
 	m_GameWorld.Init(Collision(), m_aTuningList, &m_MapBugs);
+	m_GameWorld.SetEnv(&m_GameWorldEnv);
+	m_PredictedWorld.SetEnv(&m_PredictedWorldEnv);
+	m_PrevPredictedWorld.SetEnv(&m_PrevPredictedWorldEnv);
 	OnReset();
 
 	// Set free binds to DDRace binds if it's active

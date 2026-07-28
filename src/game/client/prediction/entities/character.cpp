@@ -1267,7 +1267,7 @@ void CCharacter::ApplyMoveRestrictions()
 
 CTeamsCore *CCharacter::TeamsCore()
 {
-	return GameWorld()->Teams();
+	return GameWorld()->TeamsCore();
 }
 
 CCharacter::CCharacter(CGameWorld *pGameWorld, int Id, CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended) :
@@ -1281,7 +1281,7 @@ CCharacter::CCharacter(CGameWorld *pGameWorld, int Id, CNetObj_Character *pChar,
 	m_LastRefillJumps = false;
 	m_PrevPrevPos = m_PrevPos = m_Pos = vec2(pChar->m_X, pChar->m_Y);
 	m_Core.Reset();
-	m_Core.Init(&GameWorld()->m_Core, GameWorld()->Collision(), GameWorld()->Teams());
+	m_Core.Init(&GameWorld()->m_Core, GameWorld()->Collision(), GameWorld()->TeamsCore());
 	m_Core.m_Id = Id;
 	mem_zero(&m_Core.m_Ninja, sizeof(m_Core.m_Ninja));
 	m_Core.m_LeftWall = true;
@@ -1526,7 +1526,7 @@ void CCharacter::Read(CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtende
 
 void CCharacter::SetCoreWorld(CGameWorld *pGameWorld)
 {
-	m_Core.SetCoreWorld(&pGameWorld->m_Core, pGameWorld->Collision(), pGameWorld->Teams());
+	m_Core.SetCoreWorld(&pGameWorld->m_Core, pGameWorld->Collision(), pGameWorld->TeamsCore());
 }
 
 bool CCharacter::Match(CCharacter *pChar) const

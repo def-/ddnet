@@ -195,6 +195,9 @@ private:
 
 public:
 	CGameTeams *Teams() { return m_pTeams; }
+	// Spelled the same way as in the client's prediction, which has the teams
+	// core but none of the rest of CGameTeams.
+	CTeamsCore *TeamsCore();
 	void SetTeams(CGameTeams *pTeams);
 	bool TrySetRescue(int RescueMode);
 

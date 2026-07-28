@@ -173,7 +173,7 @@ void CCharacter::SetJumps(int Jumps)
 void CCharacter::SetSolo(bool Solo)
 {
 	m_Core.m_Solo = Solo;
-	Teams()->m_Core.SetSolo(GetCid(), Solo);
+	TeamsCore()->SetSolo(GetCid(), Solo);
 }
 
 void CCharacter::SetSuper(bool Super)
@@ -336,7 +336,7 @@ void CCharacter::HandleNinja()
 			int Num = GameWorld()->FindEntities(OldPos, Radius, apEnts, MAX_CLIENTS, CGameWorld::ENTTYPE_CHARACTER);
 
 			// check that we're not in solo part
-			if(Teams()->m_Core.GetSolo(GetCid()))
+			if(TeamsCore()->GetSolo(GetCid()))
 				return;
 
 			for(int i = 0; i < Num; ++i)
@@ -352,7 +352,7 @@ void CCharacter::HandleNinja()
 				const int ClientId = pChr->GetCid();
 
 				// Don't hit players in solo parts
-				if(Teams()->m_Core.GetSolo(ClientId))
+				if(TeamsCore()->GetSolo(ClientId))
 					continue;
 
 				// make sure we haven't Hit this object before
@@ -849,7 +849,7 @@ void CCharacter::TickDeferred()
 	// advance the dummy
 	{
 		CWorldCore TempWorld;
-		m_ReckoningCore.Init(&TempWorld, Collision(), &Teams()->m_Core);
+		m_ReckoningCore.Init(&TempWorld, Collision(), TeamsCore());
 		m_ReckoningCore.m_Id = GetCid();
 		m_ReckoningCore.m_Tuning = CTuningParams();
 		m_ReckoningCore.Tick(false);
@@ -1073,11 +1073,16 @@ void CCharacter::CancelSwapRequests()
 
 bool CCharacter::CanCollide(int ClientId)
 {
-	return Teams()->m_Core.CanCollide(GetCid(), ClientId);
+	return TeamsCore()->CanCollide(GetCid(), ClientId);
 }
 bool CCharacter::SameTeam(int ClientId)
 {
-	return Teams()->m_Core.SameTeam(GetCid(), ClientId);
+	return TeamsCore()->SameTeam(GetCid(), ClientId);
+}
+
+CTeamsCore *CCharacter::TeamsCore()
+{
+	return GameWorld()->TeamsCore();
 }
 
 int CCharacter::GetCid() const
@@ -1087,7 +1092,7 @@ int CCharacter::GetCid() const
 
 int CCharacter::Team()
 {
-	return Teams()->m_Core.Team(GetCid());
+	return TeamsCore()->Team(GetCid());
 }
 
 void CCharacter::FillAntibot(CAntibotCharacterData *pData)
@@ -1647,7 +1652,7 @@ void CCharacter::HandleTiles(int Index)
 	{
 		const int Minutes = SwitchDelay;
 		const int Seconds = SwitchNumber;
-		int Team = Teams()->m_Core.Team(m_Core.m_Id);
+		int Team = TeamsCore()->Team(m_Core.m_Id);
 
 		m_StartTime -= (Minutes * 60 + Seconds) * GameWorld()->GameTickSpeed();
 
@@ -1655,7 +1660,7 @@ void CCharacter::HandleTiles(int Index)
 		{
 			for(int i = 0; i < MAX_CLIENTS; i++)
 			{
-				if(Teams()->m_Core.Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
+				if(TeamsCore()->Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
 				{
 					CCharacter *pChar = GameServer()->m_apPlayers[i]->GetCharacter();
 
@@ -1671,7 +1676,7 @@ void CCharacter::HandleTiles(int Index)
 	{
 		const int Minutes = SwitchDelay;
 		const int Seconds = SwitchNumber;
-		int Team = Teams()->m_Core.Team(m_Core.m_Id);
+		int Team = TeamsCore()->Team(m_Core.m_Id);
 
 		m_StartTime += (Minutes * 60 + Seconds) * GameWorld()->GameTickSpeed();
 		if(m_StartTime > GameWorld()->GameTick())
@@ -1681,7 +1686,7 @@ void CCharacter::HandleTiles(int Index)
 		{
 			for(int i = 0; i < MAX_CLIENTS; i++)
 			{
-				if(Teams()->m_Core.Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
+				if(TeamsCore()->Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
 				{
 					CCharacter *pChar = GameServer()->m_apPlayers[i]->GetCharacter();
 
@@ -2203,13 +2208,13 @@ void CCharacter::DDRaceInit()
 	}
 	m_Core.m_Jumps = 2;
 
-	int Team = Teams()->m_Core.Team(m_Core.m_Id);
+	int Team = TeamsCore()->Team(m_Core.m_Id);
 
 	if(Teams()->TeamLocked(Team) && !Teams()->TeamFlock(Team))
 	{
 		for(int i = 0; i < MAX_CLIENTS; i++)
 		{
-			if(Teams()->m_Core.Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
+			if(TeamsCore()->Team(i) == Team && i != m_Core.m_Id && GameServer()->m_apPlayers[i])
 			{
 				CCharacter *pChar = GameServer()->m_apPlayers[i]->GetCharacter();
 

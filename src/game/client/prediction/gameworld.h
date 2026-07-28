@@ -64,7 +64,7 @@ public:
 	int GameTickSpeed() const { return SERVER_TICK_SPEED; }
 	const CCollision *Collision() const { return m_pCollision; }
 	CCollision *Collision() { return m_pCollision; }
-	CTeamsCore *Teams() { return &m_Teams; }
+	CTeamsCore *TeamsCore() { return &m_Teams; }
 	std::vector<SSwitchers> &Switchers() { return m_Core.m_vSwitchers; }
 	CEntity *GetEntity(int Id, int EntityType);
 	CCharacter *GetCharacterById(int Id) { return (Id >= 0 && Id < MAX_CLIENTS) ? m_apCharacters[Id] : nullptr; }

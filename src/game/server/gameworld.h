@@ -56,6 +56,7 @@ public:
 	int GameTickSpeed() const;
 	CCollision *Collision();
 	CCharacter *GetCharacterById(int ClientId);
+	class CTeamsCore *TeamsCore();
 	void CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask = CClientMask().set(), int Id = -1);
 
 	bool m_ResetRequested;

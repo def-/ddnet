@@ -98,7 +98,7 @@ void CDragger::LookForPlayersToDrag()
 		{
 			const int &TargetClientId = pTarget->GetCid();
 			// Solo players are dragged independently from the rest of the team
-			if(pTarget->Teams()->m_Core.GetSolo(TargetClientId))
+			if(pTarget->TeamsCore()->GetSolo(TargetClientId))
 			{
 				aIsTarget[TargetClientId] = true;
 			}

@@ -8,6 +8,7 @@
 #include "gamecontext.h"
 #include "gamecontroller.h"
 #include "player.h"
+#include "teams.h"
 
 #include <engine/shared/config.h>
 
@@ -69,6 +70,11 @@ CCollision *CGameWorld::Collision()
 CCharacter *CGameWorld::GetCharacterById(int ClientId)
 {
 	return m_pGameServer->GetPlayerChar(ClientId);
+}
+
+CTeamsCore *CGameWorld::TeamsCore()
+{
+	return &m_pGameServer->m_pController->Teams().m_Core;
 }
 
 void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask, int Id)

@@ -3,7 +3,7 @@
 #ifndef GAME_SERVER_ENTITIES_LASER_H
 #define GAME_SERVER_ENTITIES_LASER_H
 
-#include <game/server/entity.h>
+#include <game/entities/entity.h>
 #include <game/server/interactions.h>
 
 class CLaser : public CEntity

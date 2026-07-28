@@ -4,7 +4,7 @@
 #define GAME_SERVER_ENTITIES_CHARACTER_H
 
 #include <game/race_state.h>
-#include <game/server/entity.h>
+#include <game/entities/entity.h>
 #include <game/server/save.h>
 
 class CPlayer;

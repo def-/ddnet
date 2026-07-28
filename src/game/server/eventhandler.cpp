@@ -2,7 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "eventhandler.h"
 
-#include "entity.h"
+#include <game/entities/entity.h>
 #include "gamecontext.h"
 
 #include <base/mem.h>

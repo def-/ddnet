@@ -2,7 +2,8 @@
 #ifndef GAME_SERVER_ENTITIES_DRAGGER_BEAM_H
 #define GAME_SERVER_ENTITIES_DRAGGER_BEAM_H
 
-#include <game/server/entity.h>
+#include <game/entities/entity.h>
+#include <game/server/save.h>
 
 class CDragger;
 class CGameWorld;
@@ -40,7 +41,8 @@ public:
 	// Server only, defined in src/game/server/snap.cpp
 	void Snap(int SnappingClient);
 	void SwapClients(int Client1, int Client2) override;
-	ESaveResult BlocksSave(int ClientId) override;
+	// Server only, see WorldBlocksSave in src/game/server/save.cpp
+	ESaveResult BlocksSave(int ClientId);
 };
 
 #endif // GAME_SERVER_ENTITIES_DRAGGER_BEAM_H

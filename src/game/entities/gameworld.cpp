@@ -3,16 +3,16 @@
 
 #include "gameworld.h"
 
-#include "entities/character.h"
 #include "entity.h"
-#include "gamecontext.h"
-#include "gamecontroller.h"
-#include "player.h"
-#include "teams.h"
 
 #include <engine/shared/config.h>
 
 #include <game/collision.h>
+#include <game/server/entities/character.h>
+#include <game/server/gamecontext.h>
+#include <game/server/gamecontroller.h>
+#include <game/server/player.h>
+#include <game/server/teams.h>
 
 #include <algorithm>
 #include <utility>
@@ -38,43 +38,6 @@ CGameWorld::~CGameWorld()
 	for(auto &pFirstEntityType : m_apFirstEntityTypes)
 		while(pFirstEntityType)
 			delete pFirstEntityType; // NOLINT(clang-analyzer-cplusplus.NewDelete)
-}
-
-void CGameWorld::SetGameServer(CGameContext *pGameServer)
-{
-	m_pGameServer = pGameServer;
-	m_pConfig = m_pGameServer->Config();
-	m_pServer = m_pGameServer->Server();
-}
-
-IGameEnvironment *CGameWorld::Env()
-{
-	return m_pGameServer;
-}
-
-int CGameWorld::GameTick() const
-{
-	return m_pServer->Tick();
-}
-
-int CGameWorld::GameTickSpeed() const
-{
-	return m_pServer->TickSpeed();
-}
-
-CCollision *CGameWorld::Collision()
-{
-	return m_pGameServer->Collision();
-}
-
-CCharacter *CGameWorld::GetCharacterById(int ClientId)
-{
-	return m_pGameServer->GetPlayerChar(ClientId);
-}
-
-CTeamsCore *CGameWorld::TeamsCore()
-{
-	return &m_pGameServer->m_pController->Teams().m_Core;
 }
 
 void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, int ActivatedTeam, CClientMask Mask, int Id)
@@ -127,12 +90,6 @@ void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage,
 			pChr->TakeDamage(ForceDir * Dmg * 2, (int)Dmg, Owner, Weapon);
 		}
 	}
-}
-
-void CGameWorld::Init(CCollision *pCollision, CTuningParams *pTuningList)
-{
-	m_Core.InitSwitchers(pCollision->m_HighestSwitchNumber);
-	m_pTuningList = pTuningList;
 }
 
 CEntity *CGameWorld::FindFirst(int Type)
@@ -196,26 +153,6 @@ void CGameWorld::RemoveEntity(CEntity *pEnt)
 
 	pEnt->m_pNextTypeEntity = nullptr;
 	pEnt->m_pPrevTypeEntity = nullptr;
-}
-
-void CGameWorld::Reset()
-{
-	// reset all entities
-	for(auto *pEnt : m_apFirstEntityTypes)
-		for(; pEnt;)
-		{
-			m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
-			pEnt->Reset();
-			pEnt = m_pNextTraverseEntity;
-		}
-	RemoveEntities();
-
-	GameServer()->m_pController->OnReset();
-	RemoveEntities();
-
-	m_ResetRequested = false;
-
-	GameServer()->CreateAllEntities(false);
 }
 
 void CGameWorld::RemoveEntitiesFromPlayer(int PlayerId)
@@ -321,21 +258,6 @@ void CGameWorld::Tick()
 		pChar->m_StrongWeakId = StrongWeakId;
 		StrongWeakId++;
 	}
-}
-
-ESaveResult CGameWorld::BlocksSave(int ClientId)
-{
-	// check all objects
-	for(auto *pEnt : m_apFirstEntityTypes)
-		for(; pEnt;)
-		{
-			m_pNextTraverseEntity = pEnt->m_pNextTypeEntity;
-			ESaveResult Result = pEnt->BlocksSave(ClientId);
-			if(Result != ESaveResult::SUCCESS)
-				return Result;
-			pEnt = m_pNextTraverseEntity;
-		}
-	return ESaveResult::SUCCESS;
 }
 
 void CGameWorld::SwapClients(int Client1, int Client2)

@@ -3,7 +3,7 @@
 #ifndef GAME_SERVER_ENTITIES_PICKUP_H
 #define GAME_SERVER_ENTITIES_PICKUP_H
 
-#include <game/server/entity.h>
+#include <game/entities/entity.h>
 
 class CPickup : public CEntity
 {

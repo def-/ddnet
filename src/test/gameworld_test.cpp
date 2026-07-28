@@ -20,7 +20,7 @@
 #include <game/server/entities/character.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamecontroller.h>
-#include <game/server/gameworld.h>
+#include <game/entities/gameworld.h>
 #include <game/server/player.h>
 #include <game/version.h>
 

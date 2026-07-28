@@ -1,10 +1,9 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
-#ifndef GAME_SERVER_ENTITY_H
-#define GAME_SERVER_ENTITY_H
+#ifndef GAME_ENTITIES_ENTITY_H
+#define GAME_ENTITIES_ENTITY_H
 
 #include "gameworld.h"
-#include "save.h"
 
 #include <base/vmath.h>
 
@@ -80,7 +79,7 @@ public: // TODO: Maybe make protected
 	EEntityClass EntityClass() const { return m_EntityClass; }
 
 	/* Constructor */
-	CEntity(CGameWorld *pGameWorld, EEntityClass EntityClass, bool SnapFreeId, vec2 Pos = vec2(0, 0), int ProximityRadius = 0);
+	CEntity(CGameWorld *pGameWorld, EEntityClass EntityClass, bool AllocateSnapId, vec2 Pos = vec2(0, 0), int ProximityRadius = 0);
 
 	/* Destructor */
 	virtual ~CEntity();
@@ -142,7 +141,8 @@ public: // TODO: Maybe make protected
 		non-virtual Snap(int SnappingClient), defined in
 		src/game/server/snap.cpp, and CGameWorld::Snap dispatches to it on
 		EntityClass(). Keeping it off the vtable is what lets the entity classes
-		be shared with the client, which has no snapshots to build.
+		be shared with the client, which has no snapshots to build. Whether an
+		entity blocks /save is answered the same way.
 	*/
 
 	/*
@@ -154,15 +154,6 @@ public: // TODO: Maybe make protected
 			Client2 - Second client ID
 	*/
 	virtual void SwapClients(int Client1, int Client2) {}
-
-	/*
-		Function: BlocksSave
-			Called to check if a team can be saved
-
-		Arguments:
-			ClientId - Client ID
-	*/
-	virtual ESaveResult BlocksSave(int ClientId) { return ESaveResult::SUCCESS; }
 
 	/*
 		Function GetOwnerId

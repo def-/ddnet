@@ -375,6 +375,16 @@ void CGameContext::CreateHammerHit(vec2 Pos, CClientMask Mask, int Id)
 	}
 }
 
+std::optional<int> CGameContext::AllocateSnapId()
+{
+	return Server()->SnapNewId();
+}
+
+void CGameContext::FreeSnapId(int Id)
+{
+	Server()->SnapFreeId(Id);
+}
+
 void CGameContext::CreateExplosionEvent(vec2 Pos, CClientMask Mask, int Id)
 {
 	CNetEvent_Explosion *pEvent = m_Events.Create<CNetEvent_Explosion>(Mask);

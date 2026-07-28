@@ -4,7 +4,7 @@
 #define GAME_SERVER_GAMECONTEXT_H
 
 #include "eventhandler.h"
-#include "gameworld.h"
+#include "save.h"
 #include "teehistorian.h"
 
 #include <base/types.h>
@@ -15,6 +15,7 @@
 #include <generated/protocol.h>
 
 #include <game/collision.h>
+#include <game/entities/gameworld.h>
 #include <game/gameenv.h>
 #include <game/layers.h>
 #include <game/mapbugs.h>
@@ -411,6 +412,8 @@ public:
 	int64_t m_LastMapVote;
 	int GetClientVersion(int ClientId) const;
 	CClientMask ClientsMaskExcludeClientVersionAndHigher(int Version) const override;
+	std::optional<int> AllocateSnapId() override;
+	void FreeSnapId(int Id) override;
 	bool PlayerExists(int ClientId) const override { return m_apPlayers[ClientId]; }
 	// Returns true if someone is actively moderating.
 	bool PlayerModerating() const;

@@ -35,6 +35,9 @@ enum class ESaveResult
 	DRAGGER_ACTIVE
 };
 
+// Checks whether any entity in the world would block a save.
+ESaveResult WorldBlocksSave(CGameWorld *pWorld, int ClientId);
+
 class CSaveTee
 {
 public:

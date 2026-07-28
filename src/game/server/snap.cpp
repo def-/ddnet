@@ -23,7 +23,7 @@
 #include "entities/projectile.h"
 #include "gamecontext.h"
 #include "gamecontroller.h"
-#include "gameworld.h"
+#include <game/entities/gameworld.h>
 #include "player.h"
 #include "teams.h"
 

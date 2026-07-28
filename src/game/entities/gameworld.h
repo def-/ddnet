@@ -1,9 +1,7 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
-#ifndef GAME_SERVER_GAMEWORLD_H
-#define GAME_SERVER_GAMEWORLD_H
-
-#include "save.h"
+#ifndef GAME_ENTITIES_GAMEWORLD_H
+#define GAME_ENTITIES_GAMEWORLD_H
 
 #include <game/gamecore.h>
 
@@ -182,12 +180,6 @@ public:
 			command is handled safely.
 	*/
 	void SwapClients(int Client1, int Client2);
-
-	/*
-		Function: BlocksSave
-			Checks if any entity would block /save
-	*/
-	ESaveResult BlocksSave(int ClientId);
 
 	// DDRace
 	void ReleaseHooked(int ClientId);

@@ -2,7 +2,7 @@
 #ifndef GAME_SERVER_ENTITIES_PLASMA_H
 #define GAME_SERVER_ENTITIES_PLASMA_H
 
-#include <game/server/entity.h>
+#include <game/entities/entity.h>
 
 /**
  * Plasma Bullets are projectiles fired from turrets at a specific target

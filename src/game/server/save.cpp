@@ -7,7 +7,9 @@
 #include <engine/shared/config.h>
 #include <engine/shared/protocol.h>
 
+#include <game/entities/gameworld.h>
 #include <game/server/entities/character.h>
+#include <game/server/entities/dragger_beam.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamemodes/ddnet.h>
 #include <game/team_state.h>
@@ -518,6 +520,26 @@ CSaveTeam::~CSaveTeam()
 	delete[] m_pSavedTees;
 }
 
+// Only dragger beams can block a save, but the entity lists are the only place
+// to find them, so the walk lives here rather than on CGameWorld: the class is
+// shared with the prediction, which has no concept of saving.
+ESaveResult WorldBlocksSave(CGameWorld *pWorld, int ClientId)
+{
+	// check all objects
+	for(CEntity *pEnt = pWorld->FindFirst(CGameWorld::ENTTYPE_LASER); pEnt;)
+	{
+		CEntity *pNext = pEnt->TypeNext();
+		if(pEnt->EntityClass() == EEntityClass::DRAGGER_BEAM)
+		{
+			const ESaveResult Result = static_cast<CDraggerBeam *>(pEnt)->BlocksSave(ClientId);
+			if(Result != ESaveResult::SUCCESS)
+				return Result;
+		}
+		pEnt = pNext;
+	}
+	return ESaveResult::SUCCESS;
+}
+
 ESaveResult CSaveTeam::Save(CGameContext *pGameServer, int Team, bool Dry, bool Force)
 {
 	IGameController *pController = pGameServer->m_pController;
@@ -558,7 +580,7 @@ ESaveResult CSaveTeam::Save(CGameContext *pGameServer, int Team, bool Dry, bool 
 			continue;
 		if(m_MembersCount == j && !Force)
 			return ESaveResult::CHAR_NOT_FOUND;
-		ESaveResult Result = pGameServer->m_World.BlocksSave(p->GetPlayer()->GetCid());
+		ESaveResult Result = WorldBlocksSave(&pGameServer->m_World, p->GetPlayer()->GetCid());
 		if(Result != ESaveResult::SUCCESS && !Force)
 			return Result;
 		m_pSavedTees[j].Save(p);

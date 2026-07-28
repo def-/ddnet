@@ -7,6 +7,8 @@
 
 #include <engine/shared/protocol.h>
 
+#include <optional>
+
 /*
 	Class: IGameEnvironment
 		The part of the game logic that the server and the client's prediction
@@ -53,6 +55,15 @@ public:
 		simulates for the local client, so it answers with a full mask.
 	*/
 	virtual CClientMask ClientsMaskExcludeClientVersionAndHigher(int Version) const = 0;
+
+	/*
+		Ids that entities occupy in the snapshot. There are only so many, so
+		allocation can fail and entities have to cope with having none. The
+		prediction builds no snapshot and always answers with none; its entities
+		take their id from the snapshot they were read out of instead.
+	*/
+	virtual std::optional<int> AllocateSnapId() { return std::nullopt; }
+	virtual void FreeSnapId(int Id) {}
 };
 
 #endif

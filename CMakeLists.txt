@@ -2291,6 +2291,14 @@ set_src(ENGINE_GFX GLOB src/engine/gfx
   image_manipulation.h
   # tidy-alphabetical-end
 )
+set_src(GAME_ENTITIES GLOB src/game/entities
+  # tidy-alphabetical-start
+  entity.cpp
+  entity.h
+  gameworld.cpp
+  gameworld.h
+  # tidy-alphabetical-end
+)
 set_src(GAME_SHARED GLOB src/game
   # tidy-alphabetical-start
   alloc.h
@@ -2990,8 +2998,6 @@ if(SERVER)
     entities/plasma.h
     entities/projectile.cpp
     entities/projectile.h
-    entity.cpp
-    entity.h
     eventhandler.cpp
     eventhandler.h
     gamecontext.cpp
@@ -3002,8 +3008,7 @@ if(SERVER)
     gamemodes/ddnet.h
     gamemodes/mod.cpp
     gamemodes/mod.h
-    gameworld.cpp
-    gameworld.h
+    gameworld_server.cpp
     interactions.cpp
     interactions.h
     mutes.cpp
@@ -3031,7 +3036,9 @@ if(SERVER)
     src/generated/wordlist.h
     # tidy-alphabetical-end
   )
-  set(SERVER_SRC ${ENGINE_SERVER_WITHOUT_MAIN} ${GAME_SERVER} ${GAME_GENERATED_SERVER})
+  # ${GAME_ENTITIES} is on its way into game-shared; it still links only into the
+  # server until the prediction stops carrying its own copy of these classes.
+  set(SERVER_SRC ${ENGINE_SERVER_WITHOUT_MAIN} ${GAME_ENTITIES} ${GAME_SERVER} ${GAME_GENERATED_SERVER})
   if(TARGET_OS STREQUAL "windows")
     set(VERSION_EXECUTABLE "${SERVER_EXECUTABLE}")
     set(VERSION_COMPANY "${CLIENT_EXECUTABLE} Team")

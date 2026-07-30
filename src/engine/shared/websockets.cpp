@@ -289,6 +289,17 @@ int websocket_create(const NETADDR *bindaddr)
 	ctx_data->creation_info.iface = ctx_data->bindaddr_str;
 	ctx_data->creation_info.port = bindaddr->port;
 	ctx_data->creation_info.protocols = protocols;
+	if(g_Config.m_SvWebsocketCert[0] != '\0' || g_Config.m_SvWebsocketKey[0] != '\0')
+	{
+		if(g_Config.m_SvWebsocketCert[0] == '\0' || g_Config.m_SvWebsocketKey[0] == '\0')
+		{
+			log_error("websockets", "sv_websocket_cert and sv_websocket_key must both be set to serve wss");
+			return -1;
+		}
+		ctx_data->creation_info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		ctx_data->creation_info.ssl_cert_filepath = g_Config.m_SvWebsocketCert;
+		ctx_data->creation_info.ssl_private_key_filepath = g_Config.m_SvWebsocketKey;
+	}
 	ctx_data->creation_info.gid = -1;
 	ctx_data->creation_info.uid = -1;
 	ctx_data->creation_info.user = ctx_data;

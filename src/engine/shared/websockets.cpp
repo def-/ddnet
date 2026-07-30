@@ -253,6 +253,19 @@ void websocket_init()
 	lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO, websocket_log_callback);
 }
 
+void websocket_reload_certs()
+{
+	for(context_data &ctx_data : contexts)
+	{
+		if(ctx_data.context == nullptr || ctx_data.creation_info.ssl_cert_filepath == nullptr)
+		{
+			continue;
+		}
+		log_info("websockets", "Reloading certificate '%s'", ctx_data.creation_info.ssl_cert_filepath);
+		lws_tls_cert_updated(ctx_data.context, ctx_data.creation_info.ssl_cert_filepath, ctx_data.creation_info.ssl_private_key_filepath, nullptr, 0, nullptr, 0);
+	}
+}
+
 int websocket_create(const NETADDR *bindaddr)
 {
 	// find free context

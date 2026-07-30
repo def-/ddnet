@@ -101,7 +101,7 @@ bool CFontTyper::OnInput(const IInput::CEvent &Event)
 	}
 
 	// deletion
-	if(Event.m_Key == KEY_BACKSPACE)
+	if(Event.m_Key == KEY_BACKSPACE && State.m_TextIndex.x > 0)
 	{
 		State.m_TextIndex.x--;
 		State.m_TextLineLen--;

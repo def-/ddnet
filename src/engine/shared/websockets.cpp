@@ -5,7 +5,9 @@
 #include <base/dbg.h>
 #include <base/log.h>
 #include <base/mem.h>
+#include <base/net.h>
 #include <base/str.h>
+#include <base/time.h>
 
 #include <engine/shared/config.h>
 #include <engine/shared/network.h>
@@ -50,11 +52,28 @@ struct per_session_data
 struct context_data
 {
 	char bindaddr_str[NETADDR_MAXSTRSIZE];
+	// Copies of the paths as they were when the context was created. lws keeps its
+	// own copy, which only these still match after the config has been changed.
+	char ssl_cert_path[IO_MAX_PATH_LENGTH];
+	char ssl_key_path[IO_MAX_PATH_LENGTH];
 	lws_context_creation_info creation_info;
 	lws_context *context;
 	std::map<NETADDR, per_session_data *> port_map;
 	TRecvBuffer recv_buffer;
+	int64_t accept_window_start;
+	int accept_window_count;
 };
+
+// Accepting a connection completes its TLS handshake on the game loop's thread,
+// before any DDNet-level limit can apply, so this is what keeps an
+// unauthenticated peer from stalling the server's ticks by connecting in a loop.
+// Far above what legitimate joins need, far below what a flood achieves.
+static constexpr int WEBSOCKET_MAX_ACCEPTS_PER_SECOND = 50;
+#if defined(LWS_WITH_PEER_LIMITS)
+// Bounds concurrent connections per peer. Only available when lws was built with
+// peer limits, so the accept rate limit above cannot rely on it.
+static constexpr unsigned short WEBSOCKET_MAX_CONNECTIONS_PER_IP = 20;
+#endif
 
 // Client has main, dummy and contact connections with IPv4 and IPv6
 static context_data contexts[3 * 2];
@@ -110,6 +129,25 @@ static int websocket_protocol_callback(lws *wsi, enum lws_callback_reasons reaso
 	context_data *ctx_data = contexts_map[context];
 	switch(reason)
 	{
+	case LWS_CALLBACK_FILTER_NETWORK_CONNECTION:
+	{
+		// Issued right after accept(), before the TLS handshake is started, and
+		// returning non-zero closes the connection there. Rate limit it, because
+		// everything past this point runs on the game loop's thread.
+		const int64_t now = time_get();
+		if(now - ctx_data->accept_window_start > time_freq())
+		{
+			ctx_data->accept_window_start = now;
+			ctx_data->accept_window_count = 0;
+		}
+		ctx_data->accept_window_count++;
+		if(ctx_data->accept_window_count > WEBSOCKET_MAX_ACCEPTS_PER_SECOND)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
 	case LWS_CALLBACK_WSI_CREATE:
 		if(pss == nullptr)
 		{
@@ -120,7 +158,13 @@ static int websocket_protocol_callback(lws *wsi, enum lws_callback_reasons reaso
 	{
 		sockaddr_storage peersockaddr;
 		socklen_t peersockaddr_size = sizeof(peersockaddr);
-		getpeername(lws_get_socket_fd(wsi), (sockaddr *)&peersockaddr, &peersockaddr_size);
+		if(getpeername(lws_get_socket_fd(wsi), (sockaddr *)&peersockaddr, &peersockaddr_size) != 0)
+		{
+			// Connections without a socket of their own, like HTTP/2 streams, have no
+			// peer address here. Using the untouched sockaddr would read stack garbage.
+			log_warn("websockets", "Failed to determine peer address: %s", net_error_message().c_str());
+			return 0;
+		}
 		NETADDR addr;
 		sockaddr_to_netaddr_websocket((sockaddr *)&peersockaddr, peersockaddr_size, &addr);
 		if(addr.type == NETTYPE_INVALID)
@@ -261,8 +305,15 @@ void websocket_reload_certs()
 		{
 			continue;
 		}
-		log_info("websockets", "Reloading certificate '%s'", ctx_data.creation_info.ssl_cert_filepath);
-		lws_tls_cert_updated(ctx_data.context, ctx_data.creation_info.ssl_cert_filepath, ctx_data.creation_info.ssl_private_key_filepath, nullptr, 0, nullptr, 0);
+		if(str_comp(ctx_data.ssl_cert_path, g_Config.m_SvWebsocketCert) != 0 || str_comp(ctx_data.ssl_key_path, g_Config.m_SvWebsocketKey) != 0)
+		{
+			// lws can only reload a certificate under the path it was given at startup,
+			// so changing the config and reloading would silently keep the old one.
+			log_warn("websockets", "Cannot reload certificate from a different path than '%s', restart the server instead", ctx_data.ssl_cert_path);
+			continue;
+		}
+		log_info("websockets", "Reloading certificate '%s'", ctx_data.ssl_cert_path);
+		lws_tls_cert_updated(ctx_data.context, ctx_data.ssl_cert_path, ctx_data.ssl_key_path, nullptr, 0, nullptr, 0);
 	}
 }
 
@@ -302,6 +353,13 @@ int websocket_create(const NETADDR *bindaddr)
 	ctx_data->creation_info.iface = ctx_data->bindaddr_str;
 	ctx_data->creation_info.port = bindaddr->port;
 	ctx_data->creation_info.protocols = protocols;
+	// Only offer HTTP/1.1. Browsers that negotiate HTTP/2 run websockets over it as
+	// streams (RFC 8441), which have no socket of their own, so their peer address
+	// cannot be determined and the connection cannot be answered.
+	ctx_data->creation_info.alpn = "http/1.1";
+#if defined(LWS_WITH_PEER_LIMITS)
+	ctx_data->creation_info.ip_limit_wsi = WEBSOCKET_MAX_CONNECTIONS_PER_IP;
+#endif
 	if(g_Config.m_SvWebsocketCert[0] != '\0' || g_Config.m_SvWebsocketKey[0] != '\0')
 	{
 		if(g_Config.m_SvWebsocketCert[0] == '\0' || g_Config.m_SvWebsocketKey[0] == '\0')
@@ -309,9 +367,11 @@ int websocket_create(const NETADDR *bindaddr)
 			log_error("websockets", "sv_websocket_cert and sv_websocket_key must both be set to serve wss");
 			return -1;
 		}
+		str_copy(ctx_data->ssl_cert_path, g_Config.m_SvWebsocketCert);
+		str_copy(ctx_data->ssl_key_path, g_Config.m_SvWebsocketKey);
 		ctx_data->creation_info.options |= LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-		ctx_data->creation_info.ssl_cert_filepath = g_Config.m_SvWebsocketCert;
-		ctx_data->creation_info.ssl_private_key_filepath = g_Config.m_SvWebsocketKey;
+		ctx_data->creation_info.ssl_cert_filepath = ctx_data->ssl_cert_path;
+		ctx_data->creation_info.ssl_private_key_filepath = ctx_data->ssl_key_path;
 	}
 	ctx_data->creation_info.gid = -1;
 	ctx_data->creation_info.uid = -1;
@@ -434,6 +494,12 @@ int websocket_fd_get(int socket, fd_set *set)
 	lws_service(context, -1);
 
 	context_data *ctx_data = contexts_map[context];
+	if(ctx_data->recv_buffer.First() != nullptr)
+	{
+		// Packets already consumed by lws_service are no longer readable on the
+		// socket, so select cannot see them and they would never be processed.
+		return 1;
+	}
 	for(const auto &[_, pss] : ctx_data->port_map)
 	{
 		if(pss == nullptr)

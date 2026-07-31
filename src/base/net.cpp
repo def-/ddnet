@@ -17,6 +17,10 @@
 #include <engine/shared/websockets.h>
 #endif
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <emscripten.h>
+#endif
+
 #if defined(CONF_FAMILY_UNIX)
 #include <sys/time.h> // timeval
 #include <unistd.h> // close
@@ -631,6 +635,19 @@ int net_host_lookup(const char *hostname, NETADDR *addr, int types)
 	}
 	return net_host_lookup_impl(hostname, addr, types & ~(NETTYPE_WEBSOCKET_IPV4 | NETTYPE_WEBSOCKET_IPV6));
 }
+
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+void net_websocket_set_secure(bool secure)
+{
+	MAIN_THREAD_EM_ASM({
+		var url = $0 ? "wss://" : "ws://";
+		(Module["websocket"] = Module["websocket"] || {})["url"] = url;
+		if(typeof SOCKFS != "undefined" && SOCKFS.websocketArgs)
+		{
+			SOCKFS.websocketArgs["url"] = url;
+		} }, secure);
+}
+#endif
 
 void net_init()
 {

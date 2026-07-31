@@ -641,10 +641,24 @@ void CClient::Connect(const char *pAddress, const char *pPassword)
 	{
 		NETADDR NextAddr;
 		char aHost[128];
-		const int UrlParseResult = net_addr_from_url(&NextAddr, aBuffer, aHost, sizeof(aHost));
+		const char *pAddr = aBuffer;
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+		const char *pAddrWithoutScheme = str_startswith(aBuffer, "wss://");
+		if(pAddrWithoutScheme)
+		{
+			net_websocket_set_secure(true);
+			pAddr = pAddrWithoutScheme;
+		}
+		else if((pAddrWithoutScheme = str_startswith(aBuffer, "ws://")))
+		{
+			net_websocket_set_secure(false);
+			pAddr = pAddrWithoutScheme;
+		}
+#endif
+		const int UrlParseResult = net_addr_from_url(&NextAddr, pAddr, aHost, sizeof(aHost));
 		bool Sixup = NextAddr.type & NETTYPE_TW7;
 		if(UrlParseResult > 0)
-			str_copy(aHost, aBuffer);
+			str_copy(aHost, pAddr);
 
 		if(net_host_lookup(aHost, &NextAddr, m_aNetClient[CONN_MAIN].NetType()) != 0)
 		{

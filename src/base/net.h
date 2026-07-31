@@ -152,6 +152,22 @@ int net_addr_from_str(NETADDR *addr, const char *string);
  */
 int net_host_lookup(const char *hostname, NETADDR *addr, int types);
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+/**
+ * Selects whether websockets are opened as `wss` or `ws`.
+ *
+ * @ingroup Network-General
+ *
+ * @param secure Whether to use `wss`.
+ *
+ * @remark Emscripten tunnels all traffic through websockets, whose scheme is a
+ * single global setting instead of a per-socket one, so this affects all
+ * connections that are established afterwards. The default is determined by the
+ * protocol of the page, see `other/emscripten/index.html`.
+ */
+void net_websocket_set_secure(bool secure);
+#endif
+
 /**
  * Initializes network functionality.
  *

@@ -477,6 +477,7 @@ void CClient::OnEnterGame(bool Dummy)
 	// reset snapshots
 	m_aapSnapshots[Dummy][SNAP_CURRENT] = nullptr;
 	m_aapSnapshots[Dummy][SNAP_PREV] = nullptr;
+	InvalidateSnapshotHashlists();
 	m_aSnapshotStorage[Dummy].PurgeAll();
 	m_aReceivedSnapshots[Dummy] = 0;
 	m_aSnapshotParts[Dummy] = 0;
@@ -777,6 +778,7 @@ void CClient::DisconnectWithReason(const char *pReason)
 	// clear snapshots
 	m_aapSnapshots[0][SNAP_CURRENT] = nullptr;
 	m_aapSnapshots[0][SNAP_PREV] = nullptr;
+	InvalidateSnapshotHashlists();
 	m_aReceivedSnapshots[0] = 0;
 	m_LastDummy = false;
 
@@ -865,6 +867,7 @@ void CClient::DummyDisconnect(const char *pReason)
 	m_aRconAuthed[1] = 0;
 	m_aapSnapshots[1][SNAP_CURRENT] = nullptr;
 	m_aapSnapshots[1][SNAP_PREV] = nullptr;
+	InvalidateSnapshotHashlists();
 	m_aReceivedSnapshots[1] = 0;
 	m_DummyConnected = false;
 	m_DummyConnecting = false;
@@ -920,10 +923,27 @@ IClient::CSnapItem CClient::SnapGetItem(int SnapId, int Index) const
 
 const void *CClient::SnapFindItem(int SnapId, int Type, int Id) const
 {
-	if(!m_aapSnapshots[g_Config.m_ClDummy][SnapId])
+	dbg_assert(SnapId >= 0 && SnapId < NUM_SNAPSHOT_TYPES, "invalid SnapId");
+	const CSnapshotStorage::CHolder *pHolder = m_aapSnapshots[g_Config.m_ClDummy][SnapId];
+	if(!pHolder)
 		return nullptr;
 
-	return m_aapSnapshots[g_Config.m_ClDummy][SnapId]->m_pAltSnap->FindItem(Type, Id);
+	// rebuild the key hash lazily when the snapshot in this slot changed
+	if(m_apSnapshotHashlistSnaps[SnapId] != pHolder->m_pAltSnap || m_aSnapshotHashlistTicks[SnapId] != pHolder->m_Tick)
+	{
+		CSnapshot::GenerateHash(m_aaSnapshotHashlists[SnapId], pHolder->m_pAltSnap);
+		m_apSnapshotHashlistSnaps[SnapId] = pHolder->m_pAltSnap;
+		m_aSnapshotHashlistTicks[SnapId] = pHolder->m_Tick;
+	}
+	return pHolder->m_pAltSnap->FindItem(Type, Id, m_aaSnapshotHashlists[SnapId]);
+}
+
+void CClient::InvalidateSnapshotHashlists()
+{
+	for(auto &pSnap : m_apSnapshotHashlistSnaps)
+	{
+		pSnap = nullptr;
+	}
 }
 
 int CClient::SnapNumItems(int SnapId) const
@@ -1207,6 +1227,7 @@ const char *CClient::LoadMap(const char *pName, const char *pFilename, const std
 		m_aSnapshotParts[Dummy] = 0;
 		m_aSnapshotIncomingDataSize[Dummy] = 0;
 	}
+	InvalidateSnapshotHashlists();
 	m_SnapCrcErrors = 0;
 	GameClient()->InvalidateSnapshot();
 
@@ -4080,6 +4101,7 @@ const char *CClient::DemoPlayer_Play(const char *pFilename, int StorageType)
 		m_aapSnapshots[0][SnapshotType]->m_AltSnapSize = 0;
 		m_aapSnapshots[0][SnapshotType]->m_Tick = -1;
 	}
+	InvalidateSnapshotHashlists();
 
 	m_DemoPlayer.Play();
 	GameClient()->OnEnterGame();

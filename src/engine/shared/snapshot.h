@@ -47,8 +47,20 @@ public:
 		MAX_ID = 0xffff,
 		MAX_ITEMS = 1024,
 		MAX_PARTS = 64,
-		MAX_SIZE = MAX_PARTS * 1024
+		MAX_SIZE = MAX_PARTS * 1024,
+		HASHLIST_SIZE = 256,
+		HASHLIST_BUCKET_SIZE = 64,
 	};
+
+	// hash from item key to item index, for fast repeated lookups
+	struct CItemList
+	{
+		int m_Num;
+		int m_aKeys[HASHLIST_BUCKET_SIZE];
+		int m_aIndex[HASHLIST_BUCKET_SIZE];
+	};
+	static void GenerateHash(CItemList *pHashlist, const CSnapshot *pSnapshot);
+	static int GetItemIndexHashed(int Key, const CItemList *pHashlist);
 
 	int NumItems() const { return m_NumItems; }
 	int DataSize() const { return m_DataSize; }
@@ -58,7 +70,7 @@ public:
 	void InvalidateItem(int Index);
 	int GetItemType(int Index) const;
 	int GetExternalItemType(int InternalType) const;
-	const void *FindItem(int Type, int Id) const;
+	const void *FindItem(int Type, int Id, const CItemList *pHashlist = nullptr) const;
 
 	unsigned Crc() const;
 	// Prints the raw snapshot data showing item and int boundaries.

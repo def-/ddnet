@@ -198,6 +198,13 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	CSnapshotStorage m_aSnapshotStorage[NUM_DUMMIES];
 	CSnapshotStorage::CHolder *m_aapSnapshots[NUM_DUMMIES][NUM_SNAPSHOT_TYPES];
 
+	// key hashes for the snapshots `SnapFindItem` is called on, rebuilt
+	// lazily when the snapshot in the slot changes, hence mutable
+	mutable CSnapshot::CItemList m_aaSnapshotHashlists[NUM_SNAPSHOT_TYPES][CSnapshot::HASHLIST_SIZE];
+	mutable const CSnapshot *m_apSnapshotHashlistSnaps[NUM_SNAPSHOT_TYPES] = {nullptr, nullptr};
+	mutable int m_aSnapshotHashlistTicks[NUM_SNAPSHOT_TYPES] = {-1, -1};
+	void InvalidateSnapshotHashlists();
+
 	int m_aReceivedSnapshots[NUM_DUMMIES] = {0, 0};
 	char m_aaSnapshotIncomingData[NUM_DUMMIES][CSnapshot::MAX_SIZE];
 	int m_aSnapshotIncomingDataSize[NUM_DUMMIES] = {0, 0};

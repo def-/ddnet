@@ -61,7 +61,6 @@ int CSnapshot::GetExternalItemType(int InternalType) const
 
 int CSnapshot::GetItemIndex(int Key) const
 {
-	// TODO: OPT: this should not be a linear search. very bad
 	for(int i = 0; i < m_NumItems; i++)
 	{
 		if(GetItem(i)->Key() == Key)
@@ -75,7 +74,7 @@ void CSnapshot::InvalidateItem(int Index)
 	((CSnapshotItem *)(DataStart() + Offsets()[Index]))->Invalidate();
 }
 
-const void *CSnapshot::FindItem(int Type, int Id) const
+const void *CSnapshot::FindItem(int Type, int Id, const CItemList *pHashlist) const
 {
 	int InternalType = Type;
 	if(Type >= OFFSET_UUID)
@@ -104,7 +103,8 @@ const void *CSnapshot::FindItem(int Type, int Id) const
 			return nullptr;
 		}
 	}
-	int Index = GetItemIndex((InternalType << 16) | Id);
+	const int Key = (InternalType << 16) | Id;
+	const int Index = pHashlist ? GetItemIndexHashed(Key, pHashlist) : GetItemIndex(Key);
 	return Index < 0 ? nullptr : GetItem(Index)->Data();
 }
 
@@ -163,31 +163,16 @@ bool CSnapshot::IsValid(size_t ActualSize) const
 	return true;
 }
 
-// CSnapshotDelta
-
-enum
-{
-	HASHLIST_SIZE = 256,
-	HASHLIST_BUCKET_SIZE = 64,
-};
-
-struct CItemList
-{
-	int m_Num;
-	int m_aKeys[HASHLIST_BUCKET_SIZE];
-	int m_aIndex[HASHLIST_BUCKET_SIZE];
-};
-
 static inline size_t CalcHashId(int Key)
 {
 	// djb2 (http://www.cse.yorku.ca/~oz/hash.html)
 	unsigned Hash = 5381;
 	for(unsigned Shift = 0; Shift < sizeof(int); Shift++)
 		Hash = ((Hash << 5) + Hash) + ((Key >> (Shift * 8)) & 0xFF);
-	return Hash % HASHLIST_SIZE;
+	return Hash % CSnapshot::HASHLIST_SIZE;
 }
 
-static void GenerateHash(CItemList *pHashlist, const CSnapshot *pSnapshot)
+void CSnapshot::GenerateHash(CItemList *pHashlist, const CSnapshot *pSnapshot)
 {
 	for(int i = 0; i < HASHLIST_SIZE; i++)
 		pHashlist[i].m_Num = 0;
@@ -205,7 +190,7 @@ static void GenerateHash(CItemList *pHashlist, const CSnapshot *pSnapshot)
 	}
 }
 
-static int GetItemIndexHashed(int Key, const CItemList *pHashlist)
+int CSnapshot::GetItemIndexHashed(int Key, const CItemList *pHashlist)
 {
 	size_t HashId = CalcHashId(Key);
 	for(int i = 0; i < pHashlist[HashId].m_Num; i++)
@@ -216,6 +201,8 @@ static int GetItemIndexHashed(int Key, const CItemList *pHashlist)
 
 	return -1;
 }
+
+// CSnapshotDelta
 
 int CSnapshotDelta::DiffItem(const int *pPast, const int *pCurrent, int *pOut, int Size)
 {
@@ -295,14 +282,14 @@ int CSnapshotDelta::CreateDelta(const CSnapshot *pFrom, const CSnapshot *pTo, vo
 	pDelta->m_NumUpdateItems = 0;
 	pDelta->m_NumTempItems = 0;
 
-	CItemList aHashlist[HASHLIST_SIZE];
-	GenerateHash(aHashlist, pTo);
+	CSnapshot::CItemList aHashlist[CSnapshot::HASHLIST_SIZE];
+	CSnapshot::GenerateHash(aHashlist, pTo);
 
 	// pack deleted stuff
 	for(int i = 0; i < pFrom->NumItems(); i++)
 	{
 		const CSnapshotItem *pFromItem = pFrom->GetItem(i);
-		if(GetItemIndexHashed(pFromItem->Key(), aHashlist) == -1)
+		if(CSnapshot::GetItemIndexHashed(pFromItem->Key(), aHashlist) == -1)
 		{
 			// deleted
 			pDelta->m_NumDeletedItems++;
@@ -311,7 +298,7 @@ int CSnapshotDelta::CreateDelta(const CSnapshot *pFrom, const CSnapshot *pTo, vo
 		}
 	}
 
-	GenerateHash(aHashlist, pFrom);
+	CSnapshot::GenerateHash(aHashlist, pFrom);
 
 	// fetch previous indices
 	// we do this as a separate pass because it helps the cache
@@ -320,7 +307,7 @@ int CSnapshotDelta::CreateDelta(const CSnapshot *pFrom, const CSnapshot *pTo, vo
 	for(int i = 0; i < NumItems; i++)
 	{
 		const CSnapshotItem *pCurItem = pTo->GetItem(i); // O(1) .. O(n)
-		aPastIndices[i] = GetItemIndexHashed(pCurItem->Key(), aHashlist); // O(n) .. O(n^n)
+		aPastIndices[i] = CSnapshot::GetItemIndexHashed(pCurItem->Key(), aHashlist); // O(n) .. O(n^n)
 	}
 
 	for(int i = 0; i < NumItems; i++)
@@ -518,28 +505,33 @@ int CSnapshotDelta::UnpackDelta(const CSnapshot *pFrom, CSnapshotBuffer *pTo, co
 	if(pData > pEnd)
 		return -101;
 
-	// copy all non deleted stuff
+	// hash the from-snapshot like CreateDelta does, to avoid linear searches
+	CSnapshot::CItemList aFromHashlist[CSnapshot::HASHLIST_SIZE];
+	CSnapshot::GenerateHash(aFromHashlist, pFrom);
+
+	// resolve the deleted keys to from-item indices once
+	bool aDeleted[CSnapshot::MAX_ITEMS] = {};
+	for(int d = 0; d < pDelta->m_NumDeletedItems; d++)
+	{
+		const int FromIndex = CSnapshot::GetItemIndexHashed(pDeleted[d], aFromHashlist);
+		if(FromIndex != -1)
+			aDeleted[FromIndex] = true;
+	}
+
+	// copy all non deleted stuff, remembering each kept item's builder index
+	int aKeptItemIndices[CSnapshot::MAX_ITEMS];
+	int NumKeptItems = 0;
 	for(int i = 0; i < pFrom->NumItems(); i++)
 	{
-		const CSnapshotItem *pFromItem = pFrom->GetItem(i);
-		const int ItemSize = pFrom->GetItemSize(i);
-		bool Keep = true;
-		for(int d = 0; d < pDelta->m_NumDeletedItems; d++)
-		{
-			if(pDeleted[d] == pFromItem->Key())
-			{
-				Keep = false;
-				break;
-			}
-		}
+		if(aDeleted[i])
+			continue;
 
-		if(Keep)
+		// keep it
+		aKeptItemIndices[i] = NumKeptItems++;
+		const CSnapshotItem *pFromItem = pFrom->GetItem(i);
+		if(!Builder.NewItem(pFromItem->InternalType(), pFromItem->Id(), pFromItem->Data(), pFrom->GetItemSize(i)))
 		{
-			// keep it
-			if(!Builder.NewItem(pFromItem->InternalType(), pFromItem->Id(), pFromItem->Data(), ItemSize))
-			{
-				return -301;
-			}
+			return -301;
 		}
 	}
 
@@ -573,9 +565,15 @@ int CSnapshotDelta::UnpackDelta(const CSnapshot *pFrom, CSnapshotBuffer *pTo, co
 			return -205;
 
 		const int Key = (Type << 16) | Id;
+		const int FromIndex = CSnapshot::GetItemIndexHashed(Key, aFromHashlist);
 
-		// create the item if needed
-		std::optional<int> ExistingIndex = Builder.FindItemIndexByKey(Key);
+		// create the item if needed; items kept from the from-snapshot keep
+		// their key, so only items not kept need the linear builder search
+		std::optional<int> ExistingIndex;
+		if(FromIndex != -1 && !aDeleted[FromIndex])
+			ExistingIndex = aKeptItemIndices[FromIndex];
+		else
+			ExistingIndex = Builder.FindItemIndexByKey(Key);
 		int *pNewData;
 		if(ExistingIndex)
 		{
@@ -593,7 +591,6 @@ int CSnapshotDelta::UnpackDelta(const CSnapshot *pFrom, CSnapshotBuffer *pTo, co
 		if(!pNewData)
 			return -302;
 
-		const int FromIndex = pFrom->GetItemIndex(Key);
 		if(FromIndex != -1)
 		{
 			if(pFrom->GetItemSize(FromIndex) != ItemSize)

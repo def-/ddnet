@@ -48,6 +48,8 @@ CURRENT:
 		(unsigned char seq;) // 8bit seq, if vital flag is set
 */
 
+typedef int SECURITY_TOKEN;
+
 enum
 {
 	NETSENDFLAG_VITAL = 1 << 0,
@@ -66,6 +68,10 @@ enum
 enum
 {
 	NET_MAX_PACKETSIZE = 1400,
+	/**
+	 * The maximum size of the payload of a connless packet,
+	 * which uses a 6 byte header.
+	 */
 	NET_MAX_PAYLOAD = NET_MAX_PACKETSIZE - 6,
 	/**
 	 * The maximum size of a chunk within a connection-oriented packet.
@@ -75,6 +81,18 @@ enum
 	NET_MAX_CHUNK_SIZE = 1023,
 	NET_MAX_CHUNKHEADERSIZE = 3,
 	NET_PACKETHEADERSIZE = 3,
+	/**
+	 * The maximum size of the data of a connection-oriented packet,
+	 * which uses a 3 byte header.
+	 */
+	NET_MAX_PACKETDATASIZE = NET_MAX_PACKETSIZE - NET_PACKETHEADERSIZE,
+	/**
+	 * The maximum total size of the chunks of a connection-oriented packet.
+	 *
+	 * Space for the security token must always be reserved, either because it is
+	 * appended to the data (0.6) or because it is part of the header (0.7).
+	 */
+	NET_MAX_CHUNKDATASIZE = NET_MAX_PACKETDATASIZE - (int)sizeof(SECURITY_TOKEN),
 	NET_CONNLESS_EXTRA_SIZE = 4,
 	NET_MAX_CLIENTS = 64,
 	NET_MAX_CONSOLE_CLIENTS = 4,
@@ -115,7 +133,6 @@ enum
 	NET_TOKENREQUEST_DATASIZE = 512,
 };
 
-typedef int SECURITY_TOKEN;
 typedef unsigned int TOKEN;
 
 SECURITY_TOKEN ToSecurityToken(const unsigned char *pData);
@@ -178,7 +195,7 @@ public:
 	int m_Ack;
 	int m_NumChunks;
 	int m_DataSize;
-	unsigned char m_aChunkData[NET_MAX_PAYLOAD];
+	unsigned char m_aChunkData[NET_MAX_PACKETDATASIZE];
 	unsigned char m_aExtraData[NET_CONNLESS_EXTRA_SIZE];
 };
 

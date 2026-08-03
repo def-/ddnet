@@ -148,8 +148,17 @@ int CNetConnection::QueueChunkEx(int Flags, int DataSize, const void *pData, int
 
 	unsigned char *pChunkData;
 
+	// drop chunks that can never be packed into a single packet, they would
+	// otherwise overflow the packet data buffer
+	const int MaxDataSize = m_Sixup ? NET_MAX_CHUNKDATASIZE - NET_MAX_CHUNKHEADERSIZE : NET_MAX_CHUNK_SIZE;
+	if(DataSize > MaxDataSize)
+	{
+		log_error("netconn", "chunk too big. size=%d max=%d. dropping chunk", DataSize, MaxDataSize);
+		return -1;
+	}
+
 	// check if we have space for it, if not, flush the connection
-	if(m_Construct.m_DataSize + DataSize + NET_MAX_CHUNKHEADERSIZE > (int)sizeof(m_Construct.m_aChunkData) - (int)sizeof(SECURITY_TOKEN) ||
+	if(m_Construct.m_DataSize + DataSize + NET_MAX_CHUNKHEADERSIZE > NET_MAX_CHUNKDATASIZE ||
 		m_Construct.m_NumChunks == NET_MAX_PACKET_CHUNKS)
 	{
 		Flush();

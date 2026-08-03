@@ -2,6 +2,8 @@
 #include <base/net.h>
 #include <base/secure.h>
 
+#include <engine/shared/network.h>
+
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -53,4 +55,66 @@ TEST(Net, Ipv4AndIpv6Work)
 
 	net_udp_close(Socket1);
 	net_udp_close(Socket2);
+}
+
+// A packet that is received with the maximum packet size must fit into the
+// packet construct without overflowing its data buffer.
+TEST(Net, UnpackMaxSizePacket)
+{
+	CNetBase::Init();
+
+	unsigned char aPacket[NET_MAX_PACKETSIZE];
+	mem_zero(aPacket, sizeof(aPacket));
+	aPacket[0] = 0; // no flags, in particular not compressed
+	aPacket[1] = 0; // ack
+	aPacket[2] = 1; // one chunk
+
+	CNetPacketConstruct Packet;
+	bool Sixup = false;
+	SECURITY_TOKEN SecurityToken;
+	ASSERT_EQ(CNetBase::UnpackPacket(aPacket, sizeof(aPacket), &Packet, Sixup, &SecurityToken), 0);
+	EXPECT_LE(Packet.m_DataSize, (int)sizeof(Packet.m_aChunkData));
+}
+
+// Sending a packet with the maximum amount of chunk data must not exceed the
+// maximum packet size, also when the security token is appended to the data.
+TEST(Net, SendMaxSizePacket)
+{
+	CNetBase::Init();
+
+	NETADDR BindAddr = {};
+	BindAddr.type = NETTYPE_IPV4;
+	NETSOCKET Receiver;
+	do
+	{
+		BindAddr.port = secure_rand_below(65535 - 1024) + 1024;
+	} while(!(Receiver = net_udp_create(BindAddr)));
+	const int ReceiverPort = BindAddr.port;
+	BindAddr.port = 0;
+	NETSOCKET Sender = net_udp_create(BindAddr);
+	ASSERT_NE(Sender, nullptr);
+
+	NETADDR Target;
+	ASSERT_FALSE(net_addr_from_str(&Target, "127.0.0.1"));
+	Target.port = ReceiverPort;
+
+	CNetPacketConstruct Packet;
+	mem_zero(&Packet, sizeof(Packet));
+	Packet.m_NumChunks = 1;
+	Packet.m_DataSize = NET_MAX_CHUNKDATASIZE;
+	// incompressible data, so that the uncompressed data is sent
+	secure_random_fill(Packet.m_aChunkData, Packet.m_DataSize);
+
+	CNetBase::SendPacket(Sender, &Target, &Packet, 0x12345678);
+	EXPECT_LE(Packet.m_DataSize, (int)sizeof(Packet.m_aChunkData));
+
+	NETADDR From;
+	unsigned char *pData;
+	ASSERT_EQ(net_socket_read_wait(Receiver, 10s), 1);
+	const int Size = net_udp_recv(Receiver, &From, &pData);
+	EXPECT_GT(Size, 0);
+	EXPECT_LE(Size, NET_MAX_PACKETSIZE);
+
+	net_udp_close(Sender);
+	net_udp_close(Receiver);
 }

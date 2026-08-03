@@ -114,10 +114,14 @@ bool CMap::Load(const char *pFullName, IStorage *pStorage, const char *pPath, in
 						log_error("map/load", "map layer too big (%d * %d * %d causes an integer overflow)", pTilemap->m_Width, pTilemap->m_Height, (int)sizeof(CTile));
 						return false;
 					}
-					CTile *pTiles = static_cast<CTile *>(malloc(TilemapSize));
+					const CTile *pPackedTiles = static_cast<CTile *>(NewDataFile.GetData(pTilemap->m_Data));
+					if(pPackedTiles == nullptr)
+						continue; // layer with invalid data is ignored when the map is used
+
+					CTile *pTiles = static_cast<CTile *>(calloc(TilemapCount, sizeof(CTile)));
 					if(!pTiles)
 						return false;
-					ExtractTiles(pTiles, (size_t)pTilemap->m_Width * pTilemap->m_Height, static_cast<CTile *>(NewDataFile.GetData(pTilemap->m_Data)), NewDataFile.GetDataSize(pTilemap->m_Data) / sizeof(CTile));
+					ExtractTiles(pTiles, TilemapCount, pPackedTiles, NewDataFile.GetDataSize(pTilemap->m_Data) / sizeof(CTile));
 					NewDataFile.ReplaceData(pTilemap->m_Data, reinterpret_cast<char *>(pTiles), TilemapSize);
 				}
 			}

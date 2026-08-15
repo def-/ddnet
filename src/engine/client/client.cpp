@@ -3364,7 +3364,11 @@ void CClient::Run()
 			Update();
 			int64_t Now = time_get();
 
+#if defined(CONF_HEADLESS_CLIENT)
+			bool IsRenderActive = false;
+#else
 			bool IsRenderActive = (g_Config.m_GfxBackgroundRender || m_pGraphics->WindowOpen());
+#endif
 
 			bool AsyncRenderOld = g_Config.m_GfxAsyncRenderOld;
 

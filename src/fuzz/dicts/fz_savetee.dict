@@ -1,0 +1,12 @@
+# A whole field: lets a mutation add or remove exactly one sscanf conversion, which is
+# what the switch(Num) accepts or rejects on.
+field="\x090"
+tab="\x09"
+newline="\x0a"
+# The %36s game-uuid conversion.
+uuid="00000000-0000-0000-0000-000000000000"
+neg="-1"
+intmin="-2147483648"
+intmax="2147483647"
+big="999999"
+float="0.0"

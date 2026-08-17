@@ -1,0 +1,28 @@
+# str_utf8_to_skeleton expands one codepoint into up to 15 via the confusables table
+# (confusables_data.cpp decomp_lengths = {0,1,2,3,4,5,7,15}), and IsBanned feeds the result
+# into a fixed int[MAX_NAME_SKELETON_LENGTH=64] whose sizing has zero slack against
+# str_utf32_dist_buffer`s dbg_assert. Only the longest decompositions can push it there, and
+# a mutator will not find a 3-byte codepoint by chance - so they are listed explicitly.
+# U+FDFA, the single longest decomposition in the table (15 codepoints from 3 bytes).
+fdfa="\xef\xb7\xba"
+# U+FDFB, the next longest (7).
+fdfb="\xef\xb7\xbb"
+# The 5-codepoint decompositions: U+060A and U+2031.
+u060a="\xd8\x8a"
+u2031="\xe2\x80\xb1"
+# 4-codepoint ones: U+0609, U+2030, U+2057, U+2167.
+u0609="\xd8\x89"
+u2030="\xe2\x80\xb0"
+u2057="\xe2\x81\x97"
+u2167="\xe2\x85\xa7"
+# Above the largest entry in decomp_chars (0x10FFFD), so str_utf8_skeleton`s early
+# `ch < decomp_chars[i]` break never fires and the scan runs to the end of the table.
+u10ffff="\xf4\x8f\xbf\xbf"
+# str_utf8_skip_whitespaces / str_utf8_trim_right run before the skeleton is built.
+space=" "
+tab="\x09"
+nbsp="\xc2\xa0"
+ideographic_space="\xe3\x80\x80"
+# The 15-byte name boundary: str_copy into char[MAX_NAME_LENGTH] truncates here and
+# str_utf8_fix_truncation then removes a partial codepoint.
+fifteen="123456789012345"

@@ -7,6 +7,9 @@ data/
 docs/warn.log
 docs/html
 
+# Created by src/fuzz/run.sh so the 0.7 paths have a map to load
+/data/maps7/coverage.map
+
 bundle/
 !/other/bundle/
 

@@ -1,0 +1,13 @@
+# The tokenizer specials that gate the quoted/escape paths.
+quote="\""
+escquote="\\\""
+escesc="\\\\"
+semi=";"
+hash="#"
+mc="mc;"
+# Victim keywords resolved by ClientsForVictim.
+me="me"
+all="all"
+# The integer boundaries ParseArgs rejects - the C2 finding was a quoted INT_MIN.
+intmin="-2147483648"
+intmax="2147483647"

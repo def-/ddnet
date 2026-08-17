@@ -1,0 +1,43 @@
+# fz_netserver: the byte strings CNetServer::Recv actually compares against. Everything
+# here is a mem_comp or a fixed header the fuzzer would otherwise have to guess.
+
+# SECURITY_TOKEN_MAGIC (network.cpp:19). IsDDNetControlMsg mem_comps a CONNECT's bytes 1..4
+# against this; without a match a CONNECT goes to OnPreConnMsg instead of OnTokenCtrlMsg,
+# so the entire DDNet token handshake hangs off this literal.
+tken="TKEN"
+
+# The harness rewrites this four-byte placeholder to the live GetToken(Addr). The token is
+# re-rolled per process, so this is the only way a corpus entry can name it.
+token_placeholder="\xc0\xde\x70\x4b"
+
+# NET_HEADER_EXTENDED (network.cpp:157): the connless extended-info marker.
+xe="xe"
+
+# Connless header: six 0xff bytes, then the masterserver magic (masterserver.cpp:3-6).
+connless="\xff\xff\xff\xff\xff\xff"
+getinfo="\xff\xff\xff\xffgie3"
+getinfo64="\xff\xff\xff\xfffstd"
+info="\xff\xff\xff\xffinf3"
+
+# Packet header first bytes. Flags live in bits 2..7, so these are the whole first byte.
+hdr_plain="\x00"
+hdr_sixup="\x04"
+hdr_control="\x10"
+hdr_resend="\x40"
+hdr_compression="\x80"
+hdr_connless="\x20"
+
+# Control message codes (network.h:96-100) and protocol7's NET_CTRLMSG_TOKEN.
+ctrl_keepalive="\x00"
+ctrl_connect="\x01"
+ctrl_connectaccept="\x02"
+ctrl_accept="\x03"
+ctrl_close="\x04"
+ctrl_token7="\x05"
+
+# A control header plus its code, so a mutation can produce a whole valid control packet
+# in one step rather than three.
+pkt_connect="\x10\x00\x00\x01"
+pkt_accept="\x10\x00\x00\x03"
+pkt_close="\x10\x00\x00\x04"
+pkt_ddnet_connect="\x10\x00\x00\x01TKEN"

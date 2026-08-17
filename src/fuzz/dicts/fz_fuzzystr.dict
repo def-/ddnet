@@ -1,0 +1,19 @@
+# The four characters sqlstr::EscapeLike escapes (sql_string_helpers.cpp:41). The 48-entry
+# campaign corpus contained none of them, so three of the four `||` arms had never run.
+backslash="\\"
+percent="%"
+underscore="_"
+bracket="["
+# sqlstr::FuzzyString skips the "%" insertion only after a backslash, and only inserts one
+# when the NEXT byte is a UTF-8 start byte - so a continuation byte is the other half.
+continuation="\x80"
+utf8_2byte="\xc3\xa9"
+utf8_3byte="\xe2\x82\xac"
+utf8_4byte="\xf0\x9f\x98\x80"
+nul="\x00"
+# Leading bytes that select the interesting EscapeLike destination sizes (pData[0] % 32):
+# 0, 1, 2, 3 are the boundary of `while(DstPos + 2 < DstSize)`.
+dst0=" "
+dst1="!"
+dst2="\""
+dst3="#"

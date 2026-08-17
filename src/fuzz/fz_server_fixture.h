@@ -41,6 +41,15 @@
 #include <cstdlib>
 #include <memory>
 
+// UBSan takes its options from the environment, so a suppression would have to be repeated
+// by the campaign and by every manual replay, and a replay that forgets it reports a finding
+// the campaign deliberately ignores. A default travels with the build instead. The
+// environment still wins for every option it names, which is how run.sh sets halt_on_error.
+extern "C" const char *__ubsan_default_options()
+{
+	return "suppressions=" FZ_UBSAN_SUPP;
+}
+
 namespace fzserver
 {
 

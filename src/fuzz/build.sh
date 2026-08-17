@@ -85,6 +85,7 @@ for t in $TARGETS; do
 		-fno-exceptions -fsigned-char \
 		$DEFINES \
 		-I"$BUILD/src" -I"$SRC/src" -I"$SRC/src/rust-bridge" \
+		-DFZ_UBSAN_SUPP="\"$HERE/ubsan.supp\"" \
 		-Wall -Wno-unused-parameter -Wno-format
 	# swap the base executable's own object for ours, retarget the output, link the runtime in
 	LINK=$(sed -e "s|$OBJ|$OUT/$t.o|" \

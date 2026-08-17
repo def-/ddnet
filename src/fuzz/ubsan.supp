@@ -1,0 +1,10 @@
+# Sites the campaign must not stop on, named one at a time. A blanket
+# -fno-sanitize=signed-integer-overflow would discard the whole bug class, and
+# every entry here costs the coverage of one function, so add one only with the
+# reason written down.
+#
+# ConVotes multiplies the page number of the `votes` command by the page size.
+# The number is an rcon argument, so reaching it takes an authenticated admin,
+# who has `shutdown` and `ban` anyway. AddVote caps the list at
+# MAX_VOTE_OPTIONS, so no page the wrap can produce lists anything either way.
+signed-integer-overflow:ConVotes

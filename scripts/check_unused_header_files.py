@@ -14,7 +14,9 @@ def find_unused_header_files(directory):
 
 	for root, _, files in os.walk(directory):
 		for file in files:
-			with open(os.path.join(root, file), "r", encoding="utf-8") as f:
+			# The fuzzing seed corpus under src/fuzz is binary, and a header name that
+			# happens to appear in it would not be a use anyway.
+			with open(os.path.join(root, file), "r", encoding="utf-8", errors="ignore") as f:
 				content = f.read()
 				for header in header_files:
 					if header in content:

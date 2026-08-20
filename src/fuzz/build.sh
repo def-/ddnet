@@ -9,13 +9,9 @@
 #   DDNet-Server  - needed by anything touching game-server code. Those targets replace
 #                   main.cpp, so they must stub the symbols it defined (IsInterrupted).
 #
-# One-time setup:
-#   cmake -B build-fuzz -GNinja -DCLIENT=OFF -DSERVER=ON -DTOOLS=ON -DDOWNLOAD_GTEST=OFF \
-#     -DCMAKE_BUILD_TYPE=Debug \
-#     -DCMAKE_C_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1" \
-#     -DCMAKE_CXX_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1" \
-#     -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=fuzzer-no-link,address,undefined"
-#   ninja -C build-fuzz twping DDNet-Server
+# The build directory ($SRC/build-fuzz, override with DDNET_FUZZ_BUILD) is configured here on
+# first use rather than by hand, because the instrumentation the objects carry has to match
+# what the harnesses below are compiled with.
 #
 # The harness must be compiled with the SAME semantic flags as the tree, not just the same
 # defines. DDNet applies -fno-exceptions to every target (CMakeLists.txt adds it to
@@ -34,12 +30,24 @@
 # set DDNET_FUZZ_CXX=/opt/homebrew/opt/llvm/bin/clang++.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
-: "${DDNET_FUZZ_SRC:?set DDNET_FUZZ_SRC to the ddnet source tree with a build-fuzz dir}"
-SRC="$DDNET_FUZZ_SRC"
-BUILD="$SRC/build-fuzz"
+SRC=${DDNET_FUZZ_SRC:-$(cd "$HERE/../.." && pwd)}
+BUILD=${DDNET_FUZZ_BUILD:-$SRC/build-fuzz}
 CXX=${DDNET_FUZZ_CXX:-clang++}
+# The matching C compiler, not the default cc: the C sources are instrumented too, and gcc
+# has no -fsanitize=fuzzer-no-link to configure with.
+CC=${CXX%++}
 OUT=${FUZZ_OUT:-$BUILD/fuzzers}
 mkdir -p "$OUT"
+
+if [ ! -f "$BUILD/build.ninja" ]; then
+	FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1"
+	cmake -S "$SRC" -B "$BUILD" -GNinja \
+		-DCLIENT=OFF -DSERVER=ON -DTOOLS=ON -DDOWNLOAD_GTEST=OFF \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+		-DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_CXX_FLAGS="$FLAGS" \
+		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=fuzzer-no-link,address,undefined"
+fi
 
 cd "$BUILD"
 
@@ -57,7 +65,7 @@ for t in $TARGETS; do
 		OBJ='CMakeFiles/twping.dir/src/tools/twping.cpp.o'
 		;;
 	esac
-	ninja "$BASE" > /dev/null
+	ninja "$BASE"
 	ninja -t commands "$BASE" | tail -1 > "$OUT/.linkline.$BASE"
 
 	# Mirror the project's own preprocessor defines instead of hardcoding a guess. Missing

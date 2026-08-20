@@ -23,16 +23,18 @@ Apple clang ships no libFuzzer runtime — linking `-fsanitize=fuzzer` fails wit
 cp -Rc ~/ddnet-source /path/to/ddnet-src        # APFS clone, near-instant
 cd /path/to/ddnet-src
 
-cmake -B build-fuzz -GNinja \
-  -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm/bin/clang \
-  -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++ \
-  -DCLIENT=OFF -DSERVER=ON -DTOOLS=ON -DDOWNLOAD_GTEST=OFF -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_C_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1" \
-  -DCMAKE_CXX_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=fuzzer-no-link,address,undefined"
-ninja -C build-fuzz twping        # builds the instrumented object set
+src/fuzz/run.sh -t 600
+```
 
-DDNET_FUZZ_SRC=/path/to/ddnet-src /path/to/tools/libfuzzer/build.sh
+That is the whole setup. `run.sh` builds before every campaign: `build.sh` configures
+`build-fuzz` on first use (Debug, `-fsanitize=fuzzer-no-link,address,undefined`), ninja brings
+the instrumented object set up to date and each target is relinked. On macOS set
+`DDNET_FUZZ_CXX=/opt/homebrew/opt/llvm/bin/clang++` so the configure and the harnesses both use
+the clang that ships libFuzzer. `build.sh` also runs on its own, for a control binary in a
+separate tree:
+
+```sh
+FUZZ_OUT=/tmp/fzctl DDNET_FUZZ_SRC=/path/to/ddnet-control src/fuzz/build.sh fz_serverpkt
 ```
 
 `build.sh` links each target by reusing `twping`'s link line with our object swapped in —
@@ -236,9 +238,8 @@ One script does everything — minify the corpus, run every target, report, and 
 corpus for next time:
 
 ```sh
-src/fuzz/run.sh              # all targets, 1 hour
+src/fuzz/run.sh              # all targets, until Ctrl-C
 src/fuzz/run.sh -t 600       # ten minutes
-src/fuzz/run.sh -b           # rebuild the harnesses first
 src/fuzz/run.sh fz_serverpkt # one target
 src/fuzz/run.sh -t 300 -j 2 fz_gamemsg fz_console
 ```

@@ -4,9 +4,12 @@
 #
 #   ./run.sh                 # all targets, runs until Ctrl-C
 #   ./run.sh -t 600          # ten minutes, then stop on its own
-#   ./run.sh -b              # rebuild the harnesses first
 #   ./run.sh fz_serverpkt    # just one target
 #   ./run.sh -t 300 -j 2 fz_gamemsg fz_console
+#
+# Every run builds first: build.sh configures build-fuzz if it is not there yet, ninja brings
+# the server objects up to date and each harness is relinked, about two seconds a target. So
+# no campaign can run against a binary older than the tree it is meant to test.
 #
 # State lives in one directory (default ~/ddnet-fuzz, override with FUZZ_RUN) and is REUSED
 # on the next run:
@@ -38,15 +41,13 @@ RUN=${FUZZ_RUN:-$HOME/ddnet-fuzz}
 
 DURATION=0 # 0 = run until interrupted; -t sets a limit
 WORKERS=0  # 0 = auto (share the machine out across the chosen targets)
-REBUILD=0
 
-while getopts "t:j:bh" opt; do
+while getopts "t:j:h" opt; do
 	case "$opt" in
 	t) DURATION=$OPTARG ;;
 	j) WORKERS=$OPTARG ;;
-	b) REBUILD=1 ;;
 	h)
-		sed -n '2,30p' "$0"
+		awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0"
 		exit 0
 		;;
 	*)
@@ -73,18 +74,9 @@ weight_of() {
 	esac
 }
 
-if [ "$REBUILD" -eq 1 ]; then
-	echo "building harnesses..."
-	# shellcheck disable=SC2086 # $TARGETS is a list of names
-	DDNET_FUZZ_SRC=$SRC sh "$HERE/build.sh" $TARGETS
-fi
-
-for t in $TARGETS; do
-	[ -x "$FZ/$t" ] || {
-		echo "ERROR: $FZ/$t missing - run with -b to build" >&2
-		exit 1
-	}
-done
+echo "building harnesses..."
+# shellcheck disable=SC2086 # $TARGETS is a list of names
+DDNET_FUZZ_SRC=$SRC DDNET_FUZZ_BUILD=$BUILD sh "$HERE/build.sh" $TARGETS
 
 # fz_gamemsg and fz_serverpkt construct a real server: CServer::LoadMap needs data/maps and,
 # for the 0.7 half to be covered at all, data/maps7/<map>.map. Without the latter LoadMap

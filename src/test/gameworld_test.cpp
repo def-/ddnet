@@ -21,6 +21,9 @@
 #include <game/server/gamecontroller.h>
 #include <game/server/gameworld.h>
 #include <game/server/player.h>
+#include <game/server/score.h>
+#include <game/server/scoreworker.h>
+#include <game/server/teams.h>
 #include <game/version.h>
 
 #include <gtest/gtest.h>
@@ -307,6 +310,31 @@ TEST_F(GameWorld, CharacterEmote)
 	// /emote angry 3 chat command and frozen
 	pChr->Freeze(10);
 	ASSERT_EQ(pChr->DetermineEyeEmote(), EMOTE_ANGRY);
+}
+
+TEST_F(GameWorld, FinishWithAbsurdTime)
+{
+	// A run that started far enough in the past that its time in thousandths, which the
+	// finish message carries, no longer fits an int. A single `add time` tile is worth up
+	// to 15555 seconds, so a map can walk a run there. Every conversion on the way has to
+	// be a checked one, otherwise the sanitizer build stops on the first of them.
+	int ClientId = 0;
+	bool Afk = false;
+	int LastWhisperTo = -1;
+	GameServer()->CreatePlayer(ClientId, TEAM_GAME, Afk, LastWhisperTo);
+	CPlayer *pPlayer = GameServer()->m_apPlayers[ClientId];
+	pPlayer->ForceSpawn(vec2(0, 0));
+	CCharacter *pChr = pPlayer->GetCharacter();
+	ASSERT_NE(pChr, nullptr);
+
+	pChr->m_DDRaceState = ERaceState::STARTED;
+	pChr->m_StartTime = m_pServer->Tick() - 1292875000;
+	GameServer()->m_pController->Teams().OnCharacterFinish(ClientId);
+
+	// The stored best time is out of range for the hundredths the record message carries,
+	// so sending it to a client that still asks for it has to stay defined as well.
+	EXPECT_GT(GameServer()->Score()->PlayerData(ClientId)->m_BestTime.value_or(0.0f), 2.0e7f);
+	GameServer()->SendRecord(ClientId);
 }
 
 TEST(Tunings, OutOfRangeBecomesIntMin)

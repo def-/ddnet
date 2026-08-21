@@ -260,8 +260,8 @@ void CProjectile::TickPaused()
 CNetObj_Projectile CProjectile::NetInfoVanilla() const
 {
 	CNetObj_Projectile Result = {};
-	Result.m_X = (int)m_Pos.x;
-	Result.m_Y = (int)m_Pos.y;
+	Result.m_X = round_truncate(m_Pos.x);
+	Result.m_Y = round_truncate(m_Pos.y);
 	Result.m_VelX = (int)(m_Direction.x * 100.0f);
 	Result.m_VelY = (int)(m_Direction.y * 100.0f);
 	Result.m_StartTick = m_StartTick;
@@ -271,13 +271,10 @@ CNetObj_Projectile CProjectile::NetInfoVanilla() const
 
 bool CProjectile::NetIsInfoLegacyCompatible() const
 {
-	const int MaxPos = 0x7fffffff / 100;
-	if(absolute((int)m_Pos.y) + 1 >= MaxPos || absolute((int)m_Pos.x) + 1 >= MaxPos)
-	{
-		//If the modified data would be too large to fit in an integer, send normal data instead
-		return false;
-	}
-	return true;
+	// If the modified data would be too large to fit in an integer, send normal data instead.
+	// A position that is NaN or infinite fails every comparison, so it takes that path too.
+	const float MaxPos = 0x7fffffff / 100;
+	return absolute(m_Pos.x) + 1 < MaxPos && absolute(m_Pos.y) + 1 < MaxPos;
 }
 
 CNetObj_DDRaceProjectile CProjectile::NetInfoLegacy(int SnappingClient)

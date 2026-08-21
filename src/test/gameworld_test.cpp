@@ -17,6 +17,7 @@
 #include <generated/protocol.h>
 
 #include <game/server/entities/character.h>
+#include <game/server/entities/projectile.h>
 #include <game/server/gamecontext.h>
 #include <game/server/gamecontroller.h>
 #include <game/server/gameworld.h>
@@ -335,6 +336,22 @@ TEST_F(GameWorld, FinishWithAbsurdTime)
 	// so sending it to a client that still asks for it has to stay defined as well.
 	EXPECT_GT(GameServer()->Score()->PlayerData(ClientId)->m_BestTime.value_or(0.0f), 2.0e7f);
 	GameServer()->SendRecord(ClientId);
+}
+
+TEST_F(GameWorld, ProjectileFarOutsideTheIntRange)
+{
+	// A crazy curvature drives a projectile past the int range within a few ticks, and the
+	// snapshot still has to convert its position. The legacy compatibility check converted
+	// the position itself, so it could not tell whether the legacy object was safe to send.
+	CProjectile *pProj = new CProjectile(&GameServer()->m_World, WEAPON_GUN, -1,
+		vec2(0.0f, 0.0f), vec2(1.0f, 0.0f), 100, false, false, -1, vec2(1.0f, 0.0f));
+	pProj->m_Pos = vec2(1.0e10f, -1.0e10f);
+
+	EXPECT_FALSE(pProj->NetIsInfoLegacyCompatible());
+	// The world owns the projectile and deletes it in its destructor.
+	const CNetObj_Projectile Vanilla = pProj->NetInfoVanilla(); // NOLINT(clang-analyzer-unix.Malloc)
+	EXPECT_EQ(Vanilla.m_X, std::numeric_limits<int>::min());
+	EXPECT_EQ(Vanilla.m_Y, std::numeric_limits<int>::min());
 }
 
 TEST(Tunings, OutOfRangeBecomesIntMin)

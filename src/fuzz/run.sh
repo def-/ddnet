@@ -143,6 +143,11 @@ else
 fi
 echo
 
+# Threshold for saving a slow-unit- artifact. libFuzzer times a unit by wall clock, so its
+# 10 s default saves scheduling stalls rather than slow code. A genuine hang still reaches
+# -timeout, so this only has to sit above the stalls.
+SLOW_UNIT_S=120
+
 PIDS=
 for t in $TARGETS; do
 	W=$WORKERS
@@ -163,7 +168,7 @@ for t in $TARGETS; do
 		UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_stacktrace=1 \
 			ASAN_OPTIONS=abort_on_error=1 \
 			"$FZ/$t" "$RUN/corpus/$t" \
-			-fork="$W" -ignore_crashes=1 \
+			-fork="$W" -ignore_crashes=1 -report_slow_units="$SLOW_UNIT_S" \
 			-max_total_time="$DURATION" -print_final_stats=1 \
 			-artifact_prefix="$RUN/artifacts/$t/" $DICT
 	) > "$RUN/log/$t.log" 2>&1 &
@@ -222,8 +227,6 @@ if command -v timeout > /dev/null 2>&1; then
 	REPLAY_TIMEOUT="timeout 60"
 	SEQ_TIMEOUT="timeout 900"
 fi
-# libFuzzer's own threshold for saving a slow-unit- artifact (-report_slow_units, seconds).
-SLOW_UNIT_S=10
 # Upper bound on the repetitions of the slow-unit probe below. The probe scales itself to
 # stay near SLOW_UNIT_BUDGET_MS whatever one execution costs, so this only caps a cheap input.
 SLOW_UNIT_RUNS=5000
@@ -254,7 +257,7 @@ report_campaign_lines() {
 # libFuzzer names an artifact after what made it save the file, and the kinds do not mean the
 # same thing. crash-/leak-/oom-/timeout- are failures and are expected to fail again on
 # replay. slow-unit- is NOT a failure: it is saved when a single execution exceeded
-# -report_slow_units (10 s), so it exits 0 on replay BY DEFINITION, and reporting "replays
+# -report_slow_units, so it exits 0 on replay BY DEFINITION, and reporting "replays
 # cleanly, so it needed earlier state" for one of those is simply wrong.
 artifact_kind() {
 	case ${1##*/} in
@@ -329,7 +332,7 @@ time_runs() {
 # input until some per-input scan turns quadratic, and that shows as a per-execution cost
 # that climbs with the repetitions. A flat or falling one means the input neither is slow nor
 # makes anything slower: libFuzzer times a unit by wall clock, and on a box running every
-# target at once, a unit descheduled for long enough crosses 10 s on its own.
+# target at once, a unit descheduled for long enough crosses the threshold on its own.
 #
 # Do not go looking for the campaign's own "Slow unit:" line either. In -fork mode the child
 # prints it into a temp directory libFuzzer deletes when it exits, and the parent does not
@@ -368,7 +371,7 @@ report_slow_unit() {
 		echo "        cost per execution, in one process: ${PER1} us over $N1 runs, ${PER2} us over $N2 runs"
 	fi
 	# Doubling alone is not enough to call it: below a millisecond an execution is not
-	# heading anywhere near the 10 s this artifact claims, and integer division makes the
+	# heading anywhere near the seconds this artifact claims, and integer division makes the
 	# short probe read 0 for a cheap input, which would turn every one of them into growth.
 	if [ "$PER2" -ge $((PER1 * 2)) ] && [ "$PER2" -ge 1000 ]; then
 		echo "        The per-execution cost CLIMBS with the repetitions, so something in"
@@ -378,7 +381,7 @@ report_slow_unit() {
 	elif [ "$PER2" -ge 0 ]; then
 		echo "        Flat, so the input is not slow and does not make anything slower."
 		echo "        libFuzzer times a unit by wall clock and this campaign runs every"
-		echo "        target at once, so the 10 s was scheduling, not work. The full-run"
+		echo "        target at once, so the ${SLOW_UNIT_S} s was scheduling, not work. The full-run"
 		echo "        search below is the check that settles it."
 	fi
 	try_full_run "$t" "$f" slow

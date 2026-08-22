@@ -52,8 +52,12 @@ bool CEntity::NetworkClippedLine(int SnappingClient, vec2 StartPos, vec2 EndPos)
 
 bool CEntity::GameLayerClipped(vec2 CheckPos)
 {
-	return round_to_int(CheckPos.x) / 32 < -200 || round_to_int(CheckPos.x) / 32 > GameServer()->Collision()->GetWidth() + 200 ||
-	       round_to_int(CheckPos.y) / 32 < -200 || round_to_int(CheckPos.y) / 32 > GameServer()->Collision()->GetHeight() + 200;
+	// A projectile position comes from its curvature rather than from stepping, so it reaches
+	// values no int can hold. Out of range x86-64 has always yielded INT_MIN, which is far
+	// below the lower bound and so answers clipped, and the checked conversion keeps that.
+	// Dividing in float instead would answer differently, because the division here truncates.
+	return round_to_int_checked(CheckPos.x) / 32 < -200 || round_to_int_checked(CheckPos.x) / 32 > GameServer()->Collision()->GetWidth() + 200 ||
+	       round_to_int_checked(CheckPos.y) / 32 < -200 || round_to_int_checked(CheckPos.y) / 32 > GameServer()->Collision()->GetHeight() + 200;
 }
 
 bool CEntity::GetNearestAirPos(vec2 Pos, vec2 PrevPos, vec2 *pOutPos)

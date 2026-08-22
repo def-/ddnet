@@ -326,15 +326,19 @@ int CCollision::GetTile(int x, int y) const
 int CCollision::IntersectLine(vec2 Pos0, vec2 Pos1, vec2 *pOutCollision, vec2 *pOutBeforeCollision) const
 {
 	float Distance = distance(Pos0, Pos1);
-	int End(Distance + 1);
+	// A projectile position comes from its curvature rather than from stepping, so it reaches
+	// values no int can hold and the conversions here have to be the checked ones. Out of
+	// range x86-64 has always yielded INT_MIN, which GetTile clamps to the first tile, so
+	// this keeps what the servers have always done instead of leaving it to the platform.
+	int End = round_truncate(Distance + 1);
 	vec2 Last = Pos0;
 	for(int i = 0; i <= End; i++)
 	{
 		float a = i / (float)End;
 		vec2 Pos = mix(Pos0, Pos1, a);
 		// Temporary position for checking collision
-		int ix = round_to_int(Pos.x);
-		int iy = round_to_int(Pos.y);
+		int ix = round_to_int_checked(Pos.x);
+		int iy = round_to_int_checked(Pos.y);
 
 		if(CheckPoint(ix, iy))
 		{
@@ -1012,12 +1016,15 @@ int CCollision::GetIndex(int Nx, int Ny) const
 
 int CCollision::GetIndex(vec2 PrevPos, vec2 Pos) const
 {
+	// A far projectile reaches positions no int can hold. Out of range x86-64 has always
+	// yielded INT_MIN, which the clamps below turn into the first tile, so range checking
+	// the conversions keeps what the servers have always done.
 	float Distance = distance(PrevPos, Pos);
 
 	if(!Distance)
 	{
-		int Nx = std::clamp((int)Pos.x / 32, 0, m_Width - 1);
-		int Ny = std::clamp((int)Pos.y / 32, 0, m_Height - 1);
+		int Nx = std::clamp(round_truncate(Pos.x) / 32, 0, m_Width - 1);
+		int Ny = std::clamp(round_truncate(Pos.y) / 32, 0, m_Height - 1);
 
 		if((m_pTele) ||
 			(m_pSpeedup && m_pSpeedup[Ny * m_Width + Nx].m_Force > 0))
@@ -1026,13 +1033,13 @@ int CCollision::GetIndex(vec2 PrevPos, vec2 Pos) const
 		}
 	}
 
-	const int DistanceRounded = std::ceil(Distance);
+	const int DistanceRounded = round_truncate(std::ceil(Distance));
 	for(int i = 0; i < DistanceRounded; i++)
 	{
 		float a = (float)i / Distance;
 		vec2 Tmp = mix(PrevPos, Pos, a);
-		int Nx = std::clamp((int)Tmp.x / 32, 0, m_Width - 1);
-		int Ny = std::clamp((int)Tmp.y / 32, 0, m_Height - 1);
+		int Nx = std::clamp(round_truncate(Tmp.x) / 32, 0, m_Width - 1);
+		int Ny = std::clamp(round_truncate(Tmp.y) / 32, 0, m_Height - 1);
 		if((m_pTele) ||
 			(m_pSpeedup && m_pSpeedup[Ny * m_Width + Nx].m_Force > 0))
 		{

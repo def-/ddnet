@@ -38,6 +38,8 @@ CEntity::~CEntity()
 
 bool CEntity::GameLayerClipped(vec2 CheckPos)
 {
-	return round_to_int(CheckPos.x) / 32 < -200 || round_to_int(CheckPos.x) / 32 > Collision()->GetWidth() + 200 ||
-	       round_to_int(CheckPos.y) / 32 < -200 || round_to_int(CheckPos.y) / 32 > Collision()->GetHeight() + 200;
+	// Range checked for the same reason as the server side: prediction runs the same
+	// curvature on tuning the server sends, so the position reaches values no int can hold.
+	return round_to_int_checked(CheckPos.x) / 32 < -200 || round_to_int_checked(CheckPos.x) / 32 > Collision()->GetWidth() + 200 ||
+	       round_to_int_checked(CheckPos.y) / 32 < -200 || round_to_int_checked(CheckPos.y) / 32 > Collision()->GetHeight() + 200;
 }

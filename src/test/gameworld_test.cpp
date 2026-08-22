@@ -354,6 +354,31 @@ TEST_F(GameWorld, ProjectileFarOutsideTheIntRange)
 	EXPECT_EQ(Vanilla.m_Y, std::numeric_limits<int>::min());
 }
 
+TEST_F(GameWorld, ProjectileTickFarOutsideTheIntRange)
+{
+	// The same projectile still has to be ticked, and the tick converts its position to int
+	// three times over: the collision line sampler, the game layer check and the tile lookup.
+	// Every one of them has to answer for a position no int can hold rather than convert it,
+	// which is what a sanitizer build stops on.
+	// Constructed at the origin and moved afterwards, because the constructor looks the
+	// spawn position up in the map and that is not what this is about.
+	const vec2 Far = vec2(5.36627e9f, -5.36627e9f);
+	// The world owns the projectile and deletes it in its destructor.
+	CProjectile *pProj = new CProjectile(&GameServer()->m_World, WEAPON_SHOTGUN, -1,
+		vec2(0.0f, 0.0f), vec2(1.0f, 0.0f), -2, true, false, -1, vec2(1.0f, 0.0f)); // NOLINT(clang-analyzer-unix.Malloc)
+	pProj->m_Pos = Far;
+	pProj->Tick();
+
+	// Out of range every conversion yields INT_MIN, so a far position reads as clipped and
+	// the tile lookups clamp to the first tile. x86-64 produced this before it was checked.
+	const vec2 Origin = vec2(0.0f, 0.0f);
+	EXPECT_TRUE(pProj->GameLayerClipped(Far));
+	EXPECT_EQ(GameServer()->Collision()->GetIndex(Far, Far),
+		GameServer()->Collision()->GetIndex(Origin, Origin));
+	EXPECT_EQ(GameServer()->Collision()->IntersectLine(Far, Far, nullptr, nullptr),
+		GameServer()->Collision()->GetCollisionAt(Origin.x, Origin.y));
+}
+
 TEST(Tunings, OutOfRangeBecomesIntMin)
 {
 	const float IntMin = std::numeric_limits<int>::min() / 100.0f;

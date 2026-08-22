@@ -162,11 +162,16 @@ for t in $TARGETS; do
 	# Each target gets its own working directory containing a data symlink: the server
 	# targets resolve $DATADIR from the cwd, and libFuzzer writes per-job logs into it.
 	ln -sfn "$SRC/data" "$RUN/work/$t/data"
+	# log_path sends each sanitizer report to a file of its own instead of stderr. Without it
+	# a -fork child's report dies with the temp directory libFuzzer deletes, and all that
+	# reaches log/<target>.log is the one line the parent echoes: no stack, and every
+	# round_to_int in the tree reports as the same line of math.h.
+	rm -f "$RUN/log/$t.report".*
 	# shellcheck disable=SC2086 # $DICT is one option or nothing at all
 	(
 		cd "$RUN/work/$t"
-		UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_stacktrace=1 \
-			ASAN_OPTIONS=abort_on_error=1 \
+		UBSAN_OPTIONS="halt_on_error=1:abort_on_error=1:print_stacktrace=1:log_path=$RUN/log/$t.report" \
+			ASAN_OPTIONS="abort_on_error=1:log_path=$RUN/log/$t.report" \
 			"$FZ/$t" "$RUN/corpus/$t" \
 			-fork="$W" -ignore_crashes=1 -report_slow_units="$SLOW_UNIT_S" \
 			-max_total_time="$DURATION" -print_final_stats=1 \
@@ -239,17 +244,19 @@ SEQ_LEN=1
 # A prefix that never got below this many inputs was not isolated to one packet.
 FULLRUN_ISOLATED=64
 
-# The crash lines the campaign itself recorded, which for an artifact that no longer
-# reproduces are the only trace of what fired. In -fork mode a child writes its full report
-# into a temp directory libFuzzer deletes when it exits, so only the one or two lines the
-# parent echoes into log/<target>.log survive the run.
+# What the campaign itself recorded, which for an artifact that no longer reproduces is the
+# only trace of what fired. The sanitizer report, stack included, is in log/<target>.report.*
+# because the run set log_path; log/<target>.log holds libFuzzer's own lines.
 report_campaign_lines() {
 	t=$1
-	L=$(grep -hE 'runtime error:|ERROR: (AddressSanitizer|LeakSanitizer|MemorySanitizer|libFuzzer)|Assertion' \
-		"$RUN/log/$t.log" 2> /dev/null | tail -20) || L=""
+	L=$({
+		cat "$RUN/log/$t.report".* 2> /dev/null
+		grep -hE 'runtime error:|ERROR: (AddressSanitizer|LeakSanitizer|MemorySanitizer|libFuzzer)|Assertion' \
+			"$RUN/log/$t.log" 2> /dev/null
+	} | tail -40) || L=""
 	if [ -n "$L" ]; then
 		echo
-		echo "  $t, what the campaign recorded (last 20 lines):"
+		echo "  $t, what the campaign recorded (last 40 lines):"
 		echo "$L" | sed 's/^/      /'
 	fi
 }

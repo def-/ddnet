@@ -388,3 +388,20 @@ TEST(Tunings, OutOfRangeBecomesIntMin)
 	EXPECT_EQ((float)(Param = std::numeric_limits<float>::quiet_NaN()), IntMin);
 	EXPECT_EQ((float)(Param = 0.5f), 0.5f);
 }
+
+TEST_F(GameWorld, WarmupWithAbsurdDuration)
+{
+	// `restart 555555555` over rcon asks for more warmup ticks than an int can hold, and
+	// sv_warmup has no upper bound either. The seconds were multiplied by the tick speed
+	// unchecked, which is undefined behaviour.
+	IGameController *pController = GameServer()->m_pController;
+	pController->DoWarmup(std::numeric_limits<int>::max());
+
+	// A warmup that long is still a warmup, so the round cannot end while it runs.
+	pController->EndRound();
+	EXPECT_FALSE(pController->IsGamePaused());
+
+	pController->DoWarmup(0);
+	pController->EndRound();
+	EXPECT_TRUE(pController->IsGamePaused());
+}

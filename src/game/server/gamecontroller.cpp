@@ -21,6 +21,9 @@
 #include <game/server/score.h>
 #include <game/teamscore.h>
 
+#include <algorithm>
+#include <limits>
+
 IGameController::IGameController(class CGameContext *pGameServer) :
 	m_Teams(pGameServer), m_pLoadBestTimeResult(nullptr)
 {
@@ -549,10 +552,13 @@ void IGameController::HandleCharacterTiles(CCharacter *pChr, int MapIndex)
 
 void IGameController::DoWarmup(int Seconds)
 {
+	// `restart` takes its seconds straight from an rcon line and sv_warmup has no upper
+	// bound either, so cap the countdown at the ticks an int can hold.
+	const int MaxSeconds = std::numeric_limits<int>::max() / Server()->TickSpeed();
 	if(Seconds < 0)
 		m_Warmup = 0;
 	else
-		m_Warmup = Seconds * Server()->TickSpeed();
+		m_Warmup = std::min(Seconds, MaxSeconds) * Server()->TickSpeed();
 }
 
 void IGameController::Tick()

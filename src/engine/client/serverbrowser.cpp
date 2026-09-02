@@ -628,9 +628,7 @@ void CServerBrowser::Filter()
 		}
 	}
 
-	std::stable_sort(m_vCommunities.begin(), m_vCommunities.end(), [](const CCommunity &Lhs, const CCommunity &Rhs) {
-		return Lhs.NumPlayers() > Rhs.NumPlayers();
-	});
+	m_CommunityCache.UpdateSortedCommunities();
 }
 
 int CServerBrowser::SortHash() const
@@ -1894,12 +1892,26 @@ void CCommunityCache::Invalidate()
 {
 	m_LastType = IServerBrowser::NUM_TYPES;
 	m_SelectedCommunitiesHash = 0;
+	m_vpSortedCommunities.clear();
 	m_vpSelectedCommunities.clear();
 	m_vpSelectableCountries.clear();
 	m_vpSelectableTypes.clear();
 	m_AnyRanksAvailable = false;
 	m_CountryTypesFilterAvailable = false;
 	m_pCountryTypeFilterKey = IServerBrowser::COMMUNITY_ALL;
+}
+
+void CCommunityCache::UpdateSortedCommunities()
+{
+	m_vpSortedCommunities.clear();
+	m_vpSortedCommunities.reserve(m_pServerBrowser->Communities().size());
+	for(const CCommunity &Community : m_pServerBrowser->Communities())
+	{
+		m_vpSortedCommunities.push_back(&Community);
+	}
+	std::stable_sort(m_vpSortedCommunities.begin(), m_vpSortedCommunities.end(), [](const CCommunity *pLhs, const CCommunity *pRhs) {
+		return pLhs->NumPlayers() > pRhs->NumPlayers();
+	});
 }
 
 void CCommunityCache::Update(bool Force)
@@ -1921,6 +1933,7 @@ void CCommunityCache::Update(bool Force)
 
 	m_LastType = m_pServerBrowser->GetCurrentType();
 	m_SelectedCommunitiesHash = CommunitiesHash;
+	UpdateSortedCommunities();
 	m_vpSelectedCommunities = m_pServerBrowser->CurrentCommunities();
 
 	m_vpSelectableCountries.clear();

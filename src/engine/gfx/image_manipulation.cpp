@@ -57,7 +57,7 @@ bool ConvertToRgba(uint8_t *pDest, const CImageInfo &SourceImage)
 
 bool ConvertToRgbaAlloc(uint8_t *&pDest, const CImageInfo &SourceImage)
 {
-	pDest = static_cast<uint8_t *>(malloc(SourceImage.m_Width * SourceImage.m_Height * CImageInfo::PixelSize(CImageInfo::FORMAT_RGBA)));
+	pDest = static_cast<uint8_t *>(malloc(CImageInfo::DataSize(SourceImage.m_Width, SourceImage.m_Height, CImageInfo::FORMAT_RGBA)));
 	return ConvertToRgba(pDest, SourceImage);
 }
 

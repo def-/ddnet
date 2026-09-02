@@ -158,12 +158,14 @@ void CMapImages::OnMapLoadImpl(class CLayers *pLayers, IMap *pMap)
 				continue;
 			}
 
+			const int64_t ImageDataSize = (int64_t)pImg->m_Width * pImg->m_Height * (int64_t)CImageInfo::PixelSize(CImageInfo::FORMAT_RGBA);
+
 			CImageInfo ImageInfo;
 			ImageInfo.m_Width = pImg->m_Width;
 			ImageInfo.m_Height = pImg->m_Height;
 			ImageInfo.m_Format = CImageInfo::FORMAT_RGBA;
 			ImageInfo.m_pData = static_cast<uint8_t *>(pMap->GetData(pImg->m_ImageData));
-			if(ImageInfo.m_pData && (size_t)pMap->GetDataSize(pImg->m_ImageData) >= ImageInfo.DataSize())
+			if(ImageInfo.m_pData && pMap->GetDataSize(pImg->m_ImageData) >= ImageDataSize)
 			{
 				char aTexName[IO_MAX_PATH_LENGTH];
 				str_format(aTexName, sizeof(aTexName), "embedded: %s", pName);

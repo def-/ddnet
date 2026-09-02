@@ -5,6 +5,7 @@
 #include <engine/image.h>
 
 #include <cstdlib>
+#include <limits>
 
 CImageInfo::CImageInfo(CImageInfo &&Other)
 {
@@ -86,9 +87,17 @@ const char *CImageInfo::FormatName() const
 	return FormatName(m_Format);
 }
 
+size_t CImageInfo::DataSize(size_t Width, size_t Height, EImageFormat Format)
+{
+	const size_t PixelSize = CImageInfo::PixelSize(Format);
+	dbg_assert(Width != 0 && Height != 0, "Image size must not be zero");
+	dbg_assert(Width <= std::numeric_limits<size_t>::max() / Height / PixelSize, "Image data size overflow");
+	return Width * Height * PixelSize;
+}
+
 size_t CImageInfo::DataSize() const
 {
-	return m_Width * m_Height * PixelSize(m_Format);
+	return DataSize(m_Width, m_Height, m_Format);
 }
 
 bool CImageInfo::DataEquals(const CImageInfo &Other) const

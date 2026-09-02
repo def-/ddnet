@@ -125,9 +125,24 @@ public:
 	const char *FormatName() const;
 
 	/**
+	 * Returns the size of the data, as derived from the given width, height and format.
+	 *
+	 * @param Width Width of the image.
+	 * @param Height Height of the image.
+	 * @param Format Image format, must not be `FORMAT_UNDEFINED`.
+	 *
+	 * @return Expected size of the image data.
+	 *
+	 * @remark The size must be representable as `size_t`.
+	 */
+	static size_t DataSize(size_t Width, size_t Height, EImageFormat Format);
+
+	/**
 	 * Returns the size of the data, as derived from the width, height and pixel size.
 	 *
 	 * @return Expected size of the image data.
+	 *
+	 * @remark The size must be representable as `size_t`.
 	 */
 	size_t DataSize() const;
 

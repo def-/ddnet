@@ -116,6 +116,12 @@ struct NETSOCKET_INTERNAL
 	int web_ipv4sock;
 	int web_ipv6sock;
 	bool broken;
+#if defined(CONF_FAMILY_WINDOWS)
+	// Used by `net_socket_read_wait`, `nullptr` without a high resolution timer
+	HANDLE timer = nullptr;
+	HANDLE ipv4event = nullptr;
+	HANDLE ipv6event = nullptr;
+#endif
 
 	NETSOCKET_BUFFER buffer;
 };
@@ -733,6 +739,89 @@ int net_would_block()
 #endif
 }
 
+#if defined(CONF_FAMILY_WINDOWS)
+// CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, which the SDK headers hide below a Windows 10 1803 minimum version
+static constexpr DWORD WAITABLE_TIMER_HIGH_RESOLUTION = 0x00000002;
+
+static void priv_net_exact_wait_init(NETSOCKET sock)
+{
+	// `select` returns at the next timer interrupt, up to 1 ms late. A high resolution timer and
+	// socket events let `net_socket_read_wait` return on time. The timer needs Windows 10 1803,
+	// older versions keep using `select`.
+	sock->timer = CreateWaitableTimerExW(nullptr, nullptr, WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+	if(sock->timer == nullptr)
+	{
+		return;
+	}
+	const int sockets[] = {sock->ipv4sock, sock->ipv6sock};
+	HANDLE *const events[] = {&sock->ipv4event, &sock->ipv6event};
+	for(size_t i = 0; i < std::size(sockets); ++i)
+	{
+		if(sockets[i] >= 0)
+		{
+			*events[i] = WSACreateEvent();
+			dbg_assert(*events[i] != WSA_INVALID_EVENT, "WSACreateEvent failure (%s)", net_error_message().c_str());
+			dbg_assert(WSAEventSelect(sockets[i], *events[i], FD_READ) == 0, "WSAEventSelect failure (%s)", net_error_message().c_str());
+		}
+	}
+}
+
+static void priv_net_exact_wait_destroy(NETSOCKET sock)
+{
+	for(HANDLE event : {sock->ipv4event, sock->ipv6event})
+	{
+		if(event != nullptr)
+		{
+			WSACloseEvent(event);
+		}
+	}
+	if(sock->timer != nullptr)
+	{
+		CloseHandle(sock->timer);
+	}
+}
+
+static int priv_net_exact_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
+{
+	int sockets[2];
+	HANDLE handles[3];
+	DWORD num_sockets = 0;
+	if(sock->ipv4sock >= 0)
+	{
+		sockets[num_sockets] = sock->ipv4sock;
+		handles[num_sockets] = sock->ipv4event;
+		num_sockets++;
+	}
+	if(sock->ipv6sock >= 0)
+	{
+		sockets[num_sockets] = sock->ipv6sock;
+		handles[num_sockets] = sock->ipv6event;
+		num_sockets++;
+	}
+	DWORD num_handles = num_sockets;
+	DWORD timeout = 0;
+	if(nanoseconds > std::chrono::nanoseconds::zero())
+	{
+		// Negative for a relative due time, in 100 ns units
+		LARGE_INTEGER due_time;
+		due_time.QuadPart = -std::max<int64_t>(nanoseconds.count() / 100, 1);
+		dbg_assert(SetWaitableTimer(sock->timer, &due_time, 0, nullptr, nullptr, FALSE) != 0, "SetWaitableTimer failure (%s)", windows_format_system_message(GetLastError()).c_str());
+		handles[num_handles++] = sock->timer;
+		timeout = INFINITE;
+	}
+	const DWORD result = WaitForMultipleObjects(num_handles, handles, FALSE, timeout);
+	dbg_assert(result != WAIT_FAILED, "WaitForMultipleObjects failure (%s)", windows_format_system_message(GetLastError()).c_str());
+	if(result >= WAIT_OBJECT_0 + num_sockets)
+	{
+		return 0;
+	}
+	// Reset the event and its record, `recvfrom` enables them again
+	WSANETWORKEVENTS network_events;
+	WSAEnumNetworkEvents(sockets[result - WAIT_OBJECT_0], handles[result - WAIT_OBJECT_0], &network_events);
+	return 1;
+}
+#endif
+
 int net_socket_read_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
 {
 	const int64_t microseconds = std::chrono::duration_cast<std::chrono::microseconds>(nanoseconds).count();
@@ -752,20 +841,29 @@ int net_socket_read_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
 		FD_SET(sock->ipv6sock, &readfds);
 		maxfd = std::max(maxfd, sock->ipv6sock);
 	}
+	int websocket_maxfd = -1;
 #if defined(CONF_WEBSOCKETS)
 	if(sock->web_ipv4sock >= 0)
 	{
-		maxfd = std::max(maxfd, websocket_fd_set(sock->web_ipv4sock, &readfds));
+		websocket_maxfd = std::max(websocket_maxfd, websocket_fd_set(sock->web_ipv4sock, &readfds));
 	}
 	if(sock->web_ipv6sock >= 0)
 	{
-		maxfd = std::max(maxfd, websocket_fd_set(sock->web_ipv6sock, &readfds));
+		websocket_maxfd = std::max(websocket_maxfd, websocket_fd_set(sock->web_ipv6sock, &readfds));
 	}
 #endif
+	maxfd = std::max(maxfd, websocket_maxfd);
 	if(maxfd < 0)
 	{
 		return 0;
 	}
+#if defined(CONF_FAMILY_WINDOWS)
+	// Websocket connections can only be waited on with `select`
+	if(sock->timer != nullptr && websocket_maxfd <= 0)
+	{
+		return priv_net_exact_wait(sock, nanoseconds);
+	}
+#endif
 
 	struct timeval tv;
 	tv.tv_sec = microseconds / 1000000;
@@ -805,6 +903,9 @@ static void priv_net_close_socket(int sock)
 
 static void priv_net_close_all_sockets(NETSOCKET sock)
 {
+#if defined(CONF_FAMILY_WINDOWS)
+	priv_net_exact_wait_destroy(sock);
+#endif
 	if(sock->ipv4sock >= 0)
 	{
 		priv_net_close_socket(sock->ipv4sock);
@@ -1015,6 +1116,9 @@ NETSOCKET net_udp_create(NETADDR bindaddr)
 	{
 		net_set_non_blocking(sock);
 		net_buffer_init(&sock->buffer);
+#if defined(CONF_FAMILY_WINDOWS)
+		priv_net_exact_wait_init(sock);
+#endif
 	}
 
 	return sock;

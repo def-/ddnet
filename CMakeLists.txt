@@ -3328,6 +3328,7 @@ if(TOOLS)
     map_test.cpp
     packetgen.cpp
     stun.cpp
+    teehistorian2demo.cpp
     twping.cpp
     unicode_confusables.cpp
     uuid.cpp

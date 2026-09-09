@@ -1,0 +1,32 @@
+--- maps.py	2026-09-09 12:56:16
++++ maps-new.py	2026-09-09 12:59:46
+@@ -2,6 +2,7 @@
+ # -*- coding: utf-8 -*-
+ 
+ from ddnet import *
++from watchlinks import watchLinks
+ import sys
+ from html import escape
+ from datetime import datetime, timedelta
+@@ -513,7 +514,8 @@
+ 
+   if type == "Solo" or type == "Race" or type == "Dummy":
+     print(u'<div class="block2 info"><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span></p></div>' % (mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(normalizedMapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime)), file=out)
+-    print(printExactSoloRecords("Records", "records", ranks, not country), file=out)
++    watch = watchLinks(originalMapName)
++    print(printExactSoloRecords("Records", "records", ranks, not country, watch.get((originalMapName, 'solo'))), file=out)
+   else:
+     rows = query("select count(distinct ID) from record_teamrace left join record_race on record_teamrace.Map = record_race.Map and record_teamrace.Name = record_race.Name and record_teamrace.Time = record_race.Time where record_teamrace.Map = '%s' %s" % (con.escape_string(originalMapName).decode("utf-8"), mbCountry))
+     countTeamFinishes = rows[0][0]
+@@ -523,8 +525,9 @@
+       mbS = "s"
+ 
+     print(u'<div class="block2 info"><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span><br/>%d team%s finished%s</p></div>' % (mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(normalizedMapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime), countTeamFinishes, mbS, escape(biggestTeam)), file=out)
+-    print(printTeamRecords("Team Records", "teamrecords", teamRanks, not country), file=out)
+-    print(printSoloRecords("Records", "records", ranks, not country), file=out)
++    watch = watchLinks(originalMapName)
++    print(printTeamRecords("Team Records", "teamrecords", teamRanks, not country, watch.get((originalMapName, 'team'))), file=out)
++    print(printSoloRecords("Records", "records", ranks, not country, watch.get((originalMapName, 'solo'))), file=out)
+ 
+   print(printFinishes("Most Finishes", "finishes", finishes), file=out)
+ 

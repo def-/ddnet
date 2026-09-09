@@ -1,0 +1,32 @@
+--- maps_mz.py	2026-09-09 12:56:15
++++ maps_mz-new.py	2026-09-09 12:59:46
+@@ -4,6 +4,7 @@
+ import psycopg2
+ import psycopg2.extensions as ext
+ from ddnet import *
++from watchlinks import watchLinks
+ import sys
+ from html import escape
+ from datetime import datetime, timedelta, timezone
+@@ -503,7 +504,8 @@
+ 
+     if type == "Solo" or type == "Race" or type == "Dummy":
+       print(u'<div class="block2 info"><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span></p></div>' % (mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(normalizedMapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime)), file=out)
+-      print(printExactSoloRecords("Records", "records", ranks, not country), file=out)
++      watch = watchLinks(originalMapName)
++      print(printExactSoloRecords("Records", "records", ranks, not country, watch.get((originalMapName, 'solo'))), file=out)
+     else:
+       if country:
+           query("select count from team_stats_server where \"map\" = %s and server = %s", (originalMapName, country))
+@@ -517,8 +519,9 @@
+         mbS = "s"
+ 
+       print(u'<div class="block2 info"><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span><br/>%d team%s finished%s</p></div>' % (mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(normalizedMapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime), countTeamFinishes, mbS, escape(biggestTeam)), file=out)
+-      print(printTeamRecords("Team Records", "teamrecords", teamRanks, not country), file=out)
+-      print(printSoloRecords("Records", "records", ranks, not country), file=out)
++      watch = watchLinks(originalMapName)
++      print(printTeamRecords("Team Records", "teamrecords", teamRanks, not country, watch.get((originalMapName, 'team'))), file=out)
++      print(printSoloRecords("Records", "records", ranks, not country, watch.get((originalMapName, 'solo'))), file=out)
+ 
+     print(printFinishes("Most Finishes", "finishes", finishes), file=out)
+ 

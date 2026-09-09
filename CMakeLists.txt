@@ -3322,6 +3322,7 @@ if(TOOLS)
     config_store.cpp
     crapnet.cpp
     demo_extract_chat.cpp
+    demo_scramble.cpp
     dilate.cpp
     dummy_map.cpp
     map_convert_07.cpp
@@ -3478,6 +3479,7 @@ if((GTEST_FOUND OR DOWNLOAD_GTEST) AND SERVER)
     csv_test.cpp
     datafile_test.cpp
     dbg_test.cpp
+    demo_scramble_test.cpp
     editor_test.cpp
     fs_test.cpp
     gameworld_test.cpp

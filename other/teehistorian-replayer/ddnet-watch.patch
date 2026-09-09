@@ -1,0 +1,59 @@
+--- ddnet.py	2026-09-09 12:56:27
++++ ddnet-new.py	2026-09-09 12:58:59
+@@ -381,7 +381,16 @@
+ 
+   return string
+ 
+-def printExactSoloRecords(recordName, className, topFinishes, showServer = False):
++# A rank whose run has a pre-generated demo (record_watch, see
++# other/teehistorian-replayer in the ddnet repo) shows its time as a link to
++# the replayer. watch is {time in milliseconds: url} for the records printed.
++def watchTime(watch, time, formatted):
++  url = watch.get(round(time * 1000)) if watch else None
++  if url is None:
++    return formatted
++  return '<a href="%s" title="Watch this run in the browser">%s</a>' % (escape(url), formatted)
++
++def printExactSoloRecords(recordName, className, topFinishes, showServer = False, watch = None):
+   string = u'<div class="block2 %s"><h4>%s:</h4>\n' % (className, recordName)
+   if len(topFinishes) > 0:
+     string += '<table class="tight">\n'
+@@ -391,13 +400,13 @@
+       else:
+         mbS = ""
+       mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[5], f[5]) if showServer else ''
+-      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], escape(formatTimeExact(f[2])), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
++      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[2], escape(formatTimeExact(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
+     string += '</table>\n'
+   string += '</div>\n'
+ 
+   return string
+ 
+-def printSoloRecords(recordName, className, topFinishes, showServer = False):
++def printSoloRecords(recordName, className, topFinishes, showServer = False, watch = None):
+   string = u'<div class="block2 %s"><h4>%s:</h4>\n' % (className, recordName)
+   if len(topFinishes) > 0:
+     string += '<table class="tight">\n'
+@@ -407,19 +416,19 @@
+       else:
+         mbS = ""
+       mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[5], f[5]) if showServer else ''
+-      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], escape(formatTime(f[2])), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
++      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[2], escape(formatTime(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
+     string += '</table>\n'
+   string += '</div>\n'
+ 
+   return string
+ 
+-def printTeamRecords(recordName, className, topFinishes, showServer = False):
++def printTeamRecords(recordName, className, topFinishes, showServer = False, watch = None):
+   string = u'<div class="block2 %s"><h4>%s:</h4>\n' % (className, recordName)
+   if len(topFinishes) > 0:
+     string += '<table class="tight">\n'
+     for f in topFinishes:
+       mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[4], f[4]) if showServer else ''
+-      string += u'  <tr title="%s, %s"><td class="rank">%d.</td><td class="time">%s</td>%s<td>%s</td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[0], escape(formatTime(f[2])), mbServer, f[1])
++      string += u'  <tr title="%s, %s"><td class="rank">%d.</td><td class="time">%s</td>%s<td>%s</td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[0], watchTime(watch, f[2], escape(formatTime(f[2]))), mbServer, f[1])
+     string += '</table>\n'
+   string += '</div>\n'
+ 

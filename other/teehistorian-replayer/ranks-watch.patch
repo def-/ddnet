@@ -1,0 +1,34 @@
+--- ranks.py	2026-09-09 12:58:02
++++ ranks-new.py	2026-09-09 13:00:00
+@@ -2,6 +2,7 @@
+ # -*- coding: utf-8 -*-
+ 
+ from ddnet import *
++from watchlinks import watchLinks
+ import sys
+ import os
+ import sqlite3
+@@ -129,6 +130,8 @@
+ </html>""" % (generatedTime, generatedTime, printDateTimeScript())
+ 
+ con = mysqlConnect()
++# Every rank that has a pre-generated demo, loaded once for all map sections
++watchable = watchLinks()
+ 
+ rankLadder = defaultdict(int)
+ teamrankLadder = defaultdict(int)
+@@ -485,11 +488,11 @@
+ 
+       if type == "Solo" or type == "Race" or type == "Dummy":
+         mapsStrings[-1] += u'<div class="block2 info" id="map-%s"><h3 class="inline"><a href="%s">%s</a></h3><p class="inline">%s</p><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span></p></div>\n' % (escape(mapName), mapWebsite(originalMapName, country), formattedMapName, mbMapperName, mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(mapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime))
+-        mapsStrings[-1] += printExactSoloRecords("Records", "records", ranks, not country)
++        mapsStrings[-1] += printExactSoloRecords("Records", "records", ranks, not country, watchable.get((originalMapName, 'solo')))
+       else:
+         mapsStrings[-1] += u'<div class="block2 info" id="map-%s"><h3 class="inline"><a href="%s">%s</a></h3><p class="inline">%s</p><p>%sDifficulty: %s, Points: %d<br/><a href="/mappreview/?map=%s"><img class="screenshot" alt="Screenshot" src="/ranks/maps/%s.png" width="360" height="225" /></a>%s<br/><span title="%s">%d tee%s finished%s</span><br/>%d team%s finished%s</p></div>\n' % (escape(mapName), mapWebsite(originalMapName, country), formattedMapName, mbMapperName, mbReleased, escape(renderStars(stars)), globalPoints(type, stars), quote_plus(originalMapName), escape(mapName), mbMapInfo, finishTimes, countFinishes, mbS2, escape(avgTime), countTeamFinishes, mbS, escape(biggestTeam))
+-        mapsStrings[-1] += printTeamRecords("Team Records", "teamrecords", teamRanks, not country)
+-        mapsStrings[-1] += printSoloRecords("Records", "records", ranks, not country)
++        mapsStrings[-1] += printTeamRecords("Team Records", "teamrecords", teamRanks, not country, watchable.get((originalMapName, 'team')))
++        mapsStrings[-1] += printSoloRecords("Records", "records", ranks, not country, watchable.get((originalMapName, 'solo')))
+       mapsStrings[-1] += '<br/>\n'
+ 
+     serverPointsRanks = sorted(serverPointsLadder.items(), key=lambda r: r[1], reverse=True)

@@ -76,6 +76,7 @@ public:
 
 	int CompleteSize() const { return m_pEnd - m_pStart; }
 	const unsigned char *CompleteData() const { return m_pStart; }
+	int RemainingSize() const { return m_pEnd - m_pCurrent; }
 };
 
 #endif

@@ -414,6 +414,13 @@ MACRO_CONFIG_INT(SndServerMessage, snd_servermessage, 1, 0, 1, CFGFLAG_SAVE | CF
 MACRO_CONFIG_INT(SndHighlight, snd_highlight, 1, 0, 1, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Enable highlighted chat sound")
 
 MACRO_CONFIG_INT(GfxScreen, gfx_screen, 0, 0, 15, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Screen index")
+// The browser window is whatever shape the device is, and a phone is far
+// taller than 5:4, so letterboxing there would waste most of the screen
+#if !defined(CONF_PLATFORM_EMSCRIPTEN)
+MACRO_CONFIG_INT(GfxLimitAspectRatio, gfx_limit_aspect_ratio, 1, 0, 1, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Limit the rendered viewport to at most a 5:4 aspect ratio")
+#else
+MACRO_CONFIG_INT(GfxLimitAspectRatio, gfx_limit_aspect_ratio, 0, 0, 1, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Limit the rendered viewport to at most a 5:4 aspect ratio")
+#endif
 MACRO_CONFIG_INT(GfxScreenWidth, gfx_screen_width, 0, 0, 0, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Screen resolution width (only in pure fullscreen mode)")
 MACRO_CONFIG_INT(GfxScreenHeight, gfx_screen_height, 0, 0, 0, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Screen resolution height (only in pure fullscreen mode)")
 MACRO_CONFIG_INT(GfxScreenRefreshRate, gfx_screen_refresh_rate, 0, 0, 0, CFGFLAG_SAVE | CFGFLAG_CLIENT, "Refresh rate for the screen (in Hz; only in pure fullscreen mode)")

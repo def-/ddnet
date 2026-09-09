@@ -5,23 +5,27 @@ void IGraphics::CalcScreenParams(float Aspect, float Zoom, float *pWidth, float 
 {
 	const float Amount = 1150 * 1000;
 	const float WMax = 1500;
-	const float HMax = 1050;
+	const float MinAspect = 5.0f / 4.0f;
 
 	const float f = std::sqrt(Amount) / std::sqrt(Aspect);
 	*pWidth = f * Aspect;
 	*pHeight = f;
+
+	// A screen narrower than 5:4 shows the width a 5:4 screen would and uses
+	// the extra room for more of the world vertically, rather than zooming in.
+	// Only reachable with gfx_limit_aspect_ratio off, the viewport is clamped
+	// to 5:4 otherwise, which is also why the height needs no upper limit.
+	if(Aspect < MinAspect)
+	{
+		*pWidth = std::sqrt(Amount * MinAspect);
+		*pHeight = *pWidth / Aspect;
+	}
 
 	// limit the view
 	if(*pWidth > WMax)
 	{
 		*pWidth = WMax;
 		*pHeight = *pWidth / Aspect;
-	}
-
-	if(*pHeight > HMax)
-	{
-		*pHeight = HMax;
-		*pWidth = *pHeight * Aspect;
 	}
 
 	*pWidth *= Zoom;

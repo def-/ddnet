@@ -4574,6 +4574,18 @@ void CClient::ConchainWindowResize(IConsole::IResult *pResult, void *pUserData, 
 	}
 }
 
+void CClient::ConchainLimitAspectRatio(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	CClient *pSelf = (CClient *)pUserData;
+	pfnCallback(pResult, pCallbackUserData);
+	if(pSelf->Graphics() && pResult->NumArguments())
+	{
+		// The window keeps its size, only how much of it is rendered into
+		// changes, so ResizeToScreen would find nothing to do
+		pSelf->Graphics()->GotResized(g_Config.m_GfxScreenWidth, g_Config.m_GfxScreenHeight, -1);
+	}
+}
+
 void CClient::ConchainTimeoutSeed(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
 {
 	CClient *pSelf = (CClient *)pUserData;
@@ -4717,6 +4729,7 @@ void CClient::RegisterCommands()
 	m_pConsole->Chain("gfx_screen_width", ConchainWindowResize, this);
 	m_pConsole->Chain("gfx_screen_height", ConchainWindowResize, this);
 	m_pConsole->Chain("gfx_screen_refresh_rate", ConchainWindowResize, this);
+	m_pConsole->Chain("gfx_limit_aspect_ratio", ConchainLimitAspectRatio, this);
 	m_pConsole->Chain("gfx_fullscreen", ConchainFullscreen, this);
 	m_pConsole->Chain("gfx_borderless", ConchainWindowBordered, this);
 	m_pConsole->Chain("gfx_vsync", ConchainWindowVSync, this);

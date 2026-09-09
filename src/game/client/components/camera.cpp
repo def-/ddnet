@@ -15,6 +15,8 @@
 #include <game/localization.h>
 #include <game/mapitems.h>
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 CCamera::CCamera()
@@ -87,18 +89,28 @@ void CCamera::ChangeZoom(float Target, int Smoothness, bool IsUser)
 		return;
 	}
 
+	// The curve runs over the logarithm of the zoom level. Zoom levels are
+	// multiplicative, so every step then covers the same distance on the
+	// curve and takes the same time, however far out the camera already is.
 	float Now = Client()->LocalTime();
-	float Current = m_Zoom;
+	float Current = std::log(m_Zoom);
 	float Derivative = 0.0f;
 	if(m_Zooming)
 	{
+		// Zooming again continues at the speed of the running curve instead
+		// of starting over, so the steps of a scroll are one movement
 		float Progress = ZoomProgress(Now);
 		Current = m_ZoomSmoothing.Evaluate(Progress);
 		Derivative = m_ZoomSmoothing.Derivative(Progress);
 	}
 
 	m_ZoomSmoothingTarget = Target;
-	m_ZoomSmoothing = CCubicBezier::With(Current, Derivative, 0, m_ZoomSmoothingTarget);
+	// A curve that starts faster than three times its own distance overshoots
+	// its target and is cut off mid movement, which is the sudden stop of a
+	// zoom that was still moving when it was asked for the next step
+	const float Distance = std::log(m_ZoomSmoothingTarget) - Current;
+	Derivative = Distance > 0.0f ? std::clamp(Derivative, 0.0f, 3.0f * Distance) : std::clamp(Derivative, 3.0f * Distance, 0.0f);
+	m_ZoomSmoothing = CCubicBezier::With(Current, Derivative, 0, std::log(m_ZoomSmoothingTarget));
 	m_ZoomSmoothingStart = Now;
 	m_ZoomSmoothingEnd = Now + (float)Smoothness / 1000;
 
@@ -182,7 +194,7 @@ void CCamera::UpdateCamera()
 		else
 		{
 			const float OldLevel = m_Zoom;
-			m_Zoom = m_ZoomSmoothing.Evaluate(ZoomProgress(Time));
+			m_Zoom = std::exp(m_ZoomSmoothing.Evaluate(ZoomProgress(Time)));
 			if((OldLevel < m_ZoomSmoothingTarget && m_Zoom > m_ZoomSmoothingTarget) || (OldLevel > m_ZoomSmoothingTarget && m_Zoom < m_ZoomSmoothingTarget))
 			{
 				m_Zoom = m_ZoomSmoothingTarget;

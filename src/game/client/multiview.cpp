@@ -265,7 +265,9 @@ void CGameClient::HandleMultiView()
 	if(m_MultiView.m_OldPersonalZoom == m_MultiViewPersonalZoom)
 		m_Camera.SetZoom(CalculateMultiViewZoom(MinPos, MaxPos, AvgVel), g_Config.m_ClMultiViewZoomSmoothness, false);
 	else
-		m_Camera.SetZoom(CalculateMultiViewZoom(MinPos, MaxPos, AvgVel), 50, false);
+		// A zoom step of the viewer is answered as fast as one outside
+		// multi-view, 50 ms was a jump between the steps of a scroll
+		m_Camera.SetZoom(CalculateMultiViewZoom(MinPos, MaxPos, AvgVel), g_Config.m_ClSmoothZoomTime, false);
 
 	m_Snap.m_SpecInfo.m_Position = m_MultiView.m_OldPos + ((TargetPos - m_MultiView.m_OldPos) * CalculateMultiViewMultiplier(TargetPos));
 	m_MultiView.m_OldPos = m_Snap.m_SpecInfo.m_Position;

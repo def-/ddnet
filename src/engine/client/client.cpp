@@ -80,6 +80,9 @@
 
 #if defined(CONF_PLATFORM_EMSCRIPTEN)
 #include <emscripten/emscripten.h>
+
+extern "C" bool EmscriptenTakeConsoleLine(char *pBuffer, int BufferSize);
+extern "C" char aEmscriptenDemoInfo[64];
 #endif
 
 #include "SDL.h"
@@ -3381,6 +3384,23 @@ void CClient::Run()
 				HandleMapPath(aFile);
 		}
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+		char aConsoleLine[IConsole::CMDLINE_LENGTH];
+		while(EmscriptenTakeConsoleLine(aConsoleLine, sizeof(aConsoleLine)))
+		{
+			m_pConsole->ExecuteLine(aConsoleLine, IConsole::CLIENT_ID_UNSPECIFIED);
+		}
+		if(m_DemoPlayer.IsPlaying())
+		{
+			const IDemoPlayer::CInfo *pInfo = m_DemoPlayer.BaseInfo();
+			str_format(aEmscriptenDemoInfo, sizeof(aEmscriptenDemoInfo), "%d %d %d %d %g", pInfo->m_CurrentTick, pInfo->m_FirstTick, pInfo->m_LastTick, pInfo->m_Paused, pInfo->m_Speed);
+		}
+		else
+		{
+			aEmscriptenDemoInfo[0] = '\0';
+		}
+#endif
+
 #if defined(CONF_AUTOUPDATE)
 		Updater()->Update();
 #endif
@@ -4777,6 +4797,43 @@ extern "C" {
 void EmscriptenCallbackQuitForce()
 {
 	emscripten_force_exit(-1);
+}
+
+// Called from Emscripten JS code, the lines are executed in the client's
+// console on the next update (e.g. "spectate 2" for the replayer web page to
+// focus a player during demo playback). A queue, because the page can send
+// several commands between two client frames (two quick button presses)
+enum
+{
+	NUM_EMSCRIPTEN_CONSOLE_LINES = 16,
+};
+static char s_aaEmscriptenConsoleLines[NUM_EMSCRIPTEN_CONSOLE_LINES][IConsole::CMDLINE_LENGTH] = {};
+static int s_EmscriptenConsoleWrite = 0;
+static int s_EmscriptenConsoleRead = 0;
+void EmscriptenCallbackConsoleExecute(const char *pLine)
+{
+	const int Next = (s_EmscriptenConsoleWrite + 1) % NUM_EMSCRIPTEN_CONSOLE_LINES;
+	if(Next == s_EmscriptenConsoleRead)
+		return; // queue full, drop the line instead of overwriting an unread one
+	str_copy(s_aaEmscriptenConsoleLines[s_EmscriptenConsoleWrite], pLine);
+	s_EmscriptenConsoleWrite = Next;
+}
+
+bool EmscriptenTakeConsoleLine(char *pBuffer, int BufferSize)
+{
+	if(s_EmscriptenConsoleRead == s_EmscriptenConsoleWrite)
+		return false;
+	str_copy(pBuffer, s_aaEmscriptenConsoleLines[s_EmscriptenConsoleRead], BufferSize);
+	s_EmscriptenConsoleRead = (s_EmscriptenConsoleRead + 1) % NUM_EMSCRIPTEN_CONSOLE_LINES;
+	return true;
+}
+
+// Polled from Emscripten JS code: "current first last paused speed" of the
+// playing demo, empty when no demo is playing (for the web page's seek bar)
+char aEmscriptenDemoInfo[64] = "";
+const char *EmscriptenCallbackDemoInfo()
+{
+	return aEmscriptenDemoInfo;
 }
 }
 #endif

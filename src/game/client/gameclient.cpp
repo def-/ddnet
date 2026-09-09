@@ -3,6 +3,34 @@
 
 #include "gameclient.h"
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+extern "C" {
+char aEmscriptenPlayerInfo[MAX_CLIENTS * 128] = "";
+const char *EmscriptenCallbackPlayerInfo()
+{
+	return aEmscriptenPlayerInfo;
+}
+int EmscriptenSkinsPending = 0;
+int EmscriptenCallbackSkinsPending()
+{
+	return EmscriptenSkinsPending;
+}
+char aEmscriptenCameraInfo[32] = "";
+const char *EmscriptenCallbackCameraInfo()
+{
+	return aEmscriptenCameraInfo;
+}
+// The step the client's own loading screen is on, written by
+// CMenus::RenderLoadingDirect. The page draws its loading screen in front of
+// that one and follows the same steps through it.
+char aEmscriptenLoadingInfo[192] = "";
+const char *EmscriptenCallbackLoadingInfo()
+{
+	return aEmscriptenLoadingInfo;
+}
+}
+#endif
+
 #include "components/background.h"
 #include "components/binds.h"
 #include "components/broadcast.h"
@@ -769,6 +797,14 @@ void CGameClient::UpdatePositions()
 
 void CGameClient::OnRender()
 {
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// Polled from the replayer web page: the camera the client actually
+	// follows, as "<spectated id> <multi-view>". A spectate command is
+	// dropped while a demo has not started playing, so the page repeats it
+	// until this says it was taken.
+	str_format(aEmscriptenCameraInfo, sizeof(aEmscriptenCameraInfo), "%d %d", m_DemoSpecId, m_MultiViewActivated ? 1 : 0);
+#endif
+
 	const ColorRGBA ClearColor = color_cast<ColorRGBA>(ColorHSLA(g_Config.m_ClOverlayEntities ? g_Config.m_ClBackgroundEntitiesColor : g_Config.m_ClBackgroundColor));
 	Graphics()->Clear(ClearColor.r, ClearColor.g, ClearColor.b);
 
@@ -2252,6 +2288,28 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 				m_Snap.m_apInfoByDDTeamName[Index++] = m_Snap.m_apInfoByName[i];
 		}
 	}
+
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// Polled from the replayer web page for its camera menu: one line per
+	// player in the snapshot, "id, name, skin, custom color, body, feet"
+	aEmscriptenPlayerInfo[0] = '\0';
+	EmscriptenSkinsPending = 0;
+	for(int i = 0; i < MAX_CLIENTS && m_Snap.m_apInfoByDDTeamName[i]; ++i)
+	{
+		const CClientData &Client = m_aClients[m_Snap.m_apInfoByDDTeamName[i]->m_ClientId];
+		char aLine[256];
+		str_format(aLine, sizeof(aLine), "%d\t%s\t%s\t%d\t%d\t%d\n", m_Snap.m_apInfoByDDTeamName[i]->m_ClientId, Client.m_aName, Client.m_aSkinName, Client.m_UseCustomColor, Client.m_ColorBody, Client.m_ColorFeet);
+		str_append(aEmscriptenPlayerInfo, aLine);
+		// Asking for the container is also what marks the skin as wanted. The
+		// page waits for them, a tee whose skin is still loading is drawn with
+		// the default one.
+		const CSkins::CSkinContainer *pSkinContainer = m_Skins.FindContainerOrNullptr(Client.m_aSkinName);
+		if(pSkinContainer != nullptr && pSkinContainer->State() != CSkins::CSkinContainer::EState::LOADED)
+		{
+			EmscriptenSkinsPending++;
+		}
+	}
+#endif
 
 	if(ServerInfo.m_aGameType[0] != '0')
 	{

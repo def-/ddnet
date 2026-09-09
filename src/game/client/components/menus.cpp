@@ -3,6 +3,10 @@
 
 #include "menus.h"
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+extern "C" char aEmscriptenLoadingInfo[192];
+#endif
+
 #include <base/color.h>
 #include <base/dbg.h>
 #include <base/fs.h>
@@ -684,6 +688,12 @@ void CMenus::RenderMenubar(CUIRect Box, IClient::EClientState ClientState)
 
 void CMenus::RenderLoadingDirect(const char *pCaption, const char *pContent, std::optional<float> Progress)
 {
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// A page in front of the canvas has no other way to tell how far the
+	// client is, see EmscriptenCallbackLoadingInfo
+	str_format(aEmscriptenLoadingInfo, sizeof(aEmscriptenLoadingInfo), "%d\t%s\t%s",
+		Progress.has_value() ? (int)(Progress.value() * 100.0f) : -1, pCaption, pContent);
+#endif
 	// TODO: not supported right now due to separate render thread
 
 	// make sure that we don't render for each little thing we load

@@ -50,6 +50,32 @@ bool CMenus::DemoFilterChat(const void *pData, int Size, void *pUser)
 	return !Unpacker.Error() && !Sys && Msg == NETMSGTYPE_SV_CHAT;
 }
 
+void CMenus::OnConsoleInit()
+{
+	Console()->Register("demo_seek", "f[percent]", CFGFLAG_CLIENT, ConDemoSeek, this, "Seek to a position (0-100 percent) of the current demo");
+	Console()->Register("demo_skip", "f[seconds]", CFGFLAG_CLIENT, ConDemoSkip, this, "Skip forward or backward in the current demo by the given seconds");
+}
+
+void CMenus::ConDemoSeek(IConsole::IResult *pResult, void *pUserData)
+{
+	CMenus *pSelf = (CMenus *)pUserData;
+	if(pSelf->Client()->State() != IClient::STATE_DEMOPLAYBACK)
+		return;
+	float Position = pResult->GetFloat(0) / 100.0f;
+	Position = std::clamp(Position, 0.0f, 1.0f);
+	pSelf->HandleDemoSeeking(Position, 0.0f);
+}
+
+void CMenus::ConDemoSkip(IConsole::IResult *pResult, void *pUserData)
+{
+	CMenus *pSelf = (CMenus *)pUserData;
+	if(pSelf->Client()->State() != IClient::STATE_DEMOPLAYBACK)
+		return;
+	const float Seconds = pResult->GetFloat(0);
+	if(Seconds != 0.0f)
+		pSelf->HandleDemoSeeking(-1.0f, Seconds);
+}
+
 void CMenus::HandleDemoSeeking(float PositionToSeek, float TimeToSeek)
 {
 	if((PositionToSeek >= 0.0f && PositionToSeek <= 1.0f) || TimeToSeek != 0.0f)

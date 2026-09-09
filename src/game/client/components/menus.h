@@ -670,6 +670,9 @@ public:
 
 	void OnInterfacesInit(CGameClient *pClient) override;
 	void OnInit() override;
+	void OnConsoleInit() override;
+	static void ConDemoSeek(IConsole::IResult *pResult, void *pUserData);
+	static void ConDemoSkip(IConsole::IResult *pResult, void *pUserData);
 
 	void OnStateChange(int NewState, int OldState) override;
 	void OnWindowResize() override;

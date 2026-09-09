@@ -139,6 +139,16 @@ void CSpectator::ConMultiView(IConsole::IResult *pResult, void *pUserData)
 		pSelf->GameClient()->m_aMultiViewId[Input] = !pSelf->GameClient()->m_aMultiViewId[Input]; // activate or deactivate one player from multiview
 }
 
+void CSpectator::ConMultiViewActivate(IConsole::IResult *pResult, void *pUserData)
+{
+	CSpectator *pSelf = (CSpectator *)pUserData;
+	// Multi-view frames what the spectator sees, the selector that turns it on
+	// is only reachable while spectating
+	if(!pSelf->GameClient()->m_Snap.m_SpecInfo.m_Active)
+		return;
+	pSelf->GameClient()->m_MultiViewActivated = pResult->GetInteger(0) != 0;
+}
+
 CSpectator::CSpectator()
 {
 	m_SelectorMouse = vec2(0.0f, 0.0f);
@@ -153,6 +163,7 @@ void CSpectator::OnConsoleInit()
 	Console()->Register("spectate_previous", "", CFGFLAG_CLIENT, ConSpectatePrevious, this, "Spectate the previous player");
 	Console()->Register("spectate_closest", "", CFGFLAG_CLIENT, ConSpectateClosest, this, "Spectate the closest player");
 	Console()->Register("spectate_multiview", "i[id]", CFGFLAG_CLIENT, ConMultiView, this, "Add/remove Client-IDs to spectate them exclusively (-1 to reset)");
+	Console()->Register("spectate_multiview_activate", "i[active]", CFGFLAG_CLIENT, ConMultiViewActivate, this, "Enable (1) or disable (0) multi-view of the spectated player's team");
 }
 
 bool CSpectator::OnCursorMove(float x, float y, IInput::ECursorType CursorType)

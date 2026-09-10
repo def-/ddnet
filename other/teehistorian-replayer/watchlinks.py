@@ -46,34 +46,42 @@ def fetch(mapName):
     return rows
 
 
+def centi(milli):
+    """A rank time in hundredths, which is the resolution the game records.
+    The keys are matched against times the pages read out of a MySQL float or
+    a Materialize real, both single precision: 22354.2 seconds comes back as
+    22354.19921875 and would miss a key in milliseconds by one."""
+    return round(milli / 10)
+
+
 def nameKeys(cur, mapName, rows, links):
-    """The same links under (time in milliseconds, player) keys, for a page
+    """The same links under (time in hundredths, player) keys, for a page
     whose rank rows carry no game uuid (the Materialize backed /maps/). A run
-    is the rank of every player that finished it, so each of them is a key."""
+    is the rank of every player that finished it, so each of them is a key.
+    One query per published rank, through the (Map, Time) index: a lookup by
+    game uuid alone walks every finish of the map and a busy map has more of
+    them than max_statement_time allows."""
     for kind, table in (("solo", "record_race"), ("team", "record_teamrace")):
-        watched = {(gameId, milli) for _, rowKind, milli, gameId in rows if rowKind == kind and gameId}
-        ids = sorted({gameId for gameId, _ in watched})
-        if not ids:
-            continue
-        cur.execute("SELECT Name, ROUND(Time * 1000), GameID FROM %s WHERE Map = %%s AND GameID IN (%s)"
-            % (table, ",".join(["%s"] * len(ids))), [mapName] + ids)
-        for name, milli, gameId in cur.fetchall():
-            # One recording holds a whole game and every rank set in it, so
-            # only the rank that was published is a key, not its neighbours
-            if (gameId, int(milli)) not in watched:
+        for _, rowKind, milli, gameId in rows:
+            if rowKind != kind:
                 continue
-            url = links.get((mapName, kind), {}).get(gameId)
-            if url is not None:
-                links[(mapName, kind)][(int(milli), name)] = url
+            url = links.get((mapName, kind), {}).get((gameId, centi(milli)))
+            if url is None:
+                continue
+            cur.execute(f"SELECT Name FROM {table} WHERE Map = %s AND Time BETWEEN %s AND %s AND GameID = %s",
+                (mapName, milli / 1000.0 - 0.05, milli / 1000.0 + 0.05, gameId))
+            for (name,) in cur.fetchall():
+                links[(mapName, kind)][(centi(milli), name)] = url
 
 
 def watchLinks(mapName=None):
-    """{(map, kind): {game uuid: url}} of what can be watched, for one map or
-    for all of them. A page hands the inner dict of the records it is about to
-    print to printSoloRecords and its siblings.
+    """{(map, kind): {(game uuid, time in hundredths): url}} of what can be
+    watched, for one map or for all of them. A page hands the inner dict of
+    the records it is about to print to printSoloRecords and its siblings.
 
-    Keyed by the run and not by its time: several ranks of a map can carry the
-    same time, and only the one the demo was made from may be a link."""
+    Keyed by the run and its time: several ranks of a map can carry the same
+    time, and only the one the demo was made from may be a link, while one
+    recording can hold several published ranks, each with a link of its own."""
     global connection
     try:
         rows = fetch(mapName)
@@ -91,7 +99,7 @@ def watchLinks(mapName=None):
         (shared if gameId in seen else seen).add(gameId)
     links = {}
     for map, kind, milli, gameId in rows:
-        links.setdefault((map, kind), {})[gameId] = watchUrl(gameId, milli, gameId in shared)
+        links.setdefault((map, kind), {})[(gameId, centi(milli))] = watchUrl(gameId, milli, gameId in shared)
     if mapName is not None and links:
         try:
             cur = connection.cursor()

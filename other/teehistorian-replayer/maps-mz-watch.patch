@@ -13,7 +13,7 @@
          for name in names:
            fNames.append('<a href="%s">%s</a>' % (escape(playerWebsite(u'%s' % name)), escape(name)))
 -        teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry))
-+        teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 1000), names[0]) if names else None))
++        teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 100), names[0]) if names else None))
          names = []
  
        if row[2] != time:
@@ -22,7 +22,7 @@
      for name in names:
        fNames.append('<a href="%s">%s</a>' % (escape(playerWebsite(u'%s' % name)), escape(name)))
 -    teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry))
-+    teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 1000), names[0]) if names else None))
++    teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 100), names[0]) if names else None))
    return teamRanks
  
  def getFinishes(originalMapName, country, mbCountry):
@@ -31,7 +31,7 @@
  
      currentPosition += 1
 -    ranks.append((currentRank, row[0], row[1], row[2], row[3], row[4]))
-+    ranks.append((currentRank, row[0], row[1], row[2], row[3], row[4], (round(row[1] * 1000), row[0])))
++    ranks.append((currentRank, row[0], row[1], row[2], row[3], row[4], (round(row[1] * 100), row[0])))
  
    return ranks
  
@@ -40,7 +40,7 @@
  
      if currentPosition <= 20:
 -      ranks.append((currentRank, row[0], row[1], row[2], row[3], row[5] if row[5] else 'UNK'))
-+      ranks.append((currentRank, row[0], row[1], row[2], row[3], row[5] if row[5] else 'UNK', (round(row[1] * 1000), row[0])))
++      ranks.append((currentRank, row[0], row[1], row[2], row[3], row[5] if row[5] else 'UNK', (round(row[1] * 100), row[0])))
  
    return (ranks, countFinishes)
  

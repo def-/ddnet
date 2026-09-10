@@ -12,6 +12,7 @@
 # Usage: pregen.py top-ranks.jsonl watchable.jsonl
 
 import argparse
+import concurrent.futures
 import json
 import pathlib
 import sys
@@ -27,6 +28,10 @@ parser.add_argument("--tool", default=str(pathlib.Path.home() / "git/ddnet/build
 parser.add_argument("--cache", default=str(pathlib.Path.home() / "teehistorian-demos"))
 parser.add_argument("--cache-limit-gb", type=float, default=40)
 parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per map and kind")
+parser.add_argument("--jobs", type=int, default=4,
+    help="conversions in flight at once, the archive disk answers several readers faster than one")
+parser.add_argument("--reconvert", action="store_true",
+    help="convert every published rank again, to bring demos made by an older converter up to date")
 parser.add_argument("--retry-failed", action="store_true",
     help="retry ranks whose conversion failed in the previous output (by default only \"not in the archive\" failures are retried, e.g. after a tool fix)")
 args = parser.parse_args()
@@ -51,9 +56,9 @@ def ok_result(demo_path, meta):
         "rev": meta.get("rev", "")}
 
 
-def generate(entry):
+def generate(entry, reconvert=False):
     try:
-        demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"))
+        demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert)
         return ok_result(demo_path, meta)
     except RankDemoError as error:
         # The finish can sit outside the scan window around ts (DST-ambiguous
@@ -103,6 +108,12 @@ def main():
             entry = json.loads(line)
             groups.setdefault((entry["map"], entry["kind"]), []).append(entry)
 
+    # One pass over the archive indexes, so the candidates whose recording is
+    # long gone are answered from memory instead of a stat in every location
+    # directory
+    uuids = {entry["uuid"] for entries in groups.values() for entry in entries}
+    print(f"{converter.load_index(uuids)} of {len(uuids)} recordings in the archive index", file=sys.stderr, flush=True)
+
     ok = errors = 0
     written = set()
     # Team groups first: a solo rank of a member of a team run carries the same
@@ -114,28 +125,87 @@ def main():
     # file. A solo rank of another run in the same recording is a demo of its
     # own and is kept.
     team_runs = {}
+    flat = [(map_name, kind, entry) for (map_name, kind), entries in groups.items() for entry in entries]
+
+    # Whether a candidate is converted, taken from the last run or skipped is
+    # decided in order below, but the conversions themselves run a few
+    # candidates ahead on a pool: a conversion is mostly waiting for the
+    # archive disk, and several readers get more out of it than one. A
+    # conversion the order then turns out not to need is simply not read.
+    def work_of(entry):
+        key = entry_key(entry)
+        if key in published:
+            return "reconvert" if args.reconvert else None
+        if key in previous:
+            return None
+        return "generate"
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    futures = {}
+    # One candidate of a group at a time: the next one is only worth
+    # converting when this one fails, and mostly it does not. Groups run
+    # side by side.
+    inflight_groups = set()
+    submitted = 0
+
+    def submit_ahead(upto):
+        nonlocal submitted
+        while submitted < min(upto, len(flat)):
+            map_name, kind, entry = flat[submitted]
+            work = work_of(entry)
+            if work is not None:
+                if (map_name, kind) in inflight_groups:
+                    return
+                futures[submitted] = pool.submit(generate, entry, work == "reconvert")
+                inflight_groups.add((map_name, kind))
+            submitted += 1
+
     with open(args.output + ".new", "w") as output:
-        for (map_name, kind), entries in groups.items():
-            wanted = args.ranks
-            for entry in entries:
-                if wanted == 0:
-                    break
-                if kind == "solo" and (entry["uuid"], entry["time"]) in team_runs.get(map_name, set()):
-                    continue
-                key = entry_key(entry)
-                published_entry = published.get(key)
-                result = outcome(published_entry) if published_entry else previous.get(key) or generate(entry)
-                if result["status"] == "ok":
-                    ok += 1
-                    wanted -= 1
-                    if kind == "team":
-                        team_runs.setdefault(map_name, set()).add((entry["uuid"], entry["time"]))
-                else:
-                    errors += 1
-                    print(f"{map_name} ({kind} #{entry.get('rank', '?')}): {result['message']}", file=sys.stderr, flush=True)
-                written.add(key)
-                output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
-                output.flush()
+        for index, (map_name, kind, entry) in enumerate(flat):
+            submit_ahead(index + 2 * max(1, args.jobs))
+            future = futures.pop(index, None)
+            if future is not None:
+                inflight_groups.discard((map_name, kind))
+            if index == 0 or flat[index - 1][:2] != (map_name, kind):
+                group_wanted = args.ranks
+            if group_wanted == 0 or (kind == "solo" and (entry["uuid"], entry["time"]) in team_runs.get(map_name, set())):
+                if future is not None:
+                    future.cancel()
+                continue
+            key = entry_key(entry)
+            published_entry = published.get(key)
+            if published_entry and args.reconvert:
+                # A demo that is already published is made again. It stays
+                # as it is when the recording is gone, there is nothing to
+                # make it from then. A recording that IS there and no
+                # longer yields the run means the demo that was published
+                # is of something else, and it goes.
+                result = future.result() if future is not None else generate(entry, reconvert=True)
+                if result["status"] != "ok" and "not in the archive" in result["message"]:
+                    print(f"{map_name} ({kind} #{entry.get('rank', '?')}): kept the published demo, "
+                        f"its recording is gone: {result['message']}", file=sys.stderr, flush=True)
+                    result = outcome(published_entry)
+                elif result["status"] != "ok":
+                    print(f"{map_name} ({kind} #{entry.get('rank', '?')}): dropped the published demo, "
+                        f"the recording no longer yields this run: {result['message']}", file=sys.stderr, flush=True)
+            elif published_entry:
+                result = outcome(published_entry)
+            elif key in previous:
+                result = previous[key]
+            else:
+                result = future.result() if future is not None else generate(entry)
+            if result["status"] == "ok":
+                ok += 1
+                group_wanted -= 1
+                if kind == "team":
+                    team_runs.setdefault(map_name, set()).add((entry["uuid"], entry["time"]))
+            else:
+                errors += 1
+                print(f"{map_name} ({kind} #{entry.get('rank', '?')}): {result['message']}", file=sys.stderr, flush=True)
+            written.add(key)
+            output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
+            output.flush()
+        pool.shutdown(wait=False, cancel_futures=True)
         # The ranks of earlier runs that no map still names, their demos are
         # on the web host and their links are out there
         kept = 0

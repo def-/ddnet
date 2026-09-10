@@ -2,6 +2,7 @@
 demos via the teehistorian2demo tool's --rank mode. Shared between
 archive-server.py (on-demand) and pregen.py (nightly pre-generation)."""
 
+import gzip
 import hashlib
 import hmac
 import json
@@ -46,13 +47,47 @@ class Converter:
         self.cache_limit_bytes = cache_limit_bytes
         self.locks = {}
         self.locks_mutex = threading.Lock()
+        self.index = None
+        self.unindexed = []
+
+    def load_index(self, uuids):
+        """Which location directory holds a game uuid, read from the archive
+        indexes that archive.sh appends to when a recording arrives. Proving a
+        recording absent otherwise costs a stat in every location directory,
+        seconds each on the archive disk, and most ranks old enough to be a
+        record have no recording left."""
+        wanted = {uuid.encode() for uuid in uuids}
+        self.index = {}
+        self.unindexed = []
+        for sub in sorted(self.root.iterdir()):
+            if not sub.is_dir():
+                continue
+            index = sub / "index.txt.gz"
+            opener = gzip.open
+            if not index.is_file():
+                # A location that started recording after the last daily
+                # gzip run, its index is still the plain file
+                index = sub / "index.txt"
+                opener = open
+            if not index.is_file():
+                self.unindexed.append(sub)
+                continue
+            with opener(index, "rb") as file:
+                for line in file:
+                    if line[:36] in wanted:
+                        self.index[line[:36].decode()] = sub
+        return len(self.index)
 
     def find_recording(self, uuid):
         """Exact-path stats only: the per-region directories are too large to
         list, but the rank's game uuid is the file name."""
-        for sub in sorted(self.root.iterdir()):
-            if not sub.is_dir():
-                continue
+        if self.index is None:
+            directories = [sub for sub in sorted(self.root.iterdir()) if sub.is_dir()]
+        else:
+            directories = self.unindexed[:]
+            if uuid in self.index:
+                directories.insert(0, self.index[uuid])
+        for sub in directories:
             for ext in (".teehistorian", ".teehistorian.xz"):
                 path = sub / (uuid + ext)
                 if path.is_file():
@@ -97,7 +132,8 @@ class Converter:
             raise RankDemoError(500, f"The map {map_name} does not hash to what the recording says")
         # Moved into place, a kill during the write would otherwise leave a
         # short map in the cache that is never downloaded again
-        temp = path.with_name(path.name + ".new")
+        # Named per thread, two conversions may fetch the same map at once
+        temp = path.with_name(f"{path.name}.{threading.get_ident()}.new")
         temp.write_bytes(data)
         temp.replace(path)
         return path
@@ -148,7 +184,7 @@ class Converter:
             subprocess.run(["xz", "-dc", str(recording)], stdout=file, check=True, timeout=CONVERT_TIMEOUT)
         return path
 
-    def convert(self, uuid, time_str, names, ts_epoch=None):
+    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False):
         """Returns (demo_path, meta_dict), converting and caching on demand."""
         if not UUID_RE.match(uuid):
             raise RankDemoError(400, "Invalid game uuid")
@@ -164,12 +200,24 @@ class Converter:
         with self.locks_mutex:
             lock = self.locks.setdefault(demo_path.name, threading.Lock())
         with lock:
-            if demo_path.is_file() and meta_path.is_file():
-                return demo_path, json.loads(meta_path.read_text())
-            if raw_path.is_file() and meta_path.is_file():
-                # Converted before, only the scrambling is missing
-                self.scramble_cached(raw_path, demo_path)
-                return demo_path, json.loads(meta_path.read_text())
+            # reconvert reads the recording again, for a demo that was made by
+            # an older converter. Everything is written to a work directory and
+            # moved into place, so a conversion that fails leaves the demo that
+            # is already published alone.
+            # A reconvert brings demos up to date with the converter, one that
+            # was made after the tools were last built is up to date already,
+            # so a run that was stopped picks up where it was
+            if reconvert and demo_path.is_file() and meta_path.is_file():
+                tools_built = max(self.tool.stat().st_mtime, self.scramble_tool.stat().st_mtime)
+                if meta_path.stat().st_mtime >= tools_built:
+                    reconvert = False
+            if not reconvert:
+                if demo_path.is_file() and meta_path.is_file():
+                    return demo_path, json.loads(meta_path.read_text())
+                if raw_path.is_file() and meta_path.is_file():
+                    # Converted before, only the scrambling is missing
+                    self.scramble_cached(raw_path, demo_path)
+                    return demo_path, json.loads(meta_path.read_text())
 
             recording = self.find_recording(uuid)
             if recording is None:

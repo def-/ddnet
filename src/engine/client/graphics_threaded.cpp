@@ -1845,7 +1845,18 @@ void CGraphics_Threaded::RenderQuadContainerAsSpriteMultiple(int ContainerIndex,
 	if(DrawCount == 0)
 		return;
 
-	if(IsQuadContainerBufferingEnabled())
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// The batched path draws the sprites instanced and reads each one's
+	// transform by gl_InstanceID. Mali drivers on Android report 0 for
+	// every instance of a draw that has no per instance vertex attribute,
+	// which stacks every link of a hook chain and every particle on the
+	// first one. Android runs Vulkan natively and never sees it, a browser
+	// has no Vulkan, so there the sprites are drawn one by one.
+	const bool Instanced = false;
+#else
+	const bool Instanced = IsQuadContainerBufferingEnabled();
+#endif
+	if(Instanced)
 	{
 		if(Container.m_QuadBufferContainerIndex == -1)
 			return;

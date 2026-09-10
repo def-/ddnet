@@ -648,6 +648,59 @@ public:
 	}
 };
 
+// --dump <cid> <from> <to>: what the demo holds for one tee, tick by tick
+static int g_DumpCid = -1;
+static int g_DumpFrom = 0;
+static int g_DumpTo = 0;
+static void DumpCharacter(const CSnapshot *pSnapshot, int Tick)
+{
+	const CNetObj_Character *pChar = nullptr;
+	const CNetObj_DDNetCharacter *pExt = nullptr;
+	for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+	{
+		const CSnapshotItem *pItem = pSnapshot->GetItem(Index);
+		if(pItem->Id() != g_DumpCid)
+			continue;
+		if(pSnapshot->GetItemType(Index) == NETOBJTYPE_CHARACTER)
+			pChar = (const CNetObj_Character *)pItem->Data();
+		else if(pSnapshot->GetItemType(Index) == NETOBJTYPE_DDNETCHARACTER)
+			pExt = (const CNetObj_DDNetCharacter *)pItem->Data();
+	}
+	// Structure of the whole snapshot: duplicate keys and the order the
+	// extended types were mapped in, both of which the delta coder relies on
+	{
+		char aDups[256] = "";
+		char aTypes[256] = "";
+		int Dups = 0;
+		for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+		{
+			const CSnapshotItem *pItem = pSnapshot->GetItem(Index);
+			for(int Other = 0; Other < Index; Other++)
+			{
+				if(pSnapshot->GetItem(Other)->Key() == pItem->Key())
+				{
+					Dups++;
+					if(str_length(aDups) < 200)
+						str_format(aDups + str_length(aDups), sizeof(aDups) - str_length(aDups), "%d:%d/%d ", pItem->InternalType(), pItem->Id(), pSnapshot->GetItemType(Index));
+					break;
+				}
+			}
+			if(pItem->InternalType() == 0 && pItem->Id() >= CSnapshot::OFFSET_UUID_TYPE && str_length(aTypes) < 200)
+				str_format(aTypes + str_length(aTypes), sizeof(aTypes) - str_length(aTypes), "%x ", ((const int *)pItem->Data())[0] & 0xffff);
+		}
+		log_info(TOOL_NAME, "STRUCT tick=%d items=%d dups=%d [%s] extypes=[%s]", Tick, pSnapshot->NumItems(), Dups, aDups, aTypes);
+	}
+	if(pChar == nullptr)
+	{
+		log_info(TOOL_NAME, "DUMP tick=%d cid=%d absent", Tick, g_DumpCid);
+		return;
+	}
+	log_info(TOOL_NAME, "DUMP tick=%d cid=%d pos=%d,%d vel=%d,%d weapon=%d hookstate=%d hook=%d,%d hooked=%d freezeend=%d flags=0x%x jumps=%d items=%d bytes=%d",
+		Tick, g_DumpCid, pChar->m_X, pChar->m_Y, pChar->m_VelX, pChar->m_VelY, pChar->m_Weapon, pChar->m_HookState,
+		pChar->m_HookX, pChar->m_HookY, pChar->m_HookedPlayer,
+		pExt ? pExt->m_FreezeEnd : -999, pExt ? pExt->m_Flags : 0, pExt ? pExt->m_Jumps : -999, pSnapshot->NumItems(), pSnapshot->DataSize());
+}
+
 class CScrambleListener : public CDemoPlayer::IListener
 {
 	CDemoPlayer *m_pDemoPlayer;
@@ -671,6 +724,8 @@ public:
 		// scrambling happens on a copy
 		mem_copy(m_Snapshot.m_aData, pData, Size);
 		const int Tick = m_pDemoPlayer->Info()->m_Info.m_CurrentTick;
+		if(g_DumpCid >= 0 && Tick >= g_DumpFrom && Tick <= g_DumpTo)
+			DumpCharacter((const CSnapshot *)pData, Tick);
 		if(m_pReport != nullptr)
 			mem_copy(m_Recorded.m_aData, pData, Size);
 		m_Scrambler.Scramble(m_Snapshot.AsSnapshot(), Tick);
@@ -802,6 +857,13 @@ int main(int argc, const char *argv[])
 		return -1;
 	}
 
+	if(argc > 6 && str_comp(argv[argc - 4], "--dump") == 0)
+	{
+		g_DumpCid = str_toint(argv[argc - 3]);
+		g_DumpFrom = str_toint(argv[argc - 2]);
+		g_DumpTo = str_toint(argv[argc - 1]);
+		argc -= 4;
+	}
 	bool Report = false;
 	if(argc > 3 && str_comp(argv[argc - 1], "--report") == 0)
 	{
@@ -810,12 +872,13 @@ int main(int argc, const char *argv[])
 	}
 	if(argc != 3 && argc != 5)
 	{
-		log_error(TOOL_NAME, "Usage: %s <input.demo> <output.demo> [--key <32 hex digits>] [--report]", TOOL_NAME);
+		log_error(TOOL_NAME, "Usage: %s <input.demo> <output.demo> [--key <32 hex digits>] [--report] [--dump <cid> <from tick> <to tick>]", TOOL_NAME);
 		log_error(TOOL_NAME, "Noises the recorded run below the threshold of what is visible, so that");
 		log_error(TOOL_NAME, "the demo cannot be turned into an input sequence that reproduces the run");
 		log_error(TOOL_NAME, "--key is the 128 bit key of the noise, 128 random bits otherwise. Publishing");
 		log_error(TOOL_NAME, "one run twice under two keys undoes both, the two noises average out, so a");
 		log_error(TOOL_NAME, "demo that is scrambled again has to be scrambled under the key it had");
+		log_error(TOOL_NAME, "--dump prints what the demo holds for one tee, tick by tick, as the client reads it");
 		log_error(TOOL_NAME, "--report lists which field of which snapshot item the noise reached, so");
 		log_error(TOOL_NAME, "that a field carrying a recorded position or aim cannot slip through");
 		return -1;

@@ -4,7 +4,7 @@ layout (location = 2) in vec4 inVertexColor;
 
 uniform mat4x2 gPos;
 
-uniform vec4 gRSP[228];
+uniform vec4 gRSP[TW_MAX_SPRITES];
 uniform vec2 gCenter;
 
 noperspective out vec2 texCoord;

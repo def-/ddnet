@@ -387,6 +387,23 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	InitPrimExProgram(m_pPrimitiveExProgramRotationless, &ShaderCompiler, pCommand->m_pStorage, false, true);
 	InitPrimExProgram(m_pPrimitiveExProgramTexturedRotationless, &ShaderCompiler, pCommand->m_pStorage, true, true);
 	{
+		// The transforms of a batch of sprites are vertex uniforms. GLES 3.0
+		// promises no more than 256 vectors for the whole vertex stage and a
+		// driver keeps some of those for itself, so the array is sized to
+		// what the device reports instead of a desktop budget: a shader that
+		// does not link draws nothing, which on a phone is a hook without
+		// its chain.
+		GLint MaxVertexUniformVectors = 0;
+		glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &MaxVertexUniformVectors);
+		if(MaxVertexUniformVectors <= 0)
+		{
+			GLint MaxVertexUniformComponents = 0;
+			glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &MaxVertexUniformComponents);
+			MaxVertexUniformVectors = MaxVertexUniformComponents / 4;
+		}
+		// gPos takes four vectors and gCenter one, the rest is headroom
+		m_SpriteMultipleCount = std::clamp(MaxVertexUniformVectors - 32, 16, 228);
+		ShaderCompiler.AddDefine("TW_MAX_SPRITES", std::to_string(m_SpriteMultipleCount).c_str());
 		CGLSL PrimitiveVertexShader;
 		CGLSL PrimitiveFragmentShader;
 		PrimitiveVertexShader.LoadShader(&ShaderCompiler, pCommand->m_pStorage, "shader/spritemulti.vert", GL_VERTEX_SHADER);
@@ -1434,8 +1451,7 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderQuadContainerAsSpriteMultipl
 	int DrawCount = pCommand->m_DrawCount;
 	size_t RenderOffset = 0;
 
-	// 4 for the center (always use vec4) and 16 for the matrix(just to be sure), 4 for the sampler and vertex color
-	const int RSPCount = 256 - 4 - 16 - 8;
+	const int RSPCount = m_SpriteMultipleCount;
 
 	while(DrawCount > 0)
 	{

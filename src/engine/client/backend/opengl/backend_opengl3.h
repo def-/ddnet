@@ -38,6 +38,8 @@ protected:
 	CGLSLPrimitiveExProgram *m_pPrimitiveExProgramRotationless;
 	CGLSLPrimitiveExProgram *m_pPrimitiveExProgramTexturedRotationless;
 	CGLSLSpriteMultipleProgram *m_pSpriteProgramMultiple;
+	// Sprites per instanced draw, sized to the vertex uniforms the device has
+	int m_SpriteMultipleCount = 0;
 
 	TWGLuint m_LastProgramId;
 

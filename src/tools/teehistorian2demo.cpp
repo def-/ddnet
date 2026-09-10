@@ -508,6 +508,11 @@ public:
 		int m_PrevY = 0;
 		int m_PrevTick = -1;
 		CNetObj_PlayerInput m_Input = {};
+		// What the recorded input diffs add up on. It outlives the client:
+		// servers before b99d8dc259 (March 2022) diffed the next client in
+		// the slot against the last input of the previous one, later ones
+		// start every client with an INPUT_NEW.
+		CNetObj_PlayerInput m_InputBase = {};
 		CNetObj_PlayerInput m_SimInput = {};
 		CNetObj_PlayerInput m_PrevSimInput = {};
 		CNetObj_PlayerInput m_DelayedInput = {};
@@ -1833,7 +1838,7 @@ public:
 				return false;
 			m_TickDirty = true;
 			CPlayer *pPlayer = &m_aPlayers[Cid];
-			int *pInput = (int *)&pPlayer->m_Input;
+			int *pInput = (int *)&pPlayer->m_InputBase;
 			for(size_t i = 0; i < std::size(aInput); i++)
 			{
 				if(-TypeOrCid == TEEHISTORIAN_INPUT_DIFF)
@@ -1841,6 +1846,7 @@ public:
 				else
 					pInput[i] = aInput[i];
 			}
+			pPlayer->m_Input = pPlayer->m_InputBase;
 			// The server records every input it receives, but only the FIRST
 			// one of a tick reaches CCharacter::m_Input, which is what drives
 			// movement and the hook (CGameContext::OnClientPredictedInput is
@@ -1884,6 +1890,7 @@ public:
 			Fresh.m_UseCustomColor = m_aPlayers[Cid].m_UseCustomColor;
 			Fresh.m_ColorBody = m_aPlayers[Cid].m_ColorBody;
 			Fresh.m_ColorFeet = m_aPlayers[Cid].m_ColorFeet;
+			Fresh.m_InputBase = m_aPlayers[Cid].m_InputBase;
 			Fresh.m_Connected = true;
 			m_aPlayers[Cid] = Fresh;
 			if(m_TeamsCore.Team(Cid) != 0)

@@ -4006,7 +4006,7 @@ void CGameClient::UpdateRenderedCharacters()
 		CCharacter *pChar = m_PredictedWorld.GetCharacterById(i);
 		const bool IsDummy = PredictDummy() && i == m_aLocalIds[!g_Config.m_ClDummy];
 		bool AntiPingPlayer = AntiPingPlayers() == 1 || (AntiPingPlayers() >= 2 && (IsDummy || (pChar && pChar->IsInterfering())));
-		if(Predict() && (i == m_Snap.m_LocalClientId || (AntiPingPlayer && !IsOtherTeamForPrediction(i))) && pChar)
+		if(Predict() && (i == m_Snap.m_LocalClientId || (IsDummy && LocalMultiplayer()) || (AntiPingPlayer && !IsOtherTeamForPrediction(i))) && pChar)
 		{
 			m_aClients[i].m_Predicted.Write(&m_aClients[i].m_RenderCur);
 			m_aClients[i].m_PrevPredicted.Write(&m_aClients[i].m_RenderPrev);
@@ -4212,7 +4212,8 @@ bool CGameClient::IsOtherTeam(int ClientId) const
 
 bool CGameClient::IsOtherTeamForPrediction(int ClientId) const
 {
-	bool Local = m_Snap.m_LocalClientId == ClientId;
+	// the other local player is predicted from its own input, so being solo does not stop that
+	bool Local = m_Snap.m_LocalClientId == ClientId || (LocalMultiplayer() && ClientId == m_aLocalIds[!g_Config.m_ClDummy]);
 
 	if(m_Snap.m_LocalClientId < 0)
 	{

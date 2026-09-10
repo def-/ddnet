@@ -417,7 +417,8 @@ void CGameWorld::NetObjBegin(CTeamsCore Teams, int LocalClientId)
 
 void CGameWorld::NetCharAdd(int ObjId, CNetObj_Character *pCharObj, CNetObj_DDNetCharacter *pExtended, int GameTeam, bool IsLocal)
 {
-	if(IsLocalTeam(ObjId))
+	// a local character is predicted from its own input, also while solo
+	if(IsLocalTeam(ObjId) || IsLocal)
 	{
 		CCharacter *pChar;
 		if((pChar = (CCharacter *)GetEntity(ObjId, ENTTYPE_CHARACTER)))

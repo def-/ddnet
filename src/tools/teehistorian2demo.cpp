@@ -640,6 +640,7 @@ private:
 	// team (doors, lights, draggers), and the builder they snap into
 	int m_SnapCid = -1;
 	CSnapshotBuilder *m_pSnapBuilder = nullptr;
+	CSnapshotBuilder m_SnapshotBuilder;
 	bool m_TickEndPositions = false;
 	struct CCharacterRef
 	{
@@ -3542,7 +3543,16 @@ private:
 
 	void RecordSnapshot()
 	{
-		CSnapshotBuilder Builder;
+		// One builder for the whole demo, never a fresh one per tick: a builder
+		// numbers the extended item types in the order it first met them and
+		// Init() puts every type it knows back in that order, which keeps the
+		// numbering the same from one snapshot to the next. A new builder per
+		// tick numbers them by first use in that tick, so the number of a
+		// type shifts whenever a laser or a projectile appears, and the demo
+		// deltas, keyed by that number, pair the wrong items: positions drift
+		// by tens of pixels until the next keyframe and a freeze end becomes a
+		// tick hours away.
+		CSnapshotBuilder &Builder = m_SnapshotBuilder;
 		Builder.Init();
 
 		CNetObj_GameInfo *pGameInfo = (CNetObj_GameInfo *)Builder.NewItemRaw(NETOBJTYPE_GAMEINFO, 0, sizeof(CNetObj_GameInfo));

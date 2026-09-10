@@ -4181,8 +4181,20 @@ foreach(target ${TARGETS})
     set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
   endif()
   if(TARGET_OS STREQUAL "emscripten" AND target STREQUAL "game-client")
-    # Preload data directory into the filesystem
-    target_link_options(${target} PRIVATE --preload-file data)
+    # Preload data directory into the filesystem. The client in a browser
+    # plays demos, it never joins a server or shows a menu in another
+    # language, and the maps it plays come with the demo: leaving those out is
+    # 10 MB of the package. The editor data stays, the entities overlay and
+    # the cursors are drawn from it.
+    # SHELL: keeps each flag with its pattern, CMake would drop the repeated
+    # flag otherwise, and the quotes keep the shell from expanding the pattern
+    target_link_options(${target} PRIVATE --preload-file data
+      "SHELL:--exclude-file 'data/maps/*'"
+      "SHELL:--exclude-file 'data/maps7/*'"
+      "SHELL:--exclude-file 'data/languages/*'"
+      "SHELL:--exclude-file 'data/countryflags/*'"
+      "SHELL:--exclude-file 'data/themes/*'"
+      "SHELL:--exclude-file 'data/menuimages/*'")
   endif()
 endforeach()
 

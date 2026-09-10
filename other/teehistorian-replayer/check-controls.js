@@ -8,7 +8,7 @@
 //   NODE_PATH=$(npm root) node check-controls.js https://ddnet.org/watch/?uuid=...
 const { chromium } = require('playwright');
 
-const WIDTHS = [320, 344, 360, 375, 390, 393, 412, 430, 540, 600, 601, 667, 844, 1280];
+const WIDTHS = [320, 344, 360, 375, 390, 393, 412, 430, 540, 600, 601, 667, 801, 844, 880, 980, 981, 1280, 1920];
 
 (async () => {
 	const browser = await chromium.launch();

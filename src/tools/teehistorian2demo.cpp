@@ -1916,10 +1916,16 @@ public:
 			const int NumArgs = pUnpacker->GetInt();
 			if(pUnpacker->Error() || NumArgs < 0 || NumArgs > 128)
 				return false;
+			// Teehistorian records every chat command with what was typed
+			// after it, and some of that is a secret the server never echoes:
+			// the codes of /save, /load and /timeout. The demo shows the
+			// arguments of the commands known to be harmless and the bare
+			// name of every other one.
+			const bool ShowArguments = pCommand != nullptr && ChatArgumentsArePublic(pCommand);
 			for(int i = 0; i < NumArgs; i++)
 			{
 				const char *pArg = pUnpacker->GetString();
-				if(pArg != nullptr)
+				if(pArg != nullptr && ShowArguments)
 				{
 					str_append(aChat, " ");
 					str_append(aChat, pArg);
@@ -2138,6 +2144,19 @@ private:
 		while(LenB > 0 && pB[LenB - 1] == ' ')
 			LenB--;
 		return LenA == LenB && str_comp_num(pA, pB, LenA) == 0;
+	}
+
+	static bool ChatArgumentsArePublic(const char *pCommand)
+	{
+		static const char *const s_apPublic[] = {"rank", "teamrank", "top5", "top5team", "times", "points", "mapinfo",
+			"map", "emote", "team", "invite", "spec", "pause", "swap", "showothers", "showall", "specvoted",
+			"practice", "lock", "unlock", "kill", "settings", "timecp", "list", "help", "dnd", "tc", "teamcp"};
+		for(const char *pPublic : s_apPublic)
+		{
+			if(str_comp_nocase(pCommand, pPublic) == 0)
+				return true;
+		}
+		return false;
 	}
 
 	int FindPlayer(const char *pName) const

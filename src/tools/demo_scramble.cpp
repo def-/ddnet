@@ -690,13 +690,28 @@ static void DumpCharacter(const CSnapshot *pSnapshot, int Tick)
 		}
 		log_info(TOOL_NAME, "STRUCT tick=%d items=%d dups=%d [%s] extypes=[%s]", Tick, pSnapshot->NumItems(), Dups, aDups, aTypes);
 	}
+	for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+	{
+		const CSnapshotItem *pItem = pSnapshot->GetItem(Index);
+		if(pSnapshot->GetItemType(Index) != NETOBJTYPE_CLIENTINFO || pItem->Id() != g_DumpCid)
+			continue;
+		const CNetObj_ClientInfo *pInfo = (const CNetObj_ClientInfo *)pItem->Data();
+		char aName[MAX_NAME_LENGTH];
+		IntsToStr(pInfo->m_aName, 4, aName, sizeof(aName));
+		log_info(TOOL_NAME, "NAME tick=%d cid=%d '%s'", Tick, g_DumpCid, aName);
+		break;
+	}
 	if(pChar == nullptr)
 	{
 		log_info(TOOL_NAME, "DUMP tick=%d cid=%d absent", Tick, g_DumpCid);
 		return;
 	}
-	log_info(TOOL_NAME, "DUMP tick=%d cid=%d pos=%d,%d vel=%d,%d weapon=%d hookstate=%d hook=%d,%d hooked=%d freezeend=%d flags=0x%x jumps=%d items=%d bytes=%d",
-		Tick, g_DumpCid, pChar->m_X, pChar->m_Y, pChar->m_VelX, pChar->m_VelY, pChar->m_Weapon, pChar->m_HookState,
+	int HammerHits = 0;
+	for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+		if(pSnapshot->GetItemType(Index) == NETEVENTTYPE_HAMMERHIT)
+			HammerHits++;
+	log_info(TOOL_NAME, "DUMP tick=%d cid=%d pos=%d,%d vel=%d,%d weapon=%d attack=%d hammerhits=%d hookstate=%d hook=%d,%d hooked=%d freezeend=%d flags=0x%x jumps=%d items=%d bytes=%d",
+		Tick, g_DumpCid, pChar->m_X, pChar->m_Y, pChar->m_VelX, pChar->m_VelY, pChar->m_Weapon, pChar->m_AttackTick, HammerHits, pChar->m_HookState,
 		pChar->m_HookX, pChar->m_HookY, pChar->m_HookedPlayer,
 		pExt ? pExt->m_FreezeEnd : -999, pExt ? pExt->m_Flags : 0, pExt ? pExt->m_Jumps : -999, pSnapshot->NumItems(), pSnapshot->DataSize());
 }

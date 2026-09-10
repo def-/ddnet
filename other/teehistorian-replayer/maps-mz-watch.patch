@@ -1,5 +1,5 @@
---- maps_mz.py	2026-09-09 12:56:15
-+++ maps_mz-new.py	2026-09-09 12:59:46
+--- maps_mz.py.bak-2026-09-09-watch	2026-07-25 19:52:24.943852140 +0200
++++ maps_mz.py	2026-09-10 10:18:12.491013359 +0200
 @@ -4,6 +4,7 @@
  import psycopg2
  import psycopg2.extensions as ext
@@ -8,6 +8,42 @@
  import sys
  from html import escape
  from datetime import datetime, timedelta, timezone
+@@ -49,7 +50,7 @@
+         fNames = []
+         for name in names:
+           fNames.append('<a href="%s">%s</a>' % (escape(playerWebsite(u'%s' % name)), escape(name)))
+-        teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry))
++        teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 1000), names[0]) if names else None))
+         names = []
+ 
+       if row[2] != time:
+@@ -75,7 +76,7 @@
+     fNames = []
+     for name in names:
+       fNames.append('<a href="%s">%s</a>' % (escape(playerWebsite(u'%s' % name)), escape(name)))
+-    teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry))
++    teamRanks.append((currentRank, joinNames(fNames) if html else names, time, timestamp, foundCountry, (round(time * 1000), names[0]) if names else None))
+   return teamRanks
+ 
+ def getFinishes(originalMapName, country, mbCountry):
+@@ -100,7 +101,7 @@
+       skips += 1
+ 
+     currentPosition += 1
+-    ranks.append((currentRank, row[0], row[1], row[2], row[3], row[4]))
++    ranks.append((currentRank, row[0], row[1], row[2], row[3], row[4], (round(row[1] * 1000), row[0])))
+ 
+   return ranks
+ 
+@@ -133,7 +134,7 @@
+     currentPosition += 1
+ 
+     if currentPosition <= 20:
+-      ranks.append((currentRank, row[0], row[1], row[2], row[3], row[5] if row[5] else 'UNK'))
++      ranks.append((currentRank, row[0], row[1], row[2], row[3], row[5] if row[5] else 'UNK', (round(row[1] * 1000), row[0])))
+ 
+   return (ranks, countFinishes)
+ 
 @@ -503,7 +504,8 @@
  
      if type == "Solo" or type == "Race" or type == "Dummy":

@@ -28,15 +28,24 @@ def rows(path):
 
 def existing(con, watchable):
     """Ranks are deleted when they turn out to be cheated, and the manifest is
-    a day old at most but still older than that. A time that is no longer in
-    the rank tables is not linked, whatever the manifest says."""
+    a day old at most but still older than that. A rank that is no longer in
+    the rank tables is not linked, whatever the manifest says.
+
+    The game uuid has to match, not only the time: two runs of a map can carry
+    the same time, and a demo that belongs to a deleted run would otherwise be
+    handed to the rank that replaced it, which is then shown under the wrong
+    names. The time comes along to reach the rank through an index (Time is a
+    float, so it is matched as a range), the uuid decides."""
     cur = con.cursor()
-    cur.execute("SELECT Map, ROUND(Time * 1000) FROM record_race")
-    solo = {(map_name, int(milli)) for map_name, milli in cur.fetchall()}
-    cur.execute("SELECT Map, ROUND(Time * 1000) FROM record_teamrace")
-    team = {(map_name, int(milli)) for map_name, milli in cur.fetchall()}
+    kept = []
+    for row in watchable:
+        map_name, kind, milli, game_id = row
+        table = "record_teamrace" if kind == "team" else "record_race"
+        cur.execute(f"SELECT 1 FROM {table} WHERE Map = %s AND Time BETWEEN %s AND %s AND GameID = %s LIMIT 1",
+            (map_name, milli / 1000 - 0.05, milli / 1000 + 0.05, game_id))
+        if cur.fetchone():
+            kept.append(row)
     cur.close()
-    kept = [row for row in watchable if (row[0], row[2]) in (team if row[1] == "team" else solo)]
     if len(kept) != len(watchable):
         print(f"{len(watchable) - len(kept)} watchable ranks are gone from the rank tables", file=sys.stderr)
     return kept

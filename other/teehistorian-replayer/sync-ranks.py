@@ -28,6 +28,8 @@ parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per m
 parser.add_argument("--import-script", default="/home/teeworlds/servers/scripts/import-watchable.py",
     help="loads the uploaded manifest into the record_watch table on the web host")
 parser.add_argument("--retry-failed", action="store_true", help="passed on to pregen.py")
+parser.add_argument("--reconvert", action="store_true",
+    help="passed on to pregen.py, converts every published rank again after a converter fix")
 parser.add_argument("--prune", action="store_true",
     help="delete demos of ranks the manifest no longer names, which breaks the links that were shared for them")
 parser.add_argument("--dry-run", action="store_true", help="report what would be uploaded and deleted")
@@ -53,9 +55,78 @@ def fetch_manifest():
 
 
 def generate():
-    run(["nice", "-n19", "ionice", "-c3", sys.executable, str(HERE / "pregen.py"),
-        args.manifest, str(WATCHABLE), "--cache", str(CACHE), "--ranks", str(args.ranks)] +
-        (["--retry-failed"] if args.retry_failed else []))
+    # Best effort at the lowest priority, not the idle class: the archive disk
+    # is never idle (hourly rsyncs from every game server, the daily archive
+    # and index runs) and an idle-class reader makes no progress at all
+    command = ["nice", "-n19", "ionice", "-c2", "-n7", sys.executable, str(HERE / "pregen.py"),
+        args.manifest, str(WATCHABLE), "--cache", str(CACHE), "--ranks", str(args.ranks)] + \
+        (["--retry-failed"] if args.retry_failed else []) + \
+        (["--reconvert"] if args.reconvert else [])
+    print("+ " + " ".join(command), file=sys.stderr, flush=True)
+    process = subprocess.Popen(command)
+    # A run takes hours, what it has finished goes up every few minutes so
+    # that a fixed demo is watched as soon as it exists, not when the last one
+    # is done
+    uploaded = set()
+    while True:
+        try:
+            process.wait(timeout=UPLOAD_EVERY_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                upload_partial(uploaded)
+            except Exception as error:
+                print(f"partial upload failed, next try in {UPLOAD_EVERY_SECONDS} s: {error}", file=sys.stderr, flush=True)
+            continue
+        break
+    if process.returncode != 0:
+        sys.exit(f"pregen failed with {process.returncode}")
+
+
+UPLOAD_EVERY_SECONDS = 300
+
+
+def upload_partial(uploaded):
+    """The demos of the ranks the running pre-generation has finished, and the
+    run files that name them. The run file of a recording holds the lines the
+    run has for it and the earlier lines for its other ranks, so a link keeps
+    working while its rank is still in the queue."""
+    partial = pathlib.Path(str(WATCHABLE) + ".new")
+    if not partial.is_file():
+        return
+    fresh = {}
+    for line in partial.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("status") == "ok" and entry.get("demo"):
+            fresh.setdefault(entry["uuid"], {})[(entry["kind"], entry["time"])] = line
+    demos = sorted({json.loads(line)["demo"] for lines in fresh.values() for line in lines.values()}
+        - uploaded)
+    demos = [name for name in demos if (CACHE / "demos" / name).is_file()]
+    if not demos:
+        return
+    if WATCHABLE.is_file():
+        for line in WATCHABLE.read_text(encoding="utf-8").splitlines():
+            entry = json.loads(line)
+            if entry.get("status") == "ok" and entry.get("demo") and entry["uuid"] in fresh:
+                fresh[entry["uuid"]].setdefault((entry["kind"], entry["time"]), line)
+    runs = CACHE / "runs"
+    runs.mkdir(exist_ok=True)
+    changed = []
+    for uuid, lines in fresh.items():
+        path = runs / f"{uuid}.jsonl"
+        text = "".join(line + "\n" for line in lines.values())
+        if not path.is_file() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
+            changed.append(path.name)
+    run(["rsync", "-a", "--files-from=-", str(CACHE / "demos"), f"{args.target}/demos/"],
+        input="\n".join(demos), text=True)
+    if changed:
+        run(["rsync", "-a", "--files-from=-", str(runs), f"{args.target}/runs/"],
+            input="\n".join(changed), text=True)
+    uploaded.update(demos)
+    print(f"{len(demos)} demos and {len(changed)} run files uploaded while the run goes on", file=sys.stderr, flush=True)
 
 
 def wanted_demos():
@@ -96,6 +167,29 @@ def refresh_revisions():
         temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
         temp.replace(WATCHABLE)
     print(f"{changed} demo revisions refreshed", file=sys.stderr)
+
+
+def write_runs():
+    """One small file per recording next to the demos, holding the manifest
+    lines of its ranks: the page opens a run with that instead of the whole
+    manifest, which is 400 KB on the wire on every visit."""
+    runs = CACHE / "runs"
+    runs.mkdir(exist_ok=True)
+    lines = {}
+    with open(WATCHABLE, encoding="utf-8") as watchable:
+        for line in watchable:
+            entry = json.loads(line)
+            if entry.get("status") == "ok" and entry.get("demo"):
+                lines.setdefault(entry["uuid"], []).append(line)
+    for path in runs.glob("*.jsonl"):
+        if path.stem not in lines:
+            path.unlink()
+    for uuid, entries in lines.items():
+        path = runs / f"{uuid}.jsonl"
+        text = "".join(entries)
+        if not path.is_file() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
+    return len(lines)
 
 
 def drop_from_manifest(demos):
@@ -144,6 +238,8 @@ def deploy(demos):
     # after every demo it names is there, and the index the pages read is
     # loaded from it right after
     run(["rsync", "-a", str(WATCHABLE), f"{args.target}/watchable.jsonl"])
+    print(f"{write_runs()} runs written", file=sys.stderr)
+    run(["rsync", "-a", "--delete", str(CACHE / "runs") + "/", f"{args.target}/runs/"])
     run(["ssh", HOST, f"python3 {args.import_script} {REMOTE}/watchable.jsonl"])
     # Demos of ranks that were beaten or deleted, the web host is not a cache
     if stale:

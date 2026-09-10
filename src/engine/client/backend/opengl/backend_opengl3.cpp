@@ -403,6 +403,7 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 		}
 		// gPos takes four vectors and gCenter one, the rest is headroom
 		m_SpriteMultipleCount = std::clamp(MaxVertexUniformVectors - 32, 16, 228);
+		log_info("gfx", "vertex uniform vectors: %d, sprites per batch: %d", MaxVertexUniformVectors, m_SpriteMultipleCount);
 		ShaderCompiler.AddDefine("TW_MAX_SPRITES", std::to_string(m_SpriteMultipleCount).c_str());
 		CGLSL PrimitiveVertexShader;
 		CGLSL PrimitiveFragmentShader;

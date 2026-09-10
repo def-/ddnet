@@ -523,6 +523,8 @@ public:
 		int m_QueuedWeapon = -1;
 		int m_ReloadTimer = 0;
 		int m_PainSoundTimer = 0;
+		// COREEVENT_* of every tick simulated for this recorded tick
+		int m_SoundEvents = 0;
 		bool m_FrozenLastTick = false;
 		int m_Score = -9999;
 
@@ -3221,6 +3223,7 @@ private:
 					}
 				}
 				Player.m_Core.Tick(true);
+				Player.m_SoundEvents |= Player.m_Core.m_TriggeredEvents;
 				HandleSimulatedWeapons(Player);
 				Player.m_PrevSimInput = Player.m_Core.m_Input;
 				// The server never lets a hook on a player time out while
@@ -3332,8 +3335,34 @@ private:
 				Core.m_HookState = HOOK_GRABBED;
 				Core.SetHookedPlayer(ClosestCid);
 				Core.m_HookTick = 0;
+				Player.m_SoundEvents |= COREEVENT_HOOK_ATTACH_PLAYER;
 			}
 		}
+
+		// The sounds of a jump and of a hook, which the server plays in
+		// CCharacter::TickDeferred once the tick is done. It leaves out the tee
+		// that caused them, because that client plays them from its own
+		// prediction, but a demo is watched from the outside where nothing is
+		// predicted, so every one of them has to be in the snapshot.
+		m_TickEndPositions = true;
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			CPlayer &Player = m_aPlayers[Cid];
+			const int Events = Player.m_SoundEvents;
+			Player.m_SoundEvents = 0;
+			if(!Player.m_Alive || Events == 0)
+				continue;
+			const vec2 Pos = CharPos(&Player);
+			if(Events & COREEVENT_GROUND_JUMP)
+				CreateSound(Pos, SOUND_PLAYER_JUMP, Cid);
+			if(Events & COREEVENT_HOOK_ATTACH_PLAYER)
+				CreateSound(Pos, SOUND_HOOK_ATTACH_PLAYER, Cid);
+			if(Events & COREEVENT_HOOK_ATTACH_GROUND)
+				CreateSound(Pos, SOUND_HOOK_ATTACH_GROUND, Cid);
+			if(Events & COREEVENT_HOOK_HIT_NOHOOK)
+				CreateSound(Pos, SOUND_HOOK_NOATTACH, Cid);
+		}
+		m_TickEndPositions = false;
 	}
 
 	bool InRecordWindow() const { return m_Tick >= m_StartTick && m_Tick <= m_EndTick; }

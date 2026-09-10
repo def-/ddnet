@@ -1,6 +1,6 @@
 --- ddnet.py.bak-2026-09-09-watch	2026-09-01 11:07:05.694506162 +0200
-+++ ddnet.py	2026-09-10 10:13:47.301232155 +0200
-@@ -381,7 +381,18 @@
++++ ddnet.py	2026-09-10 15:15:00.608115990 +0200
+@@ -381,7 +381,21 @@
  
    return string
  
@@ -8,8 +8,11 @@
 +# A rank whose run has a pre-generated demo (record_watch, see
 +# other/teehistorian-replayer in the ddnet repo) shows its time as a link to
 +# the replayer. watch is {time in milliseconds: url} for the records printed.
-+def watchTime(watch, gameId, formatted):
-+  url = watch.get(gameId) if watch and gameId else None
++def watchTime(watch, gameId, time, formatted):
++  # A rank names its run by game uuid and time, or by time and player on the
++  # Materialize backed page, which has no uuid (see watchlinks.nameKeys)
++  key = gameId if isinstance(gameId, tuple) else (gameId, round(time * 1000))
++  url = watch.get(key) if watch and gameId else None
 +  if url is None:
 +    return formatted
 +  # No title of its own: the row already carries the details of the rank, and
@@ -20,12 +23,12 @@
    string = u'<div class="block2 %s"><h4>%s:</h4>\n' % (className, recordName)
    if len(topFinishes) > 0:
      string += '<table class="tight">\n'
-@@ -391,13 +402,13 @@
+@@ -391,13 +405,13 @@
        else:
          mbS = ""
        mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[5], f[5]) if showServer else ''
 -      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], escape(formatTimeExact(f[2])), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
-+      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[6] if len(f) > 6 else None, escape(formatTimeExact(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
++      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[6] if len(f) > 6 else None, f[2], escape(formatTimeExact(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
      string += '</table>\n'
    string += '</div>\n'
  
@@ -36,12 +39,12 @@
    string = u'<div class="block2 %s"><h4>%s:</h4>\n' % (className, recordName)
    if len(topFinishes) > 0:
      string += '<table class="tight">\n'
-@@ -407,19 +418,19 @@
+@@ -407,19 +421,19 @@
        else:
          mbS = ""
        mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[5], f[5]) if showServer else ''
 -      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], escape(formatTime(f[2])), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
-+      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[6] if len(f) > 6 else None, escape(formatTime(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
++      string += u'  <tr title="%s, %s, %d finish%s total"><td class="rank">%d.</td><td class="time">%s</td>%s<td><a href="%s">%s</a></td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[4], mbS, f[0], watchTime(watch, f[6] if len(f) > 6 else None, f[2], escape(formatTime(f[2]))), mbServer, escape(playerWebsite(u'%s' % f[1])), escape(f[1]))
      string += '</table>\n'
    string += '</div>\n'
  
@@ -55,7 +58,7 @@
      for f in topFinishes:
        mbServer = '<td class="flag"><img src="/countryflags/%s.png" alt="%s" height="15"/></td>' % (f[4], f[4]) if showServer else ''
 -      string += u'  <tr title="%s, %s"><td class="rank">%d.</td><td class="time">%s</td>%s<td>%s</td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[0], escape(formatTime(f[2])), mbServer, f[1])
-+      string += u'  <tr title="%s, %s"><td class="rank">%d.</td><td class="time">%s</td>%s<td>%s</td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[0], watchTime(watch, f[5] if len(f) > 5 else None, escape(formatTime(f[2]))), mbServer, f[1])
++      string += u'  <tr title="%s, %s"><td class="rank">%d.</td><td class="time">%s</td>%s<td>%s</td></tr>\n' % (escape(formatTimeExact(f[2])), escape(formatDate(f[3])), f[0], watchTime(watch, f[5] if len(f) > 5 else None, f[2], escape(formatTime(f[2]))), mbServer, f[1])
      string += '</table>\n'
    string += '</div>\n'
  

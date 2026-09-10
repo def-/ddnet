@@ -609,6 +609,8 @@ private:
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
 	CRankCandidate m_ApproxCandidate = {-1, -1, -1};
+	// Whether the recording writes finish events at all (April 2024 and newer)
+	bool m_SawFinishEvent = false;
 	std::vector<int> m_vApproxCids;
 	int m_FilterTeam = -1;
 	// Server-side effects are not recorded, reconstructed ones queue here.
@@ -1182,6 +1184,7 @@ public:
 	// Fallback for recordings older than April 2024 without finish events: the
 	// player found by name when the scan passes the rank's wall-clock offset.
 	const CRankCandidate &ApproxRankCandidate() const { return m_ApproxCandidate; }
+	bool SawFinishEvent() const { return m_SawFinishEvent; }
 	const std::vector<int> &ApproxRunCids() const { return m_vApproxCids; }
 
 	// Hide all players outside the given team, including their messages.
@@ -2114,11 +2117,26 @@ private:
 		m_TeamBeforeTickTick = m_Tick;
 	}
 
+	// A rank carries the name as the database stored it, which has its
+	// trailing spaces stripped, while the recording carries it as the player
+	// set it. Comparing them as they are hands the run to whoever else holds
+	// the trimmed name, so the ends are ignored.
+	static bool SameName(const char *pA, const char *pB)
+	{
+		int LenA = str_length(pA);
+		int LenB = str_length(pB);
+		while(LenA > 0 && pA[LenA - 1] == ' ')
+			LenA--;
+		while(LenB > 0 && pB[LenB - 1] == ' ')
+			LenB--;
+		return LenA == LenB && str_comp_num(pA, pB, LenA) == 0;
+	}
+
 	int FindPlayer(const char *pName) const
 	{
 		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
 		{
-			if(m_aPlayers[Cid].m_Connected && str_comp(m_aPlayers[Cid].m_aName, pName) == 0)
+			if(m_aPlayers[Cid].m_Connected && SameName(m_aPlayers[Cid].m_aName, pName))
 				return Cid;
 		}
 		return -1;
@@ -2222,8 +2240,9 @@ private:
 			if(!Unpacker.Error() && Cid >= 0 && Cid < MAX_CLIENTS)
 			{
 				m_aPlayers[Cid].m_Score = -TimeTicks / SERVER_TICK_SPEED;
+				m_SawFinishEvent = true;
 				if(m_pvRankNames != nullptr && m_pvRankNames->size() == 1 && absolute(TimeTicks - m_RankTimeTicks) <= 1 &&
-					str_comp(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]) == 0)
+					SameName(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]))
 				{
 					m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid)});
 				}
@@ -2236,6 +2255,7 @@ private:
 			const int TimeTicks = Unpacker.GetInt();
 			if(Unpacker.Error())
 				break;
+			m_SawFinishEvent = true;
 			// sv_rejoin_team_0 moves the team back to team 0 before the
 			// finish is recorded, so its members are read from the teams as
 			// they were when the tick began
@@ -2252,7 +2272,7 @@ private:
 				{
 					for(int Cid = 0; Cid < MAX_CLIENTS && CandidateCid < 0; Cid++)
 					{
-						if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team && str_comp(m_aPlayers[Cid].m_aName, pName) == 0)
+						if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team && SameName(m_aPlayers[Cid].m_aName, pName))
 							CandidateCid = Cid;
 					}
 					if(CandidateCid >= 0)
@@ -5169,7 +5189,12 @@ int main(int argc, const char *argv[])
 		}
 		int PreSeconds = RUN_PRE_SECONDS;
 		int PostSeconds = RUN_POST_SECONDS;
-		if(pBest == nullptr && Scanner.ApproxRankCandidate().m_Cid >= 0)
+		// A recording that writes finish events has said who finished, and no
+		// finish of it is this rank. Placing the run by its timestamp there
+		// would hand it to whoever else carries the name at that moment.
+		if(pBest == nullptr && Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0)
+			log_warn(TOOL_NAME, "The recording has finish events and none of them is this rank, not guessing by timestamp");
+		if(pBest == nullptr && !Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0)
 		{
 			vRunCids = Scanner.ApproxRunCids();
 			// Recordings older than April 2024 have no finish events, position

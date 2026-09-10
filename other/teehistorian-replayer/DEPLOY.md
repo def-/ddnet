@@ -236,3 +236,13 @@ run. That is a few seconds per hour of recording on an entity-heavy map.
   with wider margins) and before 2023-08 no `prev_game_uuid` (players who
   joined before the recording started cannot be identified, such ranks stay
   unwatchable).
+
+## The moderators' converter
+
+`https://ddnet.org/teehistorian2demo.php` converts whole recordings and single
+runs for moderators with `/home/teeworlds/bin/teehistorian2demo`, without
+scrambling. It has to be the converter of this checkout, built for the web
+host: `deploy-moderator-tool.sh` on the archive host builds it in a Debian 13
+container and renames it into place on the web host. Run it after every
+converter change, the rank demos and the moderators' demos then come from the
+same code.

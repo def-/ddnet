@@ -523,6 +523,14 @@ public:
 		int m_QueuedWeapon = -1;
 		int m_ReloadTimer = 0;
 		int m_PainSoundTimer = 0;
+		// The hook assist below Simulate: the tick it attached this tee's hook
+		// to a player, -1 when the core did it itself, and whether the assist
+		// is barred until the hook key is let go
+		int m_AssistedGrabTick = -1;
+		bool m_HookAssistBarred = false;
+		float m_SimError = 0.0f;
+		// The tick the hook came all the way back, for the assist's window
+		int m_HookRetractedTick = -1;
 		// COREEVENT_* of every tick simulated for this recorded tick
 		int m_SoundEvents = 0;
 		bool m_FrozenLastTick = false;
@@ -3171,6 +3179,13 @@ private:
 		}
 	}
 
+	// How far the simulated tee stood from its recorded place this tick
+	static float SimError(const CPlayer &Player) { return Player.m_SimError; }
+	// A hooked tee is dragged 3 units a tick, so a tee the recording shows
+	// unmoved by a hook drifts past this within a couple of ticks
+	static constexpr float ASSIST_MAX_DRIFT = 6.0f;
+	static constexpr int ASSIST_RETRACTED_TICKS = 3;
+
 	bool IsFrozen(const CPlayer &Player) const
 	{
 		return Player.m_DeepFrozen || Player.m_FreezeEndTick > m_Tick;
@@ -3242,8 +3257,26 @@ private:
 							m_TeamsCore.CanCollide(i, Cid), m_TeamsCore.Team(Cid), m_TeamsCore.Team(i), Other.m_Core.m_Solo);
 					}
 				}
+				const int HookedBefore = Player.m_Core.HookedPlayer();
 				Player.m_Core.Tick(true);
 				Player.m_SoundEvents |= Player.m_Core.m_TriggeredEvents;
+				// A hook on a player that the core let go of while the key is
+				// still down ran out (the server holds one for 1.2 s) or lost
+				// its tee. The server does not fire again until the key is
+				// released, so the assist may not either: it would put the
+				// hook straight back for another 1.2 s, on a tee the recording
+				// shows moving as if nothing held it.
+				if(HookedBefore >= 0 && Player.m_Core.HookedPlayer() < 0 && Player.m_Core.m_Input.m_Hook)
+					Player.m_HookAssistBarred = true;
+				if(Player.m_Core.m_HookState == HOOK_RETRACTED && Player.m_HookRetractedTick < 0)
+					Player.m_HookRetractedTick = m_Tick;
+				else if(Player.m_Core.m_HookState != HOOK_RETRACTED)
+					Player.m_HookRetractedTick = -1;
+				if(!Player.m_Core.m_Input.m_Hook)
+				{
+					Player.m_HookAssistBarred = false;
+					Player.m_AssistedGrabTick = -1;
+				}
 				HandleSimulatedWeapons(Player);
 				Player.m_PrevSimInput = Player.m_Core.m_Input;
 				// The server never lets a hook on a player time out while
@@ -3279,9 +3312,10 @@ private:
 			// How far the replayed physics drifted from the recording this
 			// tick, before it is snapped back: the measure of how exactly the
 			// simulation matches the server
+			Player.m_SimError = SimTicks == 1 && Player.m_PrevTick == m_Tick - 1 ? distance(Player.m_Core.m_Pos, RecordedPos) : 0.0f;
 			if(SimTicks == 1 && Player.m_PrevTick == m_Tick - 1)
 			{
-				const float Err = distance(Player.m_Core.m_Pos, RecordedPos);
+				const float Err = Player.m_SimError;
 				m_ErrSum += Err;
 				m_ErrCount++;
 				m_ErrMax = std::max(m_ErrMax, (double)Err);
@@ -3313,7 +3347,15 @@ private:
 			// or a tile that forbids hooking players never lets one through
 			if(Core.m_HookHitDisabled || Core.m_Tuning.m_PlayerHooking == 0)
 				continue;
-			if(Core.m_Input.m_Hook == 0 || Core.m_HookState == HOOK_IDLE || Core.m_HookState == HOOK_GRABBED)
+			if(Core.m_Input.m_Hook == 0 || Core.m_HookState == HOOK_IDLE || Core.m_HookState == HOOK_GRABBED || Player.m_HookAssistBarred)
+				continue;
+			// A hook that came all the way back is re-tested for a few ticks
+			// only, the time a real hook on a slightly different clock can
+			// still be out. Longer than that and a held key means the real
+			// hook missed too: the server fires no new one until the key is
+			// released, and a grab made here would hold on for 1.2 s to a tee
+			// the recording shows moving freely.
+			if(Core.m_HookState == HOOK_RETRACTED && (Player.m_HookRetractedTick < 0 || m_Tick - Player.m_HookRetractedTick > ASSIST_RETRACTED_TICKS))
 				continue;
 			vec2 From;
 			vec2 To;
@@ -3355,7 +3397,28 @@ private:
 				Core.m_HookState = HOOK_GRABBED;
 				Core.SetHookedPlayer(ClosestCid);
 				Core.m_HookTick = 0;
+				Player.m_AssistedGrabTick = m_Tick;
 				Player.m_SoundEvents |= COREEVENT_HOOK_ATTACH_PLAYER;
+			}
+		}
+
+		// An assisted grab is a guess, checked against the recording: a hook
+		// drags both tees, so when either drifts away from where it was
+		// recorded within the next ticks, the real hook did not hold and this
+		// one is let go, and not put back until the key is released
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			CPlayer &Player = m_aPlayers[Cid];
+			if(!Player.m_Alive || Player.m_AssistedGrabTick < 0 || Player.m_Core.HookedPlayer() < 0)
+				continue;
+			const int Other = Player.m_Core.HookedPlayer();
+			const float Drift = std::max(SimError(Player), SimError(m_aPlayers[Other]));
+			if(m_Tick - Player.m_AssistedGrabTick >= 2 && Drift > ASSIST_MAX_DRIFT)
+			{
+				Player.m_Core.SetHookedPlayer(-1);
+				Player.m_Core.m_HookState = HOOK_RETRACT_START;
+				Player.m_AssistedGrabTick = -1;
+				Player.m_HookAssistBarred = true;
 			}
 		}
 
@@ -3403,12 +3466,12 @@ private:
 			char aRow[512];
 			str_format(aRow, sizeof(aRow),
 				"{\"t\":%d,\"cid\":%d,\"team\":%d,\"x\":%d,\"y\":%d,\"vx\":%.4f,\"vy\":%.4f,"
-				"\"hook_state\":%d,\"hook_x\":%.2f,\"hook_y\":%.2f,\"hooked\":%d,\"jumped\":%d,\"weapon\":%d,"
+				"\"hook_state\":%d,\"hook_x\":%.2f,\"hook_y\":%.2f,\"hooked\":%d,\"frozen\":%d,\"jumped\":%d,\"weapon\":%d,"
 				"\"in_dir\":%d,\"in_tx\":%d,\"in_ty\":%d,\"in_jump\":%d,\"in_fire\":%d,\"in_hook\":%d,"
 				"\"in_flags\":%d,\"in_wanted\":%d,\"in_next\":%d,\"in_prev\":%d}\n",
 				m_Tick, Cid, m_TeamsCore.Team(Cid), Player.m_X, Player.m_Y, Player.m_Core.m_Vel.x, Player.m_Core.m_Vel.y,
 				Player.m_Core.m_HookState, Player.m_Core.m_HookPos.x, Player.m_Core.m_HookPos.y, Player.m_Core.HookedPlayer(),
-				Player.m_Core.m_Jumped, Player.m_Core.m_ActiveWeapon,
+				(int)IsFrozen(Player), Player.m_Core.m_Jumped, Player.m_Core.m_ActiveWeapon,
 				Input.m_Direction, Input.m_TargetX, Input.m_TargetY, Input.m_Jump, Input.m_Fire, Input.m_Hook,
 				Input.m_PlayerFlags, Input.m_WantedWeapon, Input.m_NextWeapon, Input.m_PrevWeapon);
 			io_write(m_DatasetFile, aRow, str_length(aRow));

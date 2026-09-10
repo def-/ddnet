@@ -317,6 +317,17 @@ void CHttpEmscripten::Run(std::shared_ptr<IHttpRequest> pRequest)
 			pRequestImpl->OnCompletionInternal(EHttpState::ABORTED, "Shutting down");
 			return;
 		}
+		// A client that only plays demos needs no server list and no info of
+		// the day. The skins the players of the run wear are the one thing it
+		// still has to fetch, everything else it needs the page has given it.
+		const bool IsSkin =
+			str_startswith(pRequestImpl->m_aUrl, g_Config.m_ClSkinDownloadUrl) != nullptr ||
+			str_startswith(pRequestImpl->m_aUrl, g_Config.m_ClSkinCommunityDownloadUrl) != nullptr;
+		if(g_Config.m_ClOffline && !IsSkin)
+		{
+			pRequestImpl->OnCompletionInternal(EHttpState::ABORTED, "Offline");
+			return;
+		}
 		m_PendingRequests.emplace_back(pRequestImpl);
 	}
 	m_ConditionVariableLoop.notify_all();

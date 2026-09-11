@@ -299,6 +299,7 @@ def main():
                 output.write(json.dumps(entry, ensure_ascii=False) + "\n")
     pathlib.Path(args.output + ".new").replace(args.output)
     print(f"{ok} demos ready, {linked} further ranks link them, {kept} kept from earlier runs, {errors} candidates failed", file=sys.stderr)
+    converter.drop_unnamed({entry.get("demo") for entry in map(json.loads, open(args.output, encoding="utf-8"))})
 
 
 if __name__ == "__main__":

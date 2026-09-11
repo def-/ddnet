@@ -392,6 +392,17 @@ class Converter:
         base = self.demos / demo_path.name[:-len(".demo.gz")]
         return base.with_name(base.name + ".raw.demo.gz"), base.with_suffix(".json")
 
+    def drop_unnamed(self, named):
+        """Drop the cached demos the manifest does not name. The web host
+        keeps its copy of a beaten rank's demo for the links that were shared,
+        the cache only needs what a run still uploads."""
+        for path in self.demos.glob("*.demo.gz"):
+            if not path.name.endswith(".raw.demo.gz") and path.name not in named:
+                raw, meta = self.siblings(path)
+                path.unlink()
+                raw.unlink(missing_ok=True)
+                meta.unlink(missing_ok=True)
+
     def prune(self):
         """Drop the oldest cached demos above the cache size limit."""
         demos = sorted((path for path in self.demos.glob("*.demo.gz") if not path.name.endswith(".raw.demo.gz")),

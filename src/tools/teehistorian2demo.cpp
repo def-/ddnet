@@ -622,6 +622,10 @@ private:
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
 	CRankCandidate m_ApproxCandidate = {-1, -1, -1};
+	// How many of the rank's names the approximate candidate matched: a
+	// member whose ranks were moved to a new name later is not in the
+	// recording under the rank's name
+	size_t m_ApproxMatchedNames = 0;
 	// Whether the recording writes finish events at all (April 2024 and newer)
 	bool m_SawFinishEvent = false;
 	std::vector<int> m_vApproxCids;
@@ -1199,6 +1203,8 @@ public:
 	const CRankCandidate &ApproxRankCandidate() const { return m_ApproxCandidate; }
 	bool SawFinishEvent() const { return m_SawFinishEvent; }
 	const std::vector<int> &ApproxRunCids() const { return m_vApproxCids; }
+	size_t ApproxMatchedNames() const { return m_ApproxMatchedNames; }
+	const char *PlayerName(int Cid) const { return m_aPlayers[Cid].m_aName; }
 
 	// Hide all players outside the given team, including their messages.
 	void SetTeamFilter(int Team) { m_FilterTeam = Team; }
@@ -2186,6 +2192,7 @@ private:
 			return;
 		int Team = -1;
 		int FirstCid = -1;
+		int Matched = 0;
 		for(const char *pName : *m_pvRankNames)
 		{
 			const int Cid = FindPlayer(pName);
@@ -2194,8 +2201,12 @@ private:
 			Team = m_TeamsCore.Team(Cid);
 			if(FirstCid < 0)
 				FirstCid = Cid;
+			Matched++;
 		}
+		if(FirstCid < 0)
+			return;
 		m_ApproxCandidate = {m_RankExpectedTick, FirstCid, Team};
+		m_ApproxMatchedNames = Matched;
 	}
 
 	// CGameTeams::SendTeamsState. Without it every player looks like a member
@@ -3520,12 +3531,13 @@ private:
 				if(Cid >= 0)
 					m_vApproxCids.push_back(Cid);
 			}
-			// Every name has to be there, a run with a member missing is
-			// shown without that tee
-			if(m_vApproxCids.size() == m_pvRankNames->size())
+			// A member whose ranks were moved to a new name later is not
+			// there under the rank's name, the run is placed by the others
+			if(!m_vApproxCids.empty())
+			{
 				m_ApproxCandidate = {m_RankExpectedTick, m_vApproxCids[0], m_TeamsCore.Team(m_vApproxCids[0])};
-			else
-				m_vApproxCids.clear();
+				m_ApproxMatchedNames = m_vApproxCids.size();
+			}
 		}
 
 		DetectPositionJumps();
@@ -5292,6 +5304,8 @@ int main(int argc, const char *argv[])
 			PreSeconds += APPROX_EXTRA_SECONDS;
 			PostSeconds += APPROX_EXTRA_SECONDS;
 			log_warn(TOOL_NAME, "No finish event found (old recording), using the rank timestamp instead");
+			if(Scanner.ApproxMatchedNames() < vRankNames.size())
+				log_warn(TOOL_NAME, "%zu of %zu rank names are in the recording at the rank's time, the run is placed by those", Scanner.ApproxMatchedNames(), vRankNames.size());
 		}
 		if(pBest == nullptr)
 		{

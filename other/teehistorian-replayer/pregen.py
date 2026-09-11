@@ -130,6 +130,7 @@ def main():
 
     ok = errors = 0
     written = set()
+    written_ok = set()
     # Team groups first: a solo rank of a member of a team run carries the same
     # time and is the same run, the loop below hands it the team run's demo
     # once it has seen the team run. A solo rank of another run in the same
@@ -140,6 +141,9 @@ def main():
     groups = dict(sorted(groups.items(), key=lambda item: item[0][1] != "team"))
     team_runs = {}
     unwanted_teams = {}
+    # The demo every run has, by map and run, for the ranks of the run that
+    # get no demo of their own
+    run_demos = {}
     flat = [(map_name, kind, entry) for (map_name, kind), entries in groups.items() for entry in entries]
 
     # Whether a candidate is converted, taken from the last run or skipped is
@@ -207,7 +211,9 @@ def main():
                 if result["status"] == "ok":
                     team_result = result
                     team_runs.setdefault(map_name, {})[run_key(team_entry)] = result
+                    run_demos.setdefault((map_name, run_key(team_entry)), result)
                     written.add(team_key)
+                    written_ok.add(team_key)
                     output.write(json.dumps({**team_entry, **result}, ensure_ascii=False) + "\n")
                     output.flush()
                 else:
@@ -219,6 +225,7 @@ def main():
                 if future is not None:
                     future.cancel()
                 written.add(key)
+                written_ok.add(key)
                 output.write(json.dumps({**entry, **team_result}, ensure_ascii=False) + "\n")
                 output.flush()
                 continue
@@ -248,6 +255,8 @@ def main():
                 group_wanted -= 1
                 if kind == "team":
                     team_runs.setdefault(map_name, {})[run_key(entry)] = result
+                run_demos.setdefault((map_name, run_key(entry)), result)
+                written_ok.add(key)
             else:
                 errors += 1
                 print(f"{map_name} ({kind} #{entry.get('rank', '?')}): {result['message']}", file=sys.stderr, flush=True)
@@ -255,6 +264,21 @@ def main():
             output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
             output.flush()
         pool.shutdown(wait=False, cancel_futures=True)
+        # Every rank of a run links the run's demo, whichever rank it was made
+        # for: a team rank whose own conversion failed links a member's solo
+        # demo (it shows the whole team as well), and the ranks beyond the
+        # wanted ones of a run that has a demo are linked too
+        linked = 0
+        for (map_name, kind), entries in groups.items():
+            for entry in entries:
+                key = entry_key(entry)
+                result = run_demos.get((map_name, run_key(entry)))
+                if key not in written_ok and result is not None:
+                    linked += 1
+                    written.add(key)
+                    written_ok.add(key)
+                    output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
+                    output.flush()
         # The ranks of earlier runs that are not wanted any more, their demos
         # are on the web host and their links are out there. A rank the
         # manifest still names was beaten and carries its rank of today, one
@@ -270,7 +294,7 @@ def main():
                     entry = {**entry, "kept": "deleted"}
                 output.write(json.dumps(entry, ensure_ascii=False) + "\n")
     pathlib.Path(args.output + ".new").replace(args.output)
-    print(f"{ok} demos ready, {kept} kept from earlier runs, {errors} candidates failed", file=sys.stderr)
+    print(f"{ok} demos ready, {linked} further ranks link them, {kept} kept from earlier runs, {errors} candidates failed", file=sys.stderr)
 
 
 if __name__ == "__main__":

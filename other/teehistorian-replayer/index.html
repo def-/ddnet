@@ -1004,14 +1004,16 @@
 			// is the exception: looking around the map needs the mouse to
 			// keep going past the edge of the window, so there the lock is
 			// real, and Esc, which the browser reserves for it, gives the
-			// cursor back.
+			// cursor back. iOS Safari has no pointer lock at all: there
+			// pointerLockElement is undefined rather than null and
+			// exitPointerLock does not exist.
 			const requestPointerLockReal = Element.prototype.requestPointerLock;
 			let freeViewLock = false;
 			Element.prototype.requestPointerLock = function(...args) {
-				return freeViewLock ? requestPointerLockReal.apply(this, args) : Promise.resolve();
+				return freeViewLock && requestPointerLockReal ? requestPointerLockReal.apply(this, args) : Promise.resolve();
 			};
 			document.addEventListener('pointerlockchange', () => {
-				if (document.pointerLockElement !== null && !freeViewLock) {
+				if (document.pointerLockElement && !freeViewLock) {
 					document.exitPointerLock();
 				}
 			});
@@ -2186,7 +2188,7 @@
 				freeViewLock = id === 'free';
 				if (freeViewLock) {
 					showHint('Click the map to look around, Esc gives the mouse back');
-				} else if (document.pointerLockElement !== null) {
+				} else if (document.pointerLockElement) {
 					document.exitPointerLock();
 				}
 				cameraAsked = 0;

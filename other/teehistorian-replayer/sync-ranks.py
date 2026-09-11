@@ -11,6 +11,7 @@
 # Usage: sync-ranks.py [--ranks 1] [--dry-run]
 
 import argparse
+import fcntl
 import hashlib
 import json
 import pathlib
@@ -248,6 +249,13 @@ def deploy(demos):
 
 
 def main():
+    # One run at a time: the nightly run and one started by hand would both
+    # write the manifest and upload
+    lock = open(CACHE / "sync.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit("another sync-ranks.py is running")
     # A dry run reports, it does not convert several thousand recordings
     if not args.no_generate and not args.dry_run:
         fetch_manifest()

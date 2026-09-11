@@ -205,9 +205,11 @@ class Converter:
             subprocess.run(["xz", "-dc", str(recording)], stdout=file, check=True, timeout=CONVERT_TIMEOUT)
         return path
 
-    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False):
-        """Returns (demo_path, meta_dict), converting and caching on demand."""
-        if not UUID_RE.match(uuid):
+    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
+        """Returns (demo_path, meta_dict), converting and caching on demand.
+        aliases maps a rank name to the names the player had before, for a
+        rank that was moved to a new name after the run."""
+        if not UUID_RE.match(uuid) or (recording_uuid is not None and not UUID_RE.match(recording_uuid)):
             raise RankDemoError(400, "Invalid game uuid")
         if not names or not all(names):
             raise RankDemoError(400, "Missing player name")
@@ -240,7 +242,9 @@ class Converter:
                     self.scramble_cached(raw_path, demo_path)
                     return demo_path, json.loads(meta_path.read_text())
 
-            recording = self.find_recording(uuid)
+            # The run is normally in the recording of its own game id, a team
+            # rank saved under a stale game id names the members' one
+            recording = self.find_recording(recording_uuid or uuid)
             if recording is None:
                 raise RankDemoError(404, "Recording not in the archive (yet)")
             header = self.read_header(recording)

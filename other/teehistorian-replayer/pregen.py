@@ -58,7 +58,8 @@ def ok_result(demo_path, meta):
 
 def generate(entry, reconvert=False):
     try:
-        demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert)
+        demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert,
+            entry.get("recording"))
         return ok_result(demo_path, meta)
     except RankDemoError as error:
         # The finish can sit outside the scan window around ts (DST-ambiguous
@@ -66,7 +67,8 @@ def generate(entry, reconvert=False):
         # retry with a full scan of the recording.
         if error.status == 404 and entry.get("ts") and "No finish" in str(error):
             try:
-                demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None)
+                demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
+                    recording_uuid=entry.get("recording"))
                 return ok_result(demo_path, meta)
             except RankDemoError as retry_error:
                 error = retry_error
@@ -76,7 +78,15 @@ def generate(entry, reconvert=False):
 
 
 def entry_key(entry):
-    return json.dumps([entry.get(field) for field in ("uuid", "time", "ts", "names")])
+    # The recording is part of the key: a rank that the manifest points at
+    # another recording than last time is converted again
+    return json.dumps([entry.get(field) for field in ("uuid", "time", "ts", "names", "recording")])
+
+
+def run_key(entry):
+    # The run a rank is of: the recording it is in and its time. A team rank
+    # saved under a stale game id names the recording separately.
+    return entry.get("recording", entry["uuid"]), entry["time"]
 
 
 def main():
@@ -111,7 +121,7 @@ def main():
     # One pass over the archive indexes, so the candidates whose recording is
     # long gone are answered from memory instead of a stat in every location
     # directory
-    uuids = {entry["uuid"] for entries in groups.values() for entry in entries}
+    uuids = {entry.get("recording", entry["uuid"]) for entries in groups.values() for entry in entries}
     print(f"{converter.load_index(uuids)} of {len(uuids)} recordings in the archive index", file=sys.stderr, flush=True)
 
     ok = errors = 0

@@ -29,6 +29,20 @@ def epoch(timestamp):
     return int(timestamp.replace(tzinfo=TZ).timestamp())
 
 
+def old_names(cur, name, depth=0):
+    """The names a player had before, from the renames moderators did, so
+    that a run is found in the recording under the name it was played
+    under. A rename can rename a name that was itself renamed."""
+    cur.execute("SELECT OldName FROM record_rename WHERE Name = %s", (name,))
+    names = []
+    for (old,) in cur.fetchall():
+        if old != name and old not in names:
+            names.append(old)
+            if depth < 3:
+                names += [older for older in old_names(cur, old, depth + 1) if older not in names]
+    return names
+
+
 def rank_of(time, times):
     """The rank a time has in a sorted list, ties share the better rank."""
     return 1 + sum(1 for other in times if other < time)
@@ -63,8 +77,19 @@ def team_ranks(cur, map_name):
         # produce the same demo twice
         if not game_id or len(names) < 2:
             continue
-        ranks.append({"kind": "team", "map": map_name, "names": names, "time": str(time), "ts": epoch(timestamp),
-            "uuid": game_id, "rank": rank_of(time, times)})
+        rank = {"kind": "team", "map": map_name, "names": names, "time": str(time), "ts": epoch(timestamp),
+            "uuid": game_id, "rank": rank_of(time, times)}
+        # Servers of 2018 to 2020 saved some team ranks under the game id of
+        # an earlier map load (3 % of them), the members' own rows carry the
+        # id of the recording the run is in. The rank pages key the run by
+        # the team row's id, so that stays the uuid
+        cur.execute("SELECT GameID, COUNT(*) FROM record_race WHERE Map = %s AND Time BETWEEN %s AND %s "
+            "AND Timestamp = %s AND GameID IS NOT NULL AND GameID != '' GROUP BY GameID ORDER BY 2 DESC LIMIT 1",
+            (map_name, time - 0.005, time + 0.005, timestamp))
+        row = cur.fetchone()
+        if row and row[0] != game_id:
+            rank["recording"] = row[0]
+        ranks.append(rank)
     return ranks
 
 

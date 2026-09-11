@@ -12,8 +12,10 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -112,23 +114,42 @@ class Converter:
         except (UnicodeDecodeError, ValueError) as error:
             raise RankDemoError(500, f"Corrupt teehistorian header: {error}") from error
 
-    def fetch_map(self, map_name, map_sha256):
-        # The hash is the file name and half the URL, and it comes out of the
-        # recording, so it has to look like a hash before it is used as either
-        if not map_sha256:
-            raise RankDemoError(500, "The recording has no map_sha256 in its header, the map cannot be looked up")
-        if not re.fullmatch(r"[0-9a-f]{64}", map_sha256):
+    def fetch_map(self, map_name, map_sha256, map_crc):
+        """maps.ddnet.org names a map after when it was released: <name>_<sha256>
+        since 2020, <name>_<crc>_<sha256> for the years before, <name>_<crc>
+        before the server recorded hashes at all. The hashes come out of the
+        recording, so they have to look like hashes before they are used as
+        file names, and what comes back is checked against them."""
+        if map_sha256 and not re.fullmatch(r"[0-9a-f]{64}", map_sha256):
             raise RankDemoError(500, "The recording names a map hash that is not one")
-        path = self.maps / f"{map_sha256}.map"
+        if map_crc and not re.fullmatch(r"[0-9a-f]{8}", map_crc):
+            raise RankDemoError(500, "The recording names a map crc that is not one")
+        if not map_sha256 and not map_crc:
+            raise RankDemoError(500, "The recording has neither map_sha256 nor map_crc in its header, the map cannot be looked up")
+        path = self.maps / f"{map_sha256 or 'crc-' + map_crc}.map"
         if path.is_file():
             return path
-        url = f"{MAP_DOWNLOAD_URL}/{urllib.parse.quote(map_name)}_{map_sha256}.map"
-        try:
-            with urllib.request.urlopen(url, timeout=60) as response:
-                data = response.read()
-        except OSError as error:
-            raise RankDemoError(500, f"Failed to download map: {error}") from error
-        if hashlib.sha256(data).hexdigest() != map_sha256:
+        name = urllib.parse.quote(map_name)
+        if map_sha256:
+            names = [f"{name}_{map_sha256}.map"] + ([f"{name}_{map_crc}_{map_sha256}.map"] if map_crc else [])
+        else:
+            names = [f"{name}_{map_crc}.map"]
+        data = None
+        for file_name in names:
+            try:
+                with urllib.request.urlopen(f"{MAP_DOWNLOAD_URL}/{file_name}", timeout=60) as response:
+                    data = response.read()
+                break
+            except urllib.error.HTTPError as error:
+                if error.code != 404:
+                    raise RankDemoError(500, f"Failed to download map: {error}") from error
+            except OSError as error:
+                raise RankDemoError(500, f"Failed to download map: {error}") from error
+        if data is None:
+            raise RankDemoError(500, f"The map server has none of {', '.join(names)}")
+        if map_sha256 and hashlib.sha256(data).hexdigest() != map_sha256:
+            raise RankDemoError(500, f"The map {map_name} does not hash to what the recording says")
+        if not map_sha256 and f"{zlib.crc32(data) & 0xffffffff:08x}" != map_crc:
             raise RankDemoError(500, f"The map {map_name} does not hash to what the recording says")
         # Moved into place, a kill during the write would otherwise leave a
         # short map in the cache that is never downloaded again
@@ -225,7 +246,7 @@ class Converter:
             header = self.read_header(recording)
             map_name = header.get("map_name", "unknown")
             map_sha256 = header.get("map_sha256", "")
-            map_path = self.fetch_map(map_name, map_sha256)
+            map_path = self.fetch_map(map_name, map_sha256, header.get("map_crc", ""))
 
             offset = "-"
             if ts_epoch is not None and "start_time" in header:

@@ -1389,14 +1389,31 @@
 			}
 
 			async function fetchMap(header) {
-				if (!header.map_sha256) {
-					status("Old teehistorian version without map_sha256, cannot fetch the map automatically.");
+				// maps.ddnet.org names a map after when it was released: <name>_<sha256>
+				// since 2020, <name>_<crc>_<sha256> for the years before, <name>_<crc>
+				// before the server recorded hashes at all
+				const name = encodeURIComponent(header.map_name);
+				const names = [];
+				if (header.map_sha256) {
+					names.push(`${name}_${header.map_sha256}.map`);
+					if (header.map_crc) {
+						names.push(`${name}_${header.map_crc}_${header.map_sha256}.map`);
+					}
+				} else if (header.map_crc) {
+					names.push(`${name}_${header.map_crc}.map`);
+				} else {
+					status("Old teehistorian version without map_sha256 and map_crc, cannot fetch the map automatically.");
 					return null;
 				}
-				const url = `${MAP_DOWNLOAD_URL}/${encodeURIComponent(header.map_name)}_${header.map_sha256}.map`;
 				status(`Downloading map ${header.map_name} ...`);
 				try {
-					const response = await fetch(url);
+					let response = null;
+					for (const fileName of names) {
+						response = await fetch(`${MAP_DOWNLOAD_URL}/${fileName}`);
+						if (response.ok || response.status !== 404) {
+							break;
+						}
+					}
 					if (!response.ok) {
 						status(`Map download failed (HTTP ${response.status}).`);
 						return null;

@@ -115,10 +115,12 @@ def main():
         pass
 
     groups = {}
+    manifest_entries = {}
     with open(args.manifest) as manifest:
         for line in manifest:
             entry = json.loads(line)
             groups.setdefault((entry["map"], entry["kind"]), []).append(entry)
+            manifest_entries[entry_key(entry)] = entry
 
     # One pass over the archive indexes, so the candidates whose recording is
     # long gone are answered from memory instead of a stat in every location
@@ -253,12 +255,19 @@ def main():
             output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
             output.flush()
         pool.shutdown(wait=False, cancel_futures=True)
-        # The ranks of earlier runs that no map still names, their demos are
-        # on the web host and their links are out there
+        # The ranks of earlier runs that are not wanted any more, their demos
+        # are on the web host and their links are out there. A rank the
+        # manifest still names was beaten and carries its rank of today, one
+        # it no longer names was deleted.
         kept = 0
         for key, entry in published.items():
             if key not in written:
                 kept += 1
+                current = manifest_entries.get(key)
+                if current is not None:
+                    entry = {**current, **outcome(entry), "kept": "beaten"}
+                else:
+                    entry = {**entry, "kept": "deleted"}
                 output.write(json.dumps(entry, ensure_ascii=False) + "\n")
     pathlib.Path(args.output + ".new").replace(args.output)
     print(f"{ok} demos ready, {kept} kept from earlier runs, {errors} candidates failed", file=sys.stderr)

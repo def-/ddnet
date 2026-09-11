@@ -87,7 +87,8 @@
 					// The watch page reads the rest of the run out of the same
 					// manifest, so a link is nothing but the game uuid
 					a.href = `./?uuid=${encodeURIComponent(rank.uuid)}`;
-					a.textContent = `▶ ${rank.kind} #${rank.rank || 1} ${formatTime(parseFloat(rank.time))}`;
+					// A demo kept for the links to it after its rank was deleted
+					a.textContent = `▶ ${rank.kind} #${rank.rank || 1} ${formatTime(parseFloat(rank.time))}${rank.kept === 'deleted' ? ' (deleted)' : ''}`;
 					div.appendChild(a);
 					const who = document.createElement('small');
 					who.textContent = rank.names.join(', ');

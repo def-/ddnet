@@ -127,14 +127,15 @@ def main():
     ok = errors = 0
     written = set()
     # Team groups first: a solo rank of a member of a team run carries the same
-    # time and would be a second copy of that demo, which the loop below skips
-    # by having seen the team run already
+    # time and is the same run, the loop below hands it the team run's demo
+    # once it has seen the team run. A solo rank of another run in the same
+    # recording is a demo of its own.
+    # The other way round as well: a team rank that was not among the wanted
+    # ranks of its map is still linked when a member's solo rank was, and it
+    # is made as a team demo, which shows the whole team.
     groups = dict(sorted(groups.items(), key=lambda item: item[0][1] != "team"))
-    # A team run's demo already contains the whole team, so the solo rank of a
-    # member, which carries the same time, would be a second copy of the same
-    # file. A solo rank of another run in the same recording is a demo of its
-    # own and is kept.
     team_runs = {}
+    unwanted_teams = {}
     flat = [(map_name, kind, entry) for (map_name, kind), entries in groups.items() for entry in entries]
 
     # Whether a candidate is converted, taken from the last run or skipped is
@@ -178,11 +179,39 @@ def main():
                 inflight_groups.discard((map_name, kind))
             if index == 0 or flat[index - 1][:2] != (map_name, kind):
                 group_wanted = args.ranks
-            if group_wanted == 0 or (kind == "solo" and (entry["uuid"], entry["time"]) in team_runs.get(map_name, set())):
+            if group_wanted == 0:
                 if future is not None:
                     future.cancel()
+                if kind == "team":
+                    unwanted_teams.setdefault(map_name, {})[run_key(entry)] = entry
                 continue
             key = entry_key(entry)
+            team_result = team_runs.get(map_name, {}).get(run_key(entry))
+            team_entry = unwanted_teams.get(map_name, {}).pop(run_key(entry), None) if kind == "solo" else None
+            if team_entry is not None and team_result is None:
+                team_key = entry_key(team_entry)
+                if team_key in published:
+                    result = outcome(published[team_key])
+                else:
+                    result = generate(team_entry)
+                if result["status"] == "ok":
+                    team_result = result
+                    team_runs.setdefault(map_name, {})[run_key(team_entry)] = result
+                    written.add(team_key)
+                    output.write(json.dumps({**team_entry, **result}, ensure_ascii=False) + "\n")
+                    output.flush()
+                else:
+                    print(f"{map_name} (team #{team_entry.get('rank', '?')}): {result['message']}", file=sys.stderr, flush=True)
+            if kind == "solo" and team_result is not None:
+                # The solo rank of a member of a team run links the team run's
+                # demo, which is the same run, instead of keeping a copy of its
+                # own from an earlier conversion
+                if future is not None:
+                    future.cancel()
+                written.add(key)
+                output.write(json.dumps({**entry, **team_result}, ensure_ascii=False) + "\n")
+                output.flush()
+                continue
             published_entry = published.get(key)
             if published_entry and args.reconvert:
                 # A demo that is already published is made again. It stays
@@ -208,7 +237,7 @@ def main():
                 ok += 1
                 group_wanted -= 1
                 if kind == "team":
-                    team_runs.setdefault(map_name, set()).add((entry["uuid"], entry["time"]))
+                    team_runs.setdefault(map_name, {})[run_key(entry)] = result
             else:
                 errors += 1
                 print(f"{map_name} ({kind} #{entry.get('rank', '?')}): {result['message']}", file=sys.stderr, flush=True)

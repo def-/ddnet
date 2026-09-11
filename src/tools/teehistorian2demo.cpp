@@ -233,6 +233,7 @@ struct CRankCandidate
 struct CServerConfig
 {
 	int m_SvHit = 1;
+	int m_SvTeam = SV_TEAM_ALLOWED;
 	int m_SvFreezeDelay = 3;
 	int m_SvDeepfly = 1;
 	int m_SvDraggerRange = 700;
@@ -627,6 +628,12 @@ private:
 	// The teams as they were before this tick's chunks, see TEAM_FINISH
 	int m_aTeamBeforeTick[MAX_CLIENTS] = {0};
 	int m_TeamBeforeTickTick = -1;
+	// CGameTeams::m_aTeamState and m_aTeamLocked as far as the switchers
+	// depend on them: a team's switchers go back to their initial state when
+	// its first member joins, when its last member leaves, and on every
+	// death in a locked team
+	bool m_aTeamHasMembers[NUM_DDRACE_TEAMS] = {false};
+	bool m_aTeamLocked[NUM_DDRACE_TEAMS] = {false};
 
 	// Rank targeting (--rank)
 	const std::vector<const char *> *m_pvRankNames = nullptr;
@@ -1122,6 +1129,7 @@ public:
 			int *m_pValue;
 		} aSettings[] = {
 			{"sv_hit", &m_Config.m_SvHit},
+			{"sv_team", &m_Config.m_SvTeam},
 			{"sv_freeze_delay", &m_Config.m_SvFreezeDelay},
 			{"sv_deepfly", &m_Config.m_SvDeepfly},
 			{"sv_dragger_range", &m_Config.m_SvDraggerRange},
@@ -1818,12 +1826,6 @@ public:
 			pPlayer->m_TeleNumber = 0;
 			pPlayer->m_TeleCheck = false;
 			pPlayer->m_TeleTick = -1;
-			pPlayer->m_FreezeEndTick = 0;
-			pPlayer->m_FreezeStartTick = 0;
-			pPlayer->m_DeepFrozen = false;
-			pPlayer->m_InFreezeTile = false;
-			ResetWeapons(*pPlayer);
-			pPlayer->m_SpawnOrder = m_NextSpawnOrder++;
 			pPlayer->m_Core.Init(&m_WorldCore, &m_Collision, &m_TeamsCore);
 			pPlayer->m_Core.Reset();
 			// The id gates the team checks: without it hooks on players are
@@ -1835,6 +1837,7 @@ public:
 			pPlayer->m_Core.m_Tuning = m_Tuning;
 			pPlayer->m_Core.m_Pos = vec2(X, Y);
 			m_WorldCore.m_apCharacters[Cid] = &pPlayer->m_Core;
+			OnCharacterSpawn(*pPlayer);
 			break;
 		}
 		case TEEHISTORIAN_PLAYER_OLD:
@@ -1845,6 +1848,7 @@ public:
 			OnPlayerChunk(Cid);
 			m_aPlayers[Cid].m_Alive = false;
 			m_WorldCore.m_apCharacters[Cid] = nullptr;
+			OnCharacterDeath(Cid);
 			break;
 		}
 		case TEEHISTORIAN_INPUT_DIFF:
@@ -1915,9 +1919,11 @@ public:
 			Fresh.m_InputBase = m_aPlayers[Cid].m_InputBase;
 			Fresh.m_Connected = true;
 			m_aPlayers[Cid] = Fresh;
-			if(m_TeamsCore.Team(Cid) != 0)
+			if(m_TeamsCore.Team(Cid) != TEAM_FLOCK)
+			{
 				m_TeamsDirty = true;
-			m_TeamsCore.Team(Cid, 0);
+				ChangeTeam(Cid, TEAM_FLOCK);
+			}
 			m_WorldCore.m_apCharacters[Cid] = nullptr;
 			break;
 		}
@@ -1931,6 +1937,9 @@ public:
 			m_aPlayers[Cid].m_Connected = false;
 			m_aPlayers[Cid].m_Alive = false;
 			m_WorldCore.m_apCharacters[Cid] = nullptr;
+			// CGameTeams::OnPlayerDisconnect, the team chunk of the next tick
+			// repeats this
+			ChangeTeam(Cid, m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO ? Cid : TEAM_FLOCK);
 			// The next client in the slot is not part of the run
 			m_aFinisher[Cid] = false;
 			break;
@@ -1951,9 +1960,12 @@ public:
 			// arguments of the commands known to be harmless and the bare
 			// name of every other one.
 			const bool ShowArguments = pCommand != nullptr && ChatArgumentsArePublic(pCommand);
+			const char *pFirstArg = nullptr;
 			for(int i = 0; i < NumArgs; i++)
 			{
 				const char *pArg = pUnpacker->GetString();
+				if(i == 0)
+					pFirstArg = pArg;
 				if(pArg != nullptr && ShowArguments)
 				{
 					str_append(aChat, " ");
@@ -1968,6 +1980,17 @@ public:
 			if(Cid >= 0 && Cid < MAX_CLIENTS && (FlagMask & CFGFLAG_CHAT))
 			{
 				QueueChat(Cid, 0, aChat);
+				// CGameContext::ConLock and ConUnlock, /lock alone toggles
+				const int Team = m_TeamsCore.Team(Cid);
+				if(pCommand != nullptr && m_Config.m_SvTeam != SV_TEAM_FORBIDDEN && m_Config.m_SvTeam != SV_TEAM_FORCED_SOLO && Team != TEAM_FLOCK && Team < TEAM_SUPER)
+				{
+					if(str_comp(pCommand, "lock") == 0)
+						m_aTeamLocked[Team] = pFirstArg == nullptr ? !m_aTeamLocked[Team] : str_toint(pFirstArg) != 0;
+					else if(str_comp(pCommand, "unlock") == 0)
+						m_aTeamLocked[Team] = false;
+					if(m_DebugStartTick >= 0 && (str_comp(pCommand, "lock") == 0 || str_comp(pCommand, "unlock") == 0))
+						log_info(TOOL_NAME, "tick=%d cid=%d /%s, team %d %s", m_Tick, Cid, pCommand, Team, m_aTeamLocked[Team] ? "locked" : "unlocked");
+				}
 			}
 			break;
 		}
@@ -2320,7 +2343,7 @@ private:
 			if(!Unpacker.Error() && Cid >= 0 && Cid < MAX_CLIENTS && Team >= TEAM_FLOCK && Team <= TEAM_SUPER && m_TeamsCore.Team(Cid) != Team)
 			{
 				SaveTeamsBeforeTick();
-				m_TeamsCore.Team(Cid, Team);
+				ChangeTeam(Cid, Team);
 				m_TeamsDirty = true;
 				UpdateRosterTeam();
 			}
@@ -2342,8 +2365,7 @@ private:
 			{
 				m_aPlayers[Cid].m_Score = -TimeTicks / SERVER_TICK_SPEED;
 				m_SawFinishEvent = true;
-				if(m_pvRankNames != nullptr && m_pvRankNames->size() == 1 && absolute(TimeTicks - m_RankTimeTicks) <= 1 &&
-					SameName(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]))
+				if(m_pvRankNames != nullptr && m_pvRankNames->size() == 1)
 				{
 					const bool TimeMatch = absolute(TimeTicks - m_RankTimeTicks) <= 1;
 					const bool NameMatch = IsRankName(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]);
@@ -2514,16 +2536,61 @@ private:
 				m_StartTick = std::max(m_StartTick, m_Tick + 1);
 				RestartRecording();
 			}
-			Player.m_FreezeEndTick = 0;
-			Player.m_FreezeStartTick = 0;
-			Player.m_DeepFrozen = false;
-			Player.m_InFreezeTile = false;
-			ResetWeapons(Player);
-			Player.m_SpawnOrder = m_NextSpawnOrder++;
+			// A death whose respawn came in the same server tick writes no
+			// player chunks, the jump to the spawn is all there is of it
+			OnCharacterDeath(&Player - m_aPlayers);
 			Player.m_Core.SetHookedPlayer(-1);
 			Player.m_Core.m_HookState = HOOK_IDLE;
-			SetSolo(&Player - m_aPlayers, false);
+			OnCharacterSpawn(Player);
 		}
+	}
+
+	// CGameTeams::OnCharacterDeath: solo ends with the character, and the
+	// switchers of a locked team or of a forced solo player start over on
+	// every death
+	void OnCharacterDeath(int Cid)
+	{
+		SetSolo(Cid, false);
+		const int Team = m_TeamsCore.Team(Cid);
+		if(m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO || (Team != TEAM_FLOCK && Team < TEAM_SUPER && m_aTeamLocked[Team]))
+			ResetSwitchers(Team);
+	}
+
+	// What a new character starts with: CCharacter::Spawn, the tile powerups
+	// and states CCharacterCore::Reset clears (its place and hook are set by
+	// the caller), and CPlayer::TryRespawn's solo on a forced solo server
+	void OnCharacterSpawn(CPlayer &Player)
+	{
+		Player.m_FreezeEndTick = 0;
+		Player.m_FreezeStartTick = 0;
+		Player.m_DeepFrozen = false;
+		Player.m_InFreezeTile = false;
+		ResetWeapons(Player);
+		Player.m_SpawnOrder = m_NextSpawnOrder++;
+		CCharacterCore &Core = Player.m_Core;
+		Core.m_Jumped = 0;
+		Core.m_JumpedTotal = 0;
+		Core.m_Jumps = 2;
+		Core.m_Jetpack = false;
+		Core.m_CollisionDisabled = false;
+		Core.m_EndlessHook = false;
+		Core.m_EndlessJump = false;
+		Core.m_HammerHitDisabled = false;
+		Core.m_GrenadeHitDisabled = false;
+		Core.m_LaserHitDisabled = false;
+		Core.m_ShotgunHitDisabled = false;
+		Core.m_HookHitDisabled = false;
+		Core.m_Super = false;
+		Core.m_Invincible = false;
+		Core.m_HasTelegunGun = false;
+		Core.m_HasTelegunGrenade = false;
+		Core.m_HasTelegunLaser = false;
+		Core.m_FreezeStart = 0;
+		Core.m_FreezeEnd = 0;
+		Core.m_IsInFreeze = false;
+		Core.m_DeepFrozen = false;
+		Core.m_LiveFrozen = false;
+		SetSolo(&Player - m_aPlayers, m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO);
 	}
 
 	// What a character starts with, CCharacter::Spawn and
@@ -2540,6 +2607,51 @@ private:
 		Player.m_Core.m_ActiveWeapon = WEAPON_GUN;
 		GiveWeapon(&Player, WEAPON_HAMMER);
 		GiveWeapon(&Player, WEAPON_GUN);
+	}
+
+	// CGameTeams::ResetSwitchers
+	void ResetSwitchers(int Team)
+	{
+		if(Team < 0 || Team >= NUM_DDRACE_TEAMS)
+			return;
+		if(m_DebugStartTick >= 0)
+			log_info(TOOL_NAME, "tick=%d switchers of team %d reset", m_Tick, Team);
+		for(SSwitchers &Switcher : m_WorldCore.m_vSwitchers)
+		{
+			Switcher.m_aStatus[Team] = Switcher.m_Initial;
+			Switcher.m_aEndTick[Team] = 0;
+			Switcher.m_aType[Team] = TILE_SWITCHOPEN;
+		}
+	}
+
+	int TeamSize(int Team) const
+	{
+		int Size = 0;
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			if(m_aPlayers[Cid].m_Connected && m_TeamsCore.Team(Cid) == Team)
+				Size++;
+		}
+		return Size;
+	}
+
+	// CGameTeams::SetForceCharacterTeam, as far as the switchers see it
+	void ChangeTeam(int Cid, int Team)
+	{
+		const int OldTeam = m_TeamsCore.Team(Cid);
+		if(Team != OldTeam && (OldTeam != TEAM_FLOCK || m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO) && OldTeam != TEAM_SUPER &&
+			m_aTeamHasMembers[OldTeam] && TeamSize(OldTeam) <= 1)
+		{
+			m_aTeamHasMembers[OldTeam] = false;
+			m_aTeamLocked[OldTeam] = false;
+			ResetSwitchers(OldTeam);
+		}
+		m_TeamsCore.Team(Cid, Team);
+		if(Team != TEAM_SUPER && (!m_aTeamHasMembers[Team] || m_aTeamLocked[Team]))
+		{
+			m_aTeamHasMembers[Team] = true;
+			ResetSwitchers(Team);
+		}
 	}
 
 	bool IsSwitchOpen(int Number, int Team) const
@@ -3626,13 +3738,14 @@ private:
 				const CPlayer &Player = m_aPlayers[Cid];
 				if(!Player.m_Alive)
 					continue;
-				log_info(TOOL_NAME, "tick=%d cid=%d '%s' pos=%d,%d dir=%d jump=%d hook=%d target=%d,%d frozen=%d(intile=%d deep=%d end=%d) hookstate=%d hooked=%d weapon=%d wanted=%d next=%d prev=%d fire=%d",
+				log_info(TOOL_NAME, "tick=%d cid=%d '%s' pos=%d,%d dir=%d jump=%d hook=%d target=%d,%d frozen=%d(intile=%d deep=%d end=%d) hookstate=%d hooked=%d weapon=%d wanted=%d next=%d prev=%d fire=%d team=%d solo=%d nocol=%d nohook=%d nohit=%d",
 					m_Tick, Cid, Player.m_aName, Player.m_X, Player.m_Y,
 					Player.m_Input.m_Direction, Player.m_Input.m_Jump, Player.m_Input.m_Hook,
 					Player.m_Input.m_TargetX, Player.m_Input.m_TargetY,
 					IsFrozen(Player), Player.m_InFreezeTile, Player.m_DeepFrozen, Player.m_FreezeEndTick,
 					Player.m_Core.m_HookState, Player.m_Core.HookedPlayer(),
-					Player.m_Core.m_ActiveWeapon, Player.m_Input.m_WantedWeapon, Player.m_Input.m_NextWeapon, Player.m_Input.m_PrevWeapon, Player.m_Input.m_Fire);
+					Player.m_Core.m_ActiveWeapon, Player.m_Input.m_WantedWeapon, Player.m_Input.m_NextWeapon, Player.m_Input.m_PrevWeapon, Player.m_Input.m_Fire,
+					m_TeamsCore.Team(Cid), Player.m_Core.m_Solo, Player.m_Core.m_CollisionDisabled, Player.m_Core.m_HookHitDisabled, Player.m_Core.m_HammerHitDisabled);
 			}
 		}
 
@@ -5377,7 +5490,8 @@ int main(int argc, const char *argv[])
 		const CRankCandidate *pBest = nullptr;
 		for(const CRankCandidate &Candidate : Scanner.RankCandidates())
 		{
-			if(pBest == nullptr || (RankExpectedTick >= 0 && absolute(Candidate.m_FinishTick - RankExpectedTick) < absolute(pBest->m_FinishTick - RankExpectedTick)))
+			if(pBest == nullptr || Candidate.m_Match < pBest->m_Match ||
+				(Candidate.m_Match == pBest->m_Match && RankExpectedTick >= 0 && absolute(Candidate.m_FinishTick - RankExpectedTick) < absolute(pBest->m_FinishTick - RankExpectedTick)))
 				pBest = &Candidate;
 		}
 		if(pBest != nullptr && pBest->m_Match == ERankMatch::TIME)

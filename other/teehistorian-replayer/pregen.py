@@ -59,7 +59,7 @@ def ok_result(demo_path, meta):
 def generate(entry, reconvert=False):
     try:
         demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert,
-            entry.get("recording"))
+            entry.get("recording"), entry.get("aliases"))
         return ok_result(demo_path, meta)
     except RankDemoError as error:
         # The finish can sit outside the scan window around ts (DST-ambiguous
@@ -68,7 +68,7 @@ def generate(entry, reconvert=False):
         if error.status == 404 and entry.get("ts") and "No finish" in str(error):
             try:
                 demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
-                    recording_uuid=entry.get("recording"))
+                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"))
                 return ok_result(demo_path, meta)
             except RankDemoError as retry_error:
                 error = retry_error
@@ -97,6 +97,7 @@ def main():
     # or not they are still the best rank of their map: a link that was shared
     # keeps working after the rank was beaten.
     previous = {}
+    previous_aliases = {}
     published = {}
     try:
         with open(args.output) as previous_output:
@@ -109,6 +110,7 @@ def main():
                     published[entry_key(entry)] = entry
                 elif not args.retry_failed and "not in the archive" not in entry.get("message", ""):
                     previous[entry_key(entry)] = outcome(entry)
+                    previous_aliases[entry_key(entry)] = entry.get("aliases")
     except OSError:
         pass
 
@@ -143,11 +145,17 @@ def main():
     # candidates ahead on a pool: a conversion is mostly waiting for the
     # archive disk, and several readers get more out of it than one. A
     # conversion the order then turns out not to need is simply not read.
+    # A failed rank is tried again when the manifest names its players by
+    # names it did not know last time
+    def carried(entry):
+        key = entry_key(entry)
+        return key in previous and previous_aliases[key] == entry.get("aliases")
+
     def work_of(entry):
         key = entry_key(entry)
         if key in published:
             return "reconvert" if args.reconvert else None
-        if key in previous:
+        if carried(entry):
             return None
         return "generate"
 
@@ -229,7 +237,7 @@ def main():
                         f"the recording no longer yields this run: {result['message']}", file=sys.stderr, flush=True)
             elif published_entry:
                 result = outcome(published_entry)
-            elif key in previous:
+            elif carried(entry):
                 result = previous[key]
             else:
                 result = future.result() if future is not None else generate(entry)

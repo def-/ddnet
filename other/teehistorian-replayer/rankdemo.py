@@ -213,6 +213,12 @@ class Converter:
             raise RankDemoError(400, "Invalid game uuid")
         if not names or not all(names):
             raise RankDemoError(400, "Missing player name")
+        alias_args = []
+        for name, old_names in (aliases or {}).items():
+            if name not in names or not old_names or not all(isinstance(old, str) and old for old in old_names):
+                raise RankDemoError(400, "Invalid name aliases")
+            for old in old_names:
+                alias_args += ["--alias", name, old]
         try:
             if float(time_str) <= 0:
                 raise ValueError
@@ -263,7 +269,7 @@ class Converter:
             try:
                 input_path = self.materialize(recording, workdir, "input")
                 try:
-                    meta = self.run_tool(workdir, input_path, map_path, [], time_str, offset, names)
+                    meta = self.run_tool(workdir, input_path, map_path, alias_args, time_str, offset, names)
                 except RankDemoError as error:
                     # The names of players that joined before the recording
                     # started are only in the previous recordings, retry with
@@ -276,7 +282,7 @@ class Converter:
                     prev_args = []
                     for index, prev in enumerate(chain):
                         prev_args += ["--prev", str(self.materialize(prev, workdir, f"prev{index}"))]
-                    meta = self.run_tool(workdir, input_path, map_path, prev_args, time_str, offset, names)
+                    meta = self.run_tool(workdir, input_path, map_path, prev_args + alias_args, time_str, offset, names)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:

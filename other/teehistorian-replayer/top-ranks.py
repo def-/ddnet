@@ -111,12 +111,19 @@ def main():
     newest_ts = int(cur.fetchone()[0])
 
     count = skipped = 0
+    aliases = {}
     for map_name in maps:
         # Team ranks first, they are the more interesting replays
         for entry in team_ranks(cur, map_name) + solo_ranks(cur, map_name):
             if entry["ts"] > newest_ts:
                 skipped += 1
                 continue
+            for name in entry["names"]:
+                if name not in aliases:
+                    aliases[name] = old_names(cur, name)
+            renamed = {name: aliases[name] for name in entry["names"] if aliases[name]}
+            if renamed:
+                entry["aliases"] = renamed
             print(json.dumps(entry, ensure_ascii=False))
             count += 1
     print(f"{count} rank candidates over {len(maps)} maps, {skipped} skipped as younger than "

@@ -621,6 +621,9 @@ private:
 	int m_RankTimeTicks = 0;
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
+	// The names the rank's players had before their ranks were moved to a
+	// new name, as (rank name, old name) pairs
+	const std::vector<std::pair<const char *, const char *>> *m_pvRankAliases = nullptr;
 	CRankCandidate m_ApproxCandidate = {-1, -1, -1};
 	// How many of the rank's names the approximate candidate matched: a
 	// member whose ranks were moved to a new name later is not in the
@@ -1187,9 +1190,10 @@ public:
 	// Only scan for finishes of the given rank instead of recording: one name
 	// matches PLAYER_FINISH events, multiple names TEAM_FINISH events. The
 	// matches are collected in RankCandidates(), parsing stops after LastTick.
-	void ScanForRank(const std::vector<const char *> *pvNames, int TimeTicks, int ExpectedTick, int LastTick)
+	void ScanForRank(const std::vector<const char *> *pvNames, const std::vector<std::pair<const char *, const char *>> *pvAliases, int TimeTicks, int ExpectedTick, int LastTick)
 	{
 		m_pvRankNames = pvNames;
+		m_pvRankAliases = pvAliases;
 		m_RankTimeTicks = TimeTicks;
 		m_RankExpectedTick = ExpectedTick;
 		m_StartTick = std::numeric_limits<int>::max();
@@ -2172,11 +2176,27 @@ private:
 		return false;
 	}
 
-	int FindPlayer(const char *pName) const
+	// Whether a recorded name is the rank's name, as the rank carries it or
+	// as the player had it before the rank was moved to a new name
+	bool IsRankName(const char *pRecorded, const char *pRankName) const
+	{
+		if(SameName(pRecorded, pRankName))
+			return true;
+		if(m_pvRankAliases == nullptr)
+			return false;
+		for(const auto &[pName, pOldName] : *m_pvRankAliases)
+		{
+			if(str_comp(pName, pRankName) == 0 && SameName(pRecorded, pOldName))
+				return true;
+		}
+		return false;
+	}
+
+	int FindRankPlayer(const char *pRankName) const
 	{
 		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
 		{
-			if(m_aPlayers[Cid].m_Connected && SameName(m_aPlayers[Cid].m_aName, pName))
+			if(m_aPlayers[Cid].m_Connected && IsRankName(m_aPlayers[Cid].m_aName, pRankName))
 				return Cid;
 		}
 		return -1;
@@ -2190,13 +2210,18 @@ private:
 	{
 		if(m_pvRankNames == nullptr || m_pvRankNames->size() < 2 || m_RankExpectedTick < 0 || m_Tick > m_RankExpectedTick)
 			return;
+		// A member whose ranks were moved to a new name later is not in the
+		// recording under the rank's name, the team of the members that are
+		// is the run
 		int Team = -1;
 		int FirstCid = -1;
 		int Matched = 0;
 		for(const char *pName : *m_pvRankNames)
 		{
-			const int Cid = FindPlayer(pName);
-			if(Cid < 0 || m_TeamsCore.Team(Cid) == TEAM_FLOCK || (Team >= 0 && m_TeamsCore.Team(Cid) != Team))
+			const int Cid = FindRankPlayer(pName);
+			if(Cid < 0)
+				continue;
+			if(m_TeamsCore.Team(Cid) == TEAM_FLOCK || (Team >= 0 && m_TeamsCore.Team(Cid) != Team))
 				return;
 			Team = m_TeamsCore.Team(Cid);
 			if(FirstCid < 0)
@@ -2317,7 +2342,7 @@ private:
 				{
 					for(int Cid = 0; Cid < MAX_CLIENTS && CandidateCid < 0; Cid++)
 					{
-						if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team && SameName(m_aPlayers[Cid].m_aName, pName))
+						if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team && IsRankName(m_aPlayers[Cid].m_aName, pName))
 							CandidateCid = Cid;
 					}
 					if(CandidateCid >= 0)
@@ -3527,7 +3552,7 @@ private:
 		{
 			for(const char *pName : *m_pvRankNames)
 			{
-				const int Cid = FindPlayer(pName);
+				const int Cid = FindRankPlayer(pName);
 				if(Cid >= 0)
 					m_vApproxCids.push_back(Cid);
 			}
@@ -5164,10 +5189,21 @@ int main(int argc, const char *argv[])
 	// used to learn the names of players carried over map changes
 	int ArgIndex = 4;
 	std::vector<const char *> vPrevPaths;
-	while(ArgIndex + 1 < argc && str_comp(argv[ArgIndex], "--prev") == 0)
+	std::vector<std::pair<const char *, const char *>> vAliases;
+	while(ArgIndex < argc)
 	{
-		vPrevPaths.push_back(argv[ArgIndex + 1]);
-		ArgIndex += 2;
+		if(ArgIndex + 1 < argc && str_comp(argv[ArgIndex], "--prev") == 0)
+		{
+			vPrevPaths.push_back(argv[ArgIndex + 1]);
+			ArgIndex += 2;
+		}
+		else if(ArgIndex + 2 < argc && str_comp(argv[ArgIndex], "--alias") == 0)
+		{
+			vAliases.push_back({argv[ArgIndex + 1], argv[ArgIndex + 2]});
+			ArgIndex += 3;
+		}
+		else
+			break;
 	}
 	int DebugStartSeconds = -1;
 	int DebugEndSeconds = -1;
@@ -5181,12 +5217,14 @@ int main(int argc, const char *argv[])
 	if(argc < 4 || (!RankMode && argc - ArgIndex > 2) || (RankMode && argc - ArgIndex < 4))
 	{
 		log_error(TOOL_NAME, "Usage: %s <input.teehistorian> <map.map> <output.demo> [--prev <old.teehistorian>]... [start] [end]", TOOL_NAME);
-		log_error(TOOL_NAME, "       %s <input.teehistorian> <map.map> <output.demo> [--prev <old.teehistorian>]... --rank <time> <offset|-> <name> [name] ...", TOOL_NAME);
+		log_error(TOOL_NAME, "       %s <input.teehistorian> <map.map> <output.demo> [--prev <old.teehistorian>]... [--alias <name> <old name>]... --rank <time> <offset|-> <name> [name] ...", TOOL_NAME);
 		log_error(TOOL_NAME, "start/end limit the converted time range, given as seconds, M:SS or H:MM:SS");
 		log_error(TOOL_NAME, "--rank converts only the run of the player (or team of players) finishing in");
 		log_error(TOOL_NAME, "<time> seconds around <offset> into the recording, hiding all other teams");
 		log_error(TOOL_NAME, "--prev recordings (oldest first) provide the names of players that joined");
 		log_error(TOOL_NAME, "before the recording started");
+		log_error(TOOL_NAME, "--alias names a rank player by a name the player had before, for a rank that");
+		log_error(TOOL_NAME, "was moved to a new name after the run");
 		log_error(TOOL_NAME, "--dataset <out.jsonl> additionally writes per-tick state and input rows");
 		return -1;
 	}
@@ -5271,7 +5309,7 @@ int main(int argc, const char *argv[])
 		constexpr int SCAN_SLACK_TICKS = 30 * 60 * SERVER_TICK_SPEED;
 		CConverter Scanner(pStorage.get(), pSnapshotDelta.get());
 		NameScanner.CopyPlayerIdentitiesTo(&Scanner);
-		Scanner.ScanForRank(&vRankNames, RankTimeTicks, RankExpectedTick,
+		Scanner.ScanForRank(&vRankNames, &vAliases, RankTimeTicks, RankExpectedTick,
 			RankExpectedTick < 0 ? std::numeric_limits<int>::max() : RankExpectedTick + SCAN_SLACK_TICKS);
 		CTeehistorianReader ScanReader;
 		json_value *pScanHeader = ScanReader.Open(argv[1]);

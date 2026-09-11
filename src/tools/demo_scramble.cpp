@@ -778,6 +778,7 @@ static bool ScrambleDemo(const char *pInputPath, const char *pOutputPath, uint64
 	if(DemoPlayer.IsSixup())
 	{
 		log_error(TOOL_NAME, "0.7 demos are not supported");
+		DemoPlayer.Stop();
 		return false;
 	}
 
@@ -786,6 +787,7 @@ static bool ScrambleDemo(const char *pInputPath, const char *pOutputPath, uint64
 	if(!pMapInfo->m_Sha256.has_value())
 	{
 		log_error(TOOL_NAME, "Demo file '%s' has no map SHA256", pInputPath);
+		DemoPlayer.Stop();
 		return false;
 	}
 
@@ -797,6 +799,7 @@ static bool ScrambleDemo(const char *pInputPath, const char *pOutputPath, uint64
 	if(Error != 0)
 	{
 		log_error(TOOL_NAME, "Failed to start demo recorder for '%s'", pOutputPath);
+		DemoPlayer.Stop();
 		return false;
 	}
 

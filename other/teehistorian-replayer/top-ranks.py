@@ -17,7 +17,7 @@ import MySQLdb
 TZ = ZoneInfo("Europe/Berlin")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--candidates", type=int, default=20,
+parser.add_argument("--candidates", type=int, default=50,
     help="rank rows dumped per map and kind, pregen walks down them while recordings are missing")
 parser.add_argument("--min-age-days", type=int, default=14,
     help="skip finishes younger than this: a fresh rank can still turn out to be cheated and be deleted")

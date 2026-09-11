@@ -30,6 +30,17 @@ class RankDemoError(Exception):
         self.status = status
 
 
+# A recording decompresses to up to about 9 GB beside the previous ones of
+# its chain, and a disk that runs full breaks every job on the host. A
+# conversion does not start below this, the run stops instead.
+MIN_FREE_BYTES = 20 * 1024**3
+
+
+class DiskFullError(RankDemoError):
+    def __init__(self, free):
+        super().__init__(507, f"{free / 1024**3:.1f} GiB free on the cache disk, a conversion needs {MIN_FREE_BYTES >> 30} GiB")
+
+
 class Converter:
     def __init__(self, tool, archive_root, cache_dir, cache_limit_bytes, scramble_tool=None):
         self.tool = Path(tool)
@@ -264,6 +275,9 @@ class Converter:
                 if seconds >= 0:
                     offset = str(seconds)
 
+            free = shutil.disk_usage(self.tmp).free
+            if free < MIN_FREE_BYTES:
+                raise DiskFullError(free)
             workdir = Path(tempfile.mkdtemp(dir=self.tmp))
             try:
                 input_path = self.materialize(recording, workdir, "input")

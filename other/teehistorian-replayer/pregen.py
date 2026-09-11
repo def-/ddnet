@@ -18,7 +18,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from rankdemo import Converter, RankDemoError
+from rankdemo import Converter, DiskFullError, RankDemoError
 
 parser = argparse.ArgumentParser()
 parser.add_argument("manifest")
@@ -61,6 +61,8 @@ def generate(entry, reconvert=False):
         demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert,
             entry.get("recording"), entry.get("aliases"))
         return ok_result(demo_path, meta)
+    except DiskFullError:
+        raise  # not the rank's failure, the run stops
     except RankDemoError as error:
         # The finish can sit outside the scan window around ts (DST-ambiguous
         # timestamps, servers whose tick fell far behind wall-clock time), so
@@ -70,6 +72,8 @@ def generate(entry, reconvert=False):
                 demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
                     recording_uuid=entry.get("recording"), aliases=entry.get("aliases"))
                 return ok_result(demo_path, meta)
+            except DiskFullError:
+                raise
             except RankDemoError as retry_error:
                 error = retry_error
         return {"status": "error", "code": error.status, "message": str(error)}
@@ -298,4 +302,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except DiskFullError as error:
+        # The output so far stays as .new, the demos it made are in the cache
+        # and the next run picks them up without converting them again
+        sys.exit(f"stopped: {error}")

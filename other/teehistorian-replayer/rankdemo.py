@@ -21,7 +21,6 @@ from pathlib import Path
 
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 MAP_DOWNLOAD_URL = "https://maps.ddnet.org"
-CONVERT_TIMEOUT = 15 * 60
 HEADER_MAX_SIZE = 1024 * 1024
 
 
@@ -202,7 +201,7 @@ class Converter:
             return recording
         path = workdir / f"{name}.teehistorian"
         with open(path, "wb") as file:
-            subprocess.run(["xz", "-dc", str(recording)], stdout=file, check=True, timeout=CONVERT_TIMEOUT)
+            subprocess.run(["xz", "-dc", str(recording)], stdout=file, check=True)
         return path
 
     def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
@@ -287,7 +286,7 @@ class Converter:
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:
                         subprocess.run(["gzip", "-9", "-c", name], cwd=workdir,
-                            stdout=compressed, check=True, timeout=CONVERT_TIMEOUT)
+                            stdout=compressed, check=True)
                 meta.update(uuid=uuid, time=time_str, names=names, map_name=map_name, map_sha256=map_sha256,
                     rev=self.revision(workdir / "watch.demo.gz"))
                 self.write_meta(meta_path, meta)
@@ -298,10 +297,10 @@ class Converter:
             self.prune()
             return demo_path, meta
 
-    def run_tool(self, workdir, input_path, map_path, prev_args, time_str, offset, names):
+    def run_tool(self, workdir, input_path, map_path, options, time_str, offset, names):
         result = subprocess.run(
-            [str(self.tool), str(input_path), str(map_path), "out.demo"] + prev_args + ["--rank", time_str, offset] + names,
-            cwd=workdir, capture_output=True, text=True, timeout=CONVERT_TIMEOUT)
+            [str(self.tool), str(input_path), str(map_path), "out.demo"] + options + ["--rank", time_str, offset] + names,
+            cwd=workdir, capture_output=True, text=True)
         if result.returncode != 0:
             output = (result.stdout + result.stderr).strip().splitlines()
             message = output[-1] if output else "conversion failed"
@@ -335,7 +334,7 @@ class Converter:
         """Noise the run below what a viewer can see, so that the demo cannot
         be turned back into the inputs that produced the rank."""
         result = subprocess.run([str(self.scramble_tool), source, target, "--key", key],
-            cwd=workdir, capture_output=True, text=True, timeout=CONVERT_TIMEOUT)
+            cwd=workdir, capture_output=True, text=True)
         if result.returncode != 0:
             output = (result.stdout + result.stderr).strip().splitlines()
             raise RankDemoError(500, output[-1] if output else "scrambling failed")
@@ -359,11 +358,11 @@ class Converter:
         workdir = Path(tempfile.mkdtemp(dir=self.tmp))
         try:
             with open(workdir / "out.demo", "wb") as raw:
-                subprocess.run(["gzip", "-dc", str(raw_path)], stdout=raw, check=True, timeout=CONVERT_TIMEOUT)
+                subprocess.run(["gzip", "-dc", str(raw_path)], stdout=raw, check=True)
             self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
             with open(workdir / "watch.demo.gz", "wb") as compressed:
                 subprocess.run(["gzip", "-9", "-c", "watch.demo"], cwd=workdir,
-                    stdout=compressed, check=True, timeout=CONVERT_TIMEOUT)
+                    stdout=compressed, check=True)
             _, meta_path = self.siblings(demo_path)
             if meta_path.is_file():
                 meta = json.loads(meta_path.read_text())

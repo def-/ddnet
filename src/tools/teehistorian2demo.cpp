@@ -207,12 +207,24 @@ enum
 	TEEHISTORIAN_EX,
 };
 
+// How a finish event matched the searched rank, see CConverter::ScanForRank:
+// by the rank's time and a rank name, by the time alone when no rank name is
+// in the recording, or by a rank name alone near the rank's timestamp when
+// the server recorded another time than the rank's
+enum class ERankMatch
+{
+	EXACT,
+	TIME,
+	NAME,
+};
+
 // A finish event matching the searched rank, see CConverter::ScanForRank.
 struct CRankCandidate
 {
 	int m_FinishTick;
 	int m_Cid;
 	int m_Team;
+	ERankMatch m_Match = ERankMatch::EXACT;
 };
 
 // The server settings the replayed entities depend on. Teehistorian writes
@@ -2202,6 +2214,25 @@ private:
 		return -1;
 	}
 
+	// Whether any of the rank's names is on the server right now
+	bool AnyRankPlayer() const
+	{
+		for(const char *pName : *m_pvRankNames)
+		{
+			if(FindRankPlayer(pName) >= 0)
+				return true;
+		}
+		return false;
+	}
+
+	// A finish this close to the rank's timestamp is the rank's run when it
+	// is by a rank name and no finish carries the rank's time
+	static constexpr int RANK_TIMESTAMP_SLACK_TICKS = 5 * 60 * SERVER_TICK_SPEED;
+	bool NearRankTimestamp() const
+	{
+		return m_RankExpectedTick >= 0 && absolute(m_Tick - m_RankExpectedTick) <= RANK_TIMESTAMP_SLACK_TICKS;
+	}
+
 	// Recordings from before April 2024 have no finish events and the rank is
 	// placed by its timestamp instead. A team is dissolved when it finishes,
 	// so by then it is gone: remember the last tick its whole roster shared a
@@ -2314,7 +2345,14 @@ private:
 				if(m_pvRankNames != nullptr && m_pvRankNames->size() == 1 && absolute(TimeTicks - m_RankTimeTicks) <= 1 &&
 					SameName(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]))
 				{
-					m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid)});
+					const bool TimeMatch = absolute(TimeTicks - m_RankTimeTicks) <= 1;
+					const bool NameMatch = IsRankName(m_aPlayers[Cid].m_aName, (*m_pvRankNames)[0]);
+					if(TimeMatch && NameMatch)
+						m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid), ERankMatch::EXACT});
+					else if(TimeMatch && !AnyRankPlayer())
+						m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid), ERankMatch::TIME});
+					else if(NameMatch && NearRankTimestamp())
+						m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid), ERankMatch::NAME});
 				}
 			}
 			break;
@@ -2334,8 +2372,9 @@ private:
 				if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team)
 					m_aPlayers[Cid].m_Score = -TimeTicks / SERVER_TICK_SPEED;
 			}
-			if(m_pvRankNames != nullptr && m_pvRankNames->size() >= 2 && absolute(TimeTicks - m_RankTimeTicks) <= 1)
+			if(m_pvRankNames != nullptr && m_pvRankNames->size() >= 2)
 			{
+				const bool TimeMatch = absolute(TimeTicks - m_RankTimeTicks) <= 1;
 				// Camera target: the first roster name found in the team
 				int CandidateCid = -1;
 				for(const char *pName : *m_pvRankNames)
@@ -2348,8 +2387,21 @@ private:
 					if(CandidateCid >= 0)
 						break;
 				}
-				if(CandidateCid >= 0)
-					m_vRankCandidates.push_back({m_Tick, CandidateCid, Team});
+				if(CandidateCid >= 0 && TimeMatch)
+					m_vRankCandidates.push_back({m_Tick, CandidateCid, Team, ERankMatch::EXACT});
+				else if(CandidateCid >= 0 && NearRankTimestamp())
+					m_vRankCandidates.push_back({m_Tick, CandidateCid, Team, ERankMatch::NAME});
+				else if(TimeMatch && !AnyRankPlayer())
+				{
+					// Any member of the team, none of the rank's names is here
+					for(int Cid = 0; Cid < MAX_CLIENTS && CandidateCid < 0; Cid++)
+					{
+						if(m_aPlayers[Cid].m_Connected && TeamBeforeTick(Cid) == Team)
+							CandidateCid = Cid;
+					}
+					if(CandidateCid >= 0)
+						m_vRankCandidates.push_back({m_Tick, CandidateCid, Team, ERankMatch::TIME});
+				}
 			}
 			break;
 		}
@@ -5320,12 +5372,18 @@ int main(int argc, const char *argv[])
 		json_value_free(pScanHeader);
 		ScanReader.ParseChunks(&Scanner);
 
+		// The best match class wins, within it the finish closest to the
+		// rank's timestamp
 		const CRankCandidate *pBest = nullptr;
 		for(const CRankCandidate &Candidate : Scanner.RankCandidates())
 		{
 			if(pBest == nullptr || (RankExpectedTick >= 0 && absolute(Candidate.m_FinishTick - RankExpectedTick) < absolute(pBest->m_FinishTick - RankExpectedTick)))
 				pBest = &Candidate;
 		}
+		if(pBest != nullptr && pBest->m_Match == ERankMatch::TIME)
+			log_warn(TOOL_NAME, "None of the rank's names is in the recording, taking the finish with the rank's time by '%s'", Scanner.PlayerName(pBest->m_Cid));
+		if(pBest != nullptr && pBest->m_Match == ERankMatch::NAME)
+			log_warn(TOOL_NAME, "No finish with the rank's time, taking the finish by the rank's name %d seconds from the rank's timestamp", (pBest->m_FinishTick - RankExpectedTick) / SERVER_TICK_SPEED);
 		int PreSeconds = RUN_PRE_SECONDS;
 		int PostSeconds = RUN_POST_SECONDS;
 		// A recording that writes finish events has said who finished, and no

@@ -37,6 +37,14 @@
 #include <optional>
 #include <vector>
 
+#if defined(CONF_FAMILY_UNIX) && !defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <cerrno>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char **environ;
+#endif
+
 #if defined(CONF_PLATFORM_EMSCRIPTEN)
 #include <emscripten/emscripten.h>
 #endif
@@ -88,6 +96,84 @@ public:
 		return io_read(m_File, pBuffer, Size);
 	}
 };
+
+#if defined(CONF_FAMILY_UNIX) && !defined(CONF_PLATFORM_EMSCRIPTEN)
+// Recordings are archived as .xz and decompress to up to about 9 GB. Instead
+// of a decompressed copy on disk, xz streams the recording in, once per pass
+// over it. Closing the pipe while xz still writes ends it, so a pass that
+// stops early decompresses only the prefix it read.
+class CPipeInputSource : public CInputSource
+{
+	int m_Fd = -1;
+	pid_t m_Pid = -1;
+
+public:
+	bool Open(const char *pPath)
+	{
+		int aPipe[2];
+		if(pipe(aPipe) != 0)
+		{
+			return false;
+		}
+		posix_spawn_file_actions_t Actions;
+		posix_spawn_file_actions_init(&Actions);
+		posix_spawn_file_actions_adddup2(&Actions, aPipe[1], STDOUT_FILENO);
+		posix_spawn_file_actions_addclose(&Actions, aPipe[0]);
+		posix_spawn_file_actions_addclose(&Actions, aPipe[1]);
+		const char *apArgs[] = {"xz", "-dc", "--", pPath, nullptr};
+		const int Error = posix_spawnp(&m_Pid, "xz", &Actions, nullptr, (char *const *)apArgs, environ);
+		posix_spawn_file_actions_destroy(&Actions);
+		close(aPipe[1]);
+		if(Error != 0)
+		{
+			close(aPipe[0]);
+			m_Pid = -1;
+			return false;
+		}
+		m_Fd = aPipe[0];
+		return true;
+	}
+	~CPipeInputSource() override
+	{
+		if(m_Fd >= 0)
+		{
+			close(m_Fd);
+		}
+		if(m_Pid >= 0)
+		{
+			int Status;
+			waitpid(m_Pid, &Status, 0);
+		}
+	}
+	unsigned Read(void *pBuffer, unsigned Size) override
+	{
+		while(true)
+		{
+			const ssize_t Read = read(m_Fd, pBuffer, Size);
+			if(Read > 0)
+			{
+				return Read;
+			}
+			if(Read < 0 && errno == EINTR)
+			{
+				continue;
+			}
+			if(Read == 0)
+			{
+				// The stream ended by itself, so xz has said what it thinks
+				int Status;
+				waitpid(m_Pid, &Status, 0);
+				m_Pid = -1;
+				if(!WIFEXITED(Status) || WEXITSTATUS(Status) != 0)
+				{
+					log_error(TOOL_NAME, "xz failed to decompress the recording");
+				}
+			}
+			return 0;
+		}
+	}
+};
+#endif
 
 #if defined(CONF_PLATFORM_EMSCRIPTEN)
 // Stream the recording from a URL. The converter only reads sequentially and
@@ -5248,6 +5334,21 @@ public:
 			m_pSource = std::move(pHttpSource);
 #else
 			log_error(TOOL_NAME, "Streaming from a URL is only supported in the web build");
+			return nullptr;
+#endif
+		}
+		else if(str_endswith(pPath, ".xz") != nullptr)
+		{
+#if defined(CONF_FAMILY_UNIX) && !defined(CONF_PLATFORM_EMSCRIPTEN)
+			auto pPipeSource = std::make_unique<CPipeInputSource>();
+			if(!pPipeSource->Open(pPath))
+			{
+				log_error(TOOL_NAME, "Failed to start xz for '%s'", pPath);
+				return nullptr;
+			}
+			m_pSource = std::move(pPipeSource);
+#else
+			log_error(TOOL_NAME, "Compressed recordings are only supported on unix");
 			return nullptr;
 #endif
 		}

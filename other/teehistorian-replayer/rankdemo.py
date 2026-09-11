@@ -30,10 +30,10 @@ class RankDemoError(Exception):
         self.status = status
 
 
-# A recording decompresses to up to about 9 GB beside the previous ones of
-# its chain, and a disk that runs full breaks every job on the host. A
-# conversion does not start below this, the run stops instead.
-MIN_FREE_BYTES = 20 * 1024**3
+# A conversion writes only its demo, but a disk that runs full breaks every
+# job on the host. A conversion does not start below this, the run stops
+# instead.
+MIN_FREE_BYTES = 1024**3
 
 
 class DiskFullError(RankDemoError):
@@ -205,16 +205,6 @@ class Converter:
         chain.reverse()
         return chain
 
-    def materialize(self, recording, workdir, name):
-        """Decompress .xz recordings into the workdir, the tool parses a
-        recording twice and needs a seekable plain file."""
-        if recording.suffix != ".xz":
-            return recording
-        path = workdir / f"{name}.teehistorian"
-        with open(path, "wb") as file:
-            subprocess.run(["xz", "-dc", str(recording)], stdout=file, check=True)
-        return path
-
     def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
         """Returns (demo_path, meta_dict), converting and caching on demand.
         aliases maps a rank name to the names the player had before, for a
@@ -280,9 +270,8 @@ class Converter:
                 raise DiskFullError(free)
             workdir = Path(tempfile.mkdtemp(dir=self.tmp))
             try:
-                input_path = self.materialize(recording, workdir, "input")
                 try:
-                    meta = self.run_tool(workdir, input_path, map_path, alias_args, time_str, offset, names)
+                    meta = self.run_tool(workdir, recording, map_path, alias_args, time_str, offset, names)
                 except RankDemoError as error:
                     # The names of players that joined before the recording
                     # started are only in the previous recordings, retry with
@@ -294,8 +283,8 @@ class Converter:
                         raise
                     prev_args = []
                     for index, prev in enumerate(chain):
-                        prev_args += ["--prev", str(self.materialize(prev, workdir, f"prev{index}"))]
-                    meta = self.run_tool(workdir, input_path, map_path, prev_args + alias_args, time_str, offset, names)
+                        prev_args += ["--prev", str(prev)]
+                    meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:

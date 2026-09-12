@@ -90,9 +90,12 @@ def entry_key(entry):
 
 
 def run_key(entry):
-    # The run a rank is of: the recording it is in and its time. A team rank
-    # saved under a stale game id names the recording separately.
-    return entry.get("recording", entry["uuid"]), entry["time"]
+    # The run a rank is of: the recording it is in, its time and when it
+    # finished. The members of a team finish share all three, and a bot that
+    # replays one run under changing names gets the same time to the
+    # hundredth every time but a different timestamp. A team rank saved
+    # under a stale game id names the recording separately.
+    return entry.get("recording", entry["uuid"]), entry["time"], entry.get("ts")
 
 
 def main():

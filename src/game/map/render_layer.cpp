@@ -613,6 +613,15 @@ void CRenderLayerTile::Init()
 	else
 		m_TextureHandle.Invalidate();
 	UploadTileData(m_VisualTiles, 0, false);
+	// The tiles are on the GPU now and a design layer's are not read again,
+	// only the physics layers' are (collision, text overlays). Decompressed
+	// they would stay in memory for the map's lifetime otherwise, 20 MB per
+	// full-size layer of a large map, 800 MB for the 42 layers of Abyss.
+	if(Graphics()->IsTileBufferingEnabled() && m_pLayerTilemap->m_Flags == 0)
+	{
+		m_pMap->UnloadData(GetDataIndex());
+		m_pTiles = nullptr;
+	}
 }
 
 void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsOptional, int CurOverlay, bool AddAsSpeedup, bool IsGameLayer)

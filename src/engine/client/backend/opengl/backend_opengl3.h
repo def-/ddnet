@@ -24,6 +24,7 @@ class CCommandProcessorFragment_OpenGL3_3 : public CCommandProcessorFragment_Ope
 {
 protected:
 	int m_MaxQuadsAtOnce;
+	bool m_HasMultiDraw = false;
 	static const int ms_MaxQuadsPossible = 256;
 
 	CGLSLPrimitiveProgram *m_pPrimitiveProgram;

@@ -13,6 +13,22 @@
 #include <OpenGLES/ES3/glext.h>
 #else
 #include <GLES3/gl3.h>
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
+
+// The counts and offsets go to the extension as copies: WebKit refuses a
+// view on the shared wasm memory there ("SharedArrayBuffer is not
+// allowed"), which is what Emscripten's own glMultiDrawElementsWEBGL
+// passes. Chrome takes either.
+// clang-format off
+EM_JS(void, MultiDrawElementsWebGL, (int Mode, const int *pCounts, int Type, const int *pOffsets, int DrawCount), {
+	const counts = HEAP32.slice(pCounts >> 2, (pCounts >> 2) + DrawCount);
+	const offsets = HEAP32.slice(pOffsets >> 2, (pOffsets >> 2) + DrawCount);
+	GLctx.multiDrawWebgl.multiDrawElementsWEBGL(Mode, counts, 0, Type, offsets, 0, DrawCount);
+});
+// clang-format on
+#endif
 #endif
 #endif
 
@@ -125,6 +141,13 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &CapVal);
 
 	m_MaxQuadsAtOnce = std::min(((int)CapVal - 20) / (3 * 4), (int)ms_MaxQuadsPossible);
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// A tile layer is drawn as one draw per visible row, hundreds of calls a
+	// frame on a large map, and each WebGL call goes through the browser.
+	// The extension submits them all at once.
+	m_HasMultiDraw = emscripten_webgl_enable_extension(emscripten_webgl_get_current_context(), "WEBGL_multi_draw") == EM_TRUE;
+	log_info("gfx", "WEBGL_multi_draw: %s", m_HasMultiDraw ? "yes" : "no");
+#endif
 
 	{
 		CGLSL PrimitiveVertexShader;
@@ -1144,6 +1167,13 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_RenderTileLayer(const CCommandBuff
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_QuadDrawIndexBufferId);
 		BufferContainer.m_LastIndexBufferBound = m_QuadDrawIndexBufferId;
 	}
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	if(m_HasMultiDraw)
+	{
+		MultiDrawElementsWebGL(GL_TRIANGLES, (const int *)pCommand->m_pDrawCount, GL_UNSIGNED_INT, (const int *)pCommand->m_pIndicesOffsets, pCommand->m_IndicesDrawNum);
+		return;
+	}
+#endif
 	for(int i = 0; i < pCommand->m_IndicesDrawNum; ++i)
 	{
 		glDrawElements(GL_TRIANGLES, pCommand->m_pDrawCount[i], GL_UNSIGNED_INT, pCommand->m_pIndicesOffsets[i]);

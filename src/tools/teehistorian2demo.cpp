@@ -329,6 +329,7 @@ struct CServerConfig
 	int m_SvDestroyBulletsOnDeath = 1;
 	int m_SvDestroyLasersOnDeath = 0;
 	int m_SvOldTeleportWeapons = 0;
+	int m_SvTeleportHoldHook = 0;
 	// Set by a tile of the map as well, see CConverter::LoadMap
 	int m_SvOldLaser = 0;
 	int m_SvEndlessDrag = 0;
@@ -659,7 +660,11 @@ public:
 		// the last checkpoint it passed instead of to a numbered one.
 		int m_TeleNumber = 0;
 		bool m_TeleCheck = false;
+		bool m_TeleEvil = false;
 		int m_TeleTick = -1;
+		// The tick the recording placed the tee somewhere else, the
+		// simulation cannot be held to it there
+		int m_PlacedTick = -1;
 		int m_TeleCheckpoint = 0;
 		int m_TileScanX = 0;
 		int m_TileScanY = 0;
@@ -1225,6 +1230,7 @@ public:
 			{"sv_destroy_bullets_on_death", &m_Config.m_SvDestroyBulletsOnDeath},
 			{"sv_destroy_lasers_on_death", &m_Config.m_SvDestroyLasersOnDeath},
 			{"sv_old_teleport_weapons", &m_Config.m_SvOldTeleportWeapons},
+			{"sv_teleport_hold_hook", &m_Config.m_SvTeleportHoldHook},
 			{"sv_old_laser", &m_Config.m_SvOldLaser},
 			{"sv_endless_drag", &m_Config.m_SvEndlessDrag}};
 		for(unsigned i = 0; i < pConfig->u.object.length; i++)
@@ -2572,9 +2578,11 @@ private:
 			// there to undo the freeze tile the teleporter sits on.
 			vec2 ScanFrom = Pos;
 			float Nearest = 6 * 32;
+			Player.m_PlacedTick = m_Tick;
 			// The tile is walked in the tick before the jump shows up, an
 			// older teleporter is one the tee did not come through
-			if(Player.m_TeleTick == m_Tick - 1)
+			const bool Teleported = Player.m_TeleTick == m_Tick - 1;
+			if(Teleported)
 			{
 				for(const vec2 &Out : TeleOutsOf(Player))
 				{
@@ -2590,16 +2598,27 @@ private:
 			Player.m_TeleCheck = false;
 			Player.m_TileScanX = ScanFrom.x;
 			Player.m_TileScanY = ScanFrom.y;
-			// Teleporting drops the hook and lets go of whoever held on
-			Player.m_Core.SetHookedPlayer(-1);
-			Player.m_Core.m_HookState = HOOK_RETRACTED;
-			Player.m_Core.m_HookPos = Pos;
-			for(auto &Other : m_aPlayers)
+			// A teleporter drops the tee's own hook, and the evil kinds let go
+			// of whoever held on, unless the server holds hooks through
+			// teleports (CCharacter::HandleTiles). Any other placement drops
+			// them all.
+			const bool KeepOwnHook = Teleported && m_Config.m_SvTeleportHoldHook;
+			const bool KeepOthersHooks = Teleported && (m_Config.m_SvTeleportHoldHook || !Player.m_TeleEvil);
+			if(!KeepOwnHook)
 			{
-				if(Other.m_Core.HookedPlayer() == &Player - m_aPlayers)
+				Player.m_Core.SetHookedPlayer(-1);
+				Player.m_Core.m_HookState = HOOK_RETRACTED;
+				Player.m_Core.m_HookPos = Pos;
+			}
+			if(!KeepOthersHooks)
+			{
+				for(auto &Other : m_aPlayers)
 				{
-					Other.m_Core.SetHookedPlayer(-1);
-					Other.m_Core.m_HookState = HOOK_RETRACTED;
+					if(Other.m_Core.HookedPlayer() == &Player - m_aPlayers)
+					{
+						Other.m_Core.SetHookedPlayer(-1);
+						Other.m_Core.m_HookState = HOOK_RETRACTED;
+					}
 				}
 			}
 			bool AtSpawn = false;
@@ -2839,6 +2858,7 @@ private:
 		{
 			Player.m_TeleNumber = Tele;
 			Player.m_TeleCheck = Tele <= 0;
+			Player.m_TeleEvil = TeleIn <= 0 && !m_Collision.IsCheckTeleport(Index);
 			Player.m_TeleTick = m_Tick;
 		}
 
@@ -3624,8 +3644,9 @@ private:
 			// How far the replayed physics drifted from the recording this
 			// tick, before it is snapped back: the measure of how exactly the
 			// simulation matches the server
-			Player.m_SimError = SimTicks == 1 && Player.m_PrevTick == m_Tick - 1 ? distance(Player.m_Core.m_Pos, RecordedPos) : 0.0f;
-			if(SimTicks == 1 && Player.m_PrevTick == m_Tick - 1)
+			const bool Simulated = SimTicks == 1 && Player.m_PrevTick == m_Tick - 1 && Player.m_PlacedTick != m_Tick;
+			Player.m_SimError = Simulated ? distance(Player.m_Core.m_Pos, RecordedPos) : 0.0f;
+			if(Simulated)
 			{
 				const float Err = Player.m_SimError;
 				m_ErrSum += Err;

@@ -666,8 +666,18 @@ public:
 		// simulation cannot be held to it there
 		int m_PlacedTick = -1;
 		int m_TeleCheckpoint = 0;
+		// The tile scan runs a tick behind the recording: the server handles
+		// the tiles of a position in the tick after the one that produced it
+		// (CCharacter::DDRacePostCoreTick reads m_Pos, which TickDeferred set
+		// after the last move). Where the scan stands, the position whose
+		// tiles are due, and where it continues after a teleport.
 		int m_TileScanX = 0;
 		int m_TileScanY = 0;
+		int m_TileDueX = 0;
+		int m_TileDueY = 0;
+		bool m_TileRestart = false;
+		int m_TileRestartX = 0;
+		int m_TileRestartY = 0;
 		int m_MoveRestrictions = 0;
 		int m_TuneZone = 0;
 		// When this character spawned, the server's entity list is ordered by
@@ -1914,6 +1924,9 @@ public:
 			pPlayer->m_PrevY = Y;
 			pPlayer->m_TileScanX = X;
 			pPlayer->m_TileScanY = Y;
+			pPlayer->m_TileDueX = X;
+			pPlayer->m_TileDueY = Y;
+			pPlayer->m_TileRestart = false;
 			pPlayer->m_PrevTick = -1;
 			pPlayer->m_TeleNumber = 0;
 			pPlayer->m_TeleCheck = false;
@@ -2579,9 +2592,19 @@ private:
 			vec2 ScanFrom = Pos;
 			float Nearest = 6 * 32;
 			Player.m_PlacedTick = m_Tick;
-			// The tile is walked in the tick before the jump shows up, an
-			// older teleporter is one the tee did not come through
-			const bool Teleported = Player.m_TeleTick == m_Tick - 1;
+			// The teleporter is among the tiles the server handled in this
+			// tick, those of the position before the jump, which the scan
+			// only reaches at the end of the tick. A scan pass has no map.
+			if(m_Layers.GameLayer() != nullptr)
+			{
+				const vec2 Due(Player.m_TileDueX, Player.m_TileDueY);
+				std::vector<int> vIndices = m_Collision.GetMapIndices(vec2(Player.m_TileScanX, Player.m_TileScanY), Due);
+				if(vIndices.empty())
+					vIndices.push_back(m_Collision.GetMapIndex(Due));
+				for(const int Index : vIndices)
+					HandleTeleTiles(Player, Index);
+			}
+			const bool Teleported = Player.m_TeleTick == m_Tick;
 			if(Teleported)
 			{
 				for(const vec2 &Out : TeleOutsOf(Player))
@@ -2596,8 +2619,9 @@ private:
 			}
 			Player.m_TeleNumber = 0;
 			Player.m_TeleCheck = false;
-			Player.m_TileScanX = ScanFrom.x;
-			Player.m_TileScanY = ScanFrom.y;
+			Player.m_TileRestart = true;
+			Player.m_TileRestartX = ScanFrom.x;
+			Player.m_TileRestartY = ScanFrom.y;
 			// A teleporter drops the tee's own hook, and the evil kinds let go
 			// of whoever held on, unless the server holds hooks through
 			// teleports (CCharacter::HandleTiles). Any other placement drops
@@ -2822,6 +2846,26 @@ private:
 		}
 	}
 
+	// Which teleporter the tee stepped on, the tile scan continues from its
+	// out tile once the recorded position jumps there
+	void HandleTeleTiles(CPlayer &Player, int Index)
+	{
+		if(Index < 0)
+			return;
+		const int TeleIn = m_Collision.IsTeleport(Index);
+		const int Tele = TeleIn > 0 ? TeleIn : m_Collision.IsEvilTeleport(Index);
+		const int TeleCheckpoint = m_Collision.IsTeleCheckpoint(Index);
+		if(TeleCheckpoint > 0)
+			Player.m_TeleCheckpoint = TeleCheckpoint;
+		if(Tele > 0 || m_Collision.IsCheckTeleport(Index) || m_Collision.IsCheckEvilTeleport(Index))
+		{
+			Player.m_TeleNumber = Tele;
+			Player.m_TeleCheck = Tele <= 0;
+			Player.m_TeleEvil = TeleIn <= 0 && !m_Collision.IsCheckTeleport(Index);
+			Player.m_TeleTick = m_Tick;
+		}
+	}
+
 	// Everything one tile does to a player, mirroring CCharacter::HandleTiles
 	void HandleTiles(CPlayer &Player, int Index)
 	{
@@ -2847,20 +2891,7 @@ private:
 		const CSwitchActiveContext Context = {this, Team};
 		Player.m_MoveRestrictions = m_Collision.GetMoveRestrictions(IsSwitchActiveCb, (void *)&Context, vec2(Player.m_X, Player.m_Y), 18.0f, Index);
 
-		// Which teleporter the tee stepped on, the tile scan continues from
-		// its out tile once the recorded position jumps there
-		const int TeleIn = m_Collision.IsTeleport(Index);
-		const int Tele = TeleIn > 0 ? TeleIn : m_Collision.IsEvilTeleport(Index);
-		const int TeleCheckpoint = m_Collision.IsTeleCheckpoint(Index);
-		if(TeleCheckpoint > 0)
-			Player.m_TeleCheckpoint = TeleCheckpoint;
-		if(Tele > 0 || m_Collision.IsCheckTeleport(Index) || m_Collision.IsCheckEvilTeleport(Index))
-		{
-			Player.m_TeleNumber = Tele;
-			Player.m_TeleCheck = Tele <= 0;
-			Player.m_TeleEvil = TeleIn <= 0 && !m_Collision.IsCheckTeleport(Index);
-			Player.m_TeleTick = m_Tick;
-		}
+		HandleTeleTiles(Player, Index);
 
 		if((Tile == TILE_FREEZE || FrontTile == TILE_FREEZE) && !Player.m_DeepFrozen)
 			Freeze(&Player);
@@ -3286,15 +3317,20 @@ private:
 	}
 
 	// CCharacter::FireWeapon. Everything a shot creates is an entity that is
-	// ticked and snapped like the map's own.
-	void FireWeapon(int Cid)
+	// ticked and snapped like the map's own. The server runs this in the
+	// character's tick with the input the core ticked with, where only a held
+	// button fires (the press it carried fired when it arrived), and again
+	// for every input that arrives after the tick, where a press fires too.
+	void FireWeapon(int Cid, bool Arrival)
 	{
 		CPlayer &Player = m_aPlayers[Cid];
 		if(Player.m_ReloadTimer != 0)
 			return;
 
 		DoWeaponSwitch(Player);
-		const vec2 MouseTarget = vec2(Player.m_Input.m_TargetX, Player.m_Input.m_TargetY);
+		const CNetObj_PlayerInput &Input = Arrival ? Player.m_Input : Player.m_SimInput;
+		const int HeldFire = Arrival ? Player.m_Input.m_Fire : Player.m_LastFire;
+		const vec2 MouseTarget = vec2(Input.m_TargetX, Input.m_TargetY);
 		const vec2 Direction = normalize(MouseTarget);
 		const int ActiveWeapon = Player.m_Core.m_ActiveWeapon;
 
@@ -3314,15 +3350,15 @@ private:
 			return;
 
 		bool WillFire = false;
-		if(CountInput(Player.m_LastFire, Player.m_Input.m_Fire).m_Presses)
+		if(Arrival && CountInput(Player.m_LastFire, Player.m_Input.m_Fire).m_Presses)
 			WillFire = true;
-		if(FullAuto && (Player.m_Input.m_Fire & 1) && ActiveWeapon >= 0 && Player.m_Core.m_aWeapons[ActiveWeapon].m_Ammo)
+		if(FullAuto && (HeldFire & 1) && ActiveWeapon >= 0 && Player.m_Core.m_aWeapons[ActiveWeapon].m_Ammo)
 			WillFire = true;
 		if(!WillFire)
 			return;
 
 		const vec2 Pos = CharPos(&Player);
-		if(IsFrozen(Player))
+		if(WeaponsFrozen(Player))
 		{
 			// Firing in freeze screams instead, at most once a second
 			if(Player.m_PainSoundTimer <= 0 && !(Player.m_LastFire & 1))
@@ -3427,91 +3463,112 @@ private:
 			Player.m_ReloadTimer = Tuning(Player.m_TuneZone).GetWeaponFireDelay(ActiveWeapon) * TICK_SPEED;
 	}
 
-	// CCharacter::HandleWeapons. The server switches and fires a weapon for
-	// every input it receives, at the end of the tick the input arrived in,
-	// with the tee at the position that tick recorded: that is the input this
-	// tick's chunks carry, so the weapon phase runs on those positions.
+	// The weapons and tiles of the tick, on the positions the tick recorded.
+	// First what CCharacter::Tick does for each character in the order of the
+	// entity list: its reload runs down, a held button fires (a full auto
+	// weapon, or any weapon in the tick after an unfreeze), and its tiles are
+	// handled. Then the inputs of the tick arrive, once it has run
+	// (CCharacter::OnDirectInput): the weapon they ask for is switched to and
+	// a press fires, so one that arrives in the tick a reload runs out still
+	// fires, and a hammer that arrives once the tick has frozen its target
+	// unfreezes it.
 	void HandleWeapons()
 	{
 		m_TickEndPositions = true;
 		UpdateCharacterBox();
-		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		for(const CCharacterRef &Char : m_vAliveChars)
 		{
-			CPlayer &Player = m_aPlayers[Cid];
+			CPlayer &Player = m_aPlayers[Char.m_Cid];
 			if(!Player.m_Alive)
 				continue;
-			HandleWeaponSwitch(Cid);
 			if(Player.m_PainSoundTimer > 0)
 				Player.m_PainSoundTimer--;
-			// The server fires on an input's arrival as well as in its tick,
-			// so a press that arrives in the tick a reload runs out still
-			// fires. Here the press of that tick is honoured the same way.
 			if(Player.m_ReloadTimer)
 				Player.m_ReloadTimer--;
-			if(Player.m_ReloadTimer == 0)
-				FireWeapon(Cid);
+			else
+				FireWeapon(Char.m_Cid, false);
 			// DDRacePostCoreTick clears this right after the weapons ran
 			Player.m_FrozenLastTick = false;
+			HandlePlayerTiles(Player);
+		}
+		for(const CCharacterRef &Char : m_vAliveChars)
+		{
+			CPlayer &Player = m_aPlayers[Char.m_Cid];
+			if(!Player.m_Alive)
+				continue;
+			HandleWeaponSwitch(Char.m_Cid);
+			if(Player.m_ReloadTimer == 0)
+				FireWeapon(Char.m_Cid, true);
 			Player.m_LastFire = Player.m_Input.m_Fire;
 		}
 		m_TickEndPositions = false;
 	}
 
-	void UpdateFreeze()
+	// CCharacter::DDRacePostCoreTick. The server handles the tiles of the
+	// previous tick's position, the one its core still stands on
+	// (TickDeferred moves it afterwards), so freeze from a tile entered a
+	// tick ago takes effect next tick, and a hook pressed in the tick an
+	// unfreeze tile is touched goes out a tick later.
+	void HandlePlayerTiles(CPlayer &Player)
 	{
-		// Scan passes run without a map
-		if(m_Layers.GameLayer() == nullptr)
-			return;
-		for(auto &Player : m_aPlayers)
+		// A deep frozen tee is frozen again every tick, so leaving deep
+		// freeze still leaves a freeze running
+		if(Player.m_DeepFrozen)
+			Freeze(&Player);
+		// The tile handler runs for every tile between the position before
+		// the due one and it (the anti-skip pass), so a fast player cannot
+		// fly through an unfreeze tile between two recorded positions
+		const vec2 Due(Player.m_TileDueX, Player.m_TileDueY);
+		const std::vector<int> vIndices = m_Collision.GetMapIndices(vec2(Player.m_TileScanX, Player.m_TileScanY), Due);
+		if(vIndices.empty())
 		{
-			if(!Player.m_Alive)
-				continue;
-			// A deep frozen tee is frozen again every tick, so leaving deep
-			// freeze still leaves a freeze running (CCharacter::DDRacePostCoreTick)
-			if(Player.m_DeepFrozen)
-				Freeze(&Player);
-			const vec2 Pos(Player.m_X, Player.m_Y);
-			// The server runs the tile handler for every tile between the
-			// previous and the current position (the anti-skip pass in
-			// CCharacter::DDRacePostCoreTick), so a fast player cannot fly
-			// through an unfreeze tile between two recorded positions
-			const std::vector<int> vIndices = m_Collision.GetMapIndices(vec2(Player.m_TileScanX, Player.m_TileScanY), Pos);
-			if(vIndices.empty())
-			{
-				HandleTiles(Player, m_Collision.GetMapIndex(Pos));
-			}
-			else
-			{
-				for(const int Index : vIndices)
-					HandleTiles(Player, Index);
-			}
-			Player.m_TileScanX = Player.m_X;
-			Player.m_TileScanY = Player.m_Y;
+			HandleTiles(Player, m_Collision.GetMapIndex(Due));
+		}
+		else
+		{
+			for(const int Index : vIndices)
+				HandleTiles(Player, Index);
+		}
+		// A teleport puts the tee at its out tile, the scan goes on from
+		// there (the server assigns m_PrevPos after the teleport)
+		Player.m_TileScanX = Player.m_TileRestart ? Player.m_TileRestartX : Player.m_TileDueX;
+		Player.m_TileScanY = Player.m_TileRestart ? Player.m_TileRestartY : Player.m_TileDueY;
+		Player.m_TileRestart = false;
+		Player.m_TileDueX = Player.m_X;
+		Player.m_TileDueY = Player.m_Y;
 
-			// Whether the tee is standing in freeze right now, for the
-			// snapshot flag (CCharacter::DDRaceTick)
-			const int Here = m_Collision.GetPureMapIndex(Pos);
-			const int aTiles[] = {m_Collision.GetTileIndex(Here), m_Collision.GetFrontTileIndex(Here), m_Collision.GetSwitchType(Here)};
-			Player.m_InFreezeTile = false;
-			for(const int Tile : aTiles)
+		// Whether the tee is standing in freeze right now, for the snapshot
+		// flag (CCharacter::DDRaceTick)
+		const int Here = m_Collision.GetPureMapIndex(vec2(Player.m_X, Player.m_Y));
+		const int aTiles[] = {m_Collision.GetTileIndex(Here), m_Collision.GetFrontTileIndex(Here), m_Collision.GetSwitchType(Here)};
+		Player.m_InFreezeTile = false;
+		for(const int Tile : aTiles)
+		{
+			if(Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE || Tile == TILE_DEATH)
 			{
-				if(Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE || Tile == TILE_DEATH)
-				{
-					Player.m_InFreezeTile = true;
-					break;
-				}
+				Player.m_InFreezeTile = true;
+				break;
 			}
 		}
 	}
 
-	// The tick a freeze ends on, the server lets the tee fire right away
+	// The server runs the freeze down before the weapons (DDRaceTick), and
+	// lets the tee fire in the tick the freeze ends, the last one its input
+	// is still held back in: that tick is the one before m_FreezeEndTick
 	void UpdateFrozenLastTick()
 	{
 		for(auto &Player : m_aPlayers)
 		{
-			if(Player.m_Alive && Player.m_FreezeEndTick > 0 && Player.m_FreezeEndTick == m_Tick && !Player.m_DeepFrozen)
+			if(Player.m_Alive && Player.m_FreezeEndTick > 0 && Player.m_FreezeEndTick == m_Tick + 1 && !Player.m_DeepFrozen)
 				Player.m_FrozenLastTick = true;
 		}
+	}
+
+	// Whether the weapons of this tick are held back by a freeze, one tick
+	// less than the input is (see UpdateFrozenLastTick)
+	bool WeaponsFrozen(const CPlayer &Player) const
+	{
+		return Player.m_DeepFrozen || Player.m_FreezeEndTick > m_Tick + 1;
 	}
 
 	// How far the simulated tee stood from its recorded place this tick
@@ -3908,9 +3965,9 @@ private:
 			}
 			Simulate();
 		}
-		// The weapons run after the core has ticked, the same way the server
-		// fires them from the inputs that arrived during the tick, with the
-		// tee already standing where this tick recorded it
+		// The weapons and tiles run after the core has ticked, the same way
+		// the server fires them from the inputs that arrived during the
+		// tick, with the tee already standing where this tick recorded it
 		if(HasWorld)
 			HandleWeapons();
 		if(Record)
@@ -3974,10 +4031,6 @@ private:
 					m_vTeamCids.push_back(Cid);
 			}
 		}
-		// The server handles tiles after weapons and movement, so freeze from
-		// a tile entered this tick takes effect next tick: a hammer fired
-		// while entering freeze still lands and unfreezes its target
-		UpdateFreeze();
 		// CGameContext::OnTick expires the timed switchers once the world and
 		// its characters have run
 		UpdateSwitchers();

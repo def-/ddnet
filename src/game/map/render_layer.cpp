@@ -103,27 +103,37 @@ static void FillTmpTileSpeedup(CGraphicTile *pTmpTile, CGraphicTileTextureCoords
 	FillTmpTile(pTmpTile, pTmpTex, Angle >= 270 ? ROTATION_270 : (Angle >= 180 ? ROTATION_180 : (Angle >= 90 ? ROTATION_90 : 0)), AngleRotate % 90, x, y, Offset, Scale);
 }
 
+static bool FillTile(CGraphicTile *pTile, CGraphicTileTextureCoords *pTileTex, unsigned char Index, unsigned char Flags, int x, int y, bool FillSpeedup = false, int AngleRotate = -1, const ivec2 &Offset = ivec2{0, 0}, int Scale = 32)
+{
+	if(Index <= 0)
+		return false;
+
+	if(FillSpeedup)
+		FillTmpTileSpeedup(pTile, pTileTex, Flags, x, y, Offset, Scale, AngleRotate);
+	else
+		FillTmpTile(pTile, pTileTex, Flags, Index, x, y, Offset, Scale);
+
+	return true;
+}
+
 static bool AddTile(std::vector<CGraphicTile> &vTmpTiles, std::vector<CGraphicTileTextureCoords> &vTmpTileTexCoords, unsigned char Index, unsigned char Flags, int x, int y, bool DoTextureCoords, bool FillSpeedup = false, int AngleRotate = -1, const ivec2 &Offset = ivec2{0, 0}, int Scale = 32)
 {
 	if(Index <= 0)
 		return false;
 
 	vTmpTiles.emplace_back();
-	CGraphicTile &Tile = vTmpTiles.back();
-	CGraphicTileTextureCoords *pTileTex = nullptr;
-	if(DoTextureCoords)
-	{
-		vTmpTileTexCoords.emplace_back();
-		CGraphicTileTextureCoords &TileTex = vTmpTileTexCoords.back();
-		pTileTex = &TileTex;
-	}
-	if(FillSpeedup)
-		FillTmpTileSpeedup(&Tile, pTileTex, Flags, x, y, Offset, Scale, AngleRotate);
-	else
-		FillTmpTile(&Tile, pTileTex, Flags, Index, x, y, Offset, Scale);
-
-	return true;
+	CGraphicTileTextureCoords *pTileTex = DoTextureCoords ? &vTmpTileTexCoords.emplace_back() : nullptr;
+	return FillTile(&vTmpTiles.back(), pTileTex, Index, Flags, x, y, FillSpeedup, AngleRotate, Offset, Scale);
 }
+
+// A tile in the upload buffer of a textured layer
+class CTileVertex
+{
+public:
+	vec2 m_Pos;
+	ubvec4 m_Tex;
+};
+static_assert(sizeof(CTileVertex) == sizeof(vec2) + sizeof(ubvec4)); // no padding
 
 class CTmpQuadVertexTextured
 {
@@ -622,8 +632,6 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 		return;
 
 	// prepare all visuals for all tile layers
-	std::vector<CGraphicTile> vTmpTiles;
-	std::vector<CGraphicTileTextureCoords> vTmpTileTexCoords;
 	std::vector<CGraphicTile> vTmpBorderTopTiles;
 	std::vector<CGraphicTileTextureCoords> vTmpBorderTopTilesTexCoords;
 	std::vector<CGraphicTile> vTmpBorderLeftTiles;
@@ -650,7 +658,6 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 
 	if(!DoTextureCoords)
 	{
-		vTmpTiles.reserve((size_t)m_pLayerTilemap->m_Width * m_pLayerTilemap->m_Height);
 		vTmpBorderTopTiles.reserve((size_t)m_pLayerTilemap->m_Width);
 		vTmpBorderBottomTiles.reserve((size_t)m_pLayerTilemap->m_Width);
 		vTmpBorderLeftTiles.reserve((size_t)m_pLayerTilemap->m_Height);
@@ -659,13 +666,60 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	}
 	else
 	{
-		vTmpTileTexCoords.reserve((size_t)m_pLayerTilemap->m_Width * m_pLayerTilemap->m_Height);
 		vTmpBorderTopTilesTexCoords.reserve((size_t)m_pLayerTilemap->m_Width);
 		vTmpBorderBottomTilesTexCoords.reserve((size_t)m_pLayerTilemap->m_Width);
 		vTmpBorderLeftTilesTexCoords.reserve((size_t)m_pLayerTilemap->m_Height);
 		vTmpBorderRightTilesTexCoords.reserve((size_t)m_pLayerTilemap->m_Height);
 		vTmpBorderCornersTexCoords.reserve((size_t)4);
 	}
+
+	// The tiles are counted first and written straight into the upload
+	// buffer: a full-size layer of a large map holds millions, and
+	// temporary copies of their vertices cost more than the map itself.
+	// The border tiles are few, they take the same conditions as below.
+	size_t NumTiles = IsGameLayer ? 1 : 0; // the kill tile
+	size_t NumBorderTiles = 0;
+	for(int y = 0; y < m_pLayerTilemap->m_Height; ++y)
+	{
+		for(int x = 0; x < m_pLayerTilemap->m_Width; ++x)
+		{
+			unsigned char Index = 0;
+			unsigned char Flags = 0;
+			int AngleRotate = -1;
+			GetTileData(&Index, &Flags, &AngleRotate, x, y, CurOverlay);
+			if(Index <= 0)
+				continue;
+			NumTiles++;
+			if(x == 0 || x == m_pLayerTilemap->m_Width - 1)
+				NumBorderTiles += (y == 0 || y == m_pLayerTilemap->m_Height - 1) ? 2 : 1;
+			if(y == 0 || y == m_pLayerTilemap->m_Height - 1)
+				NumBorderTiles++;
+		}
+	}
+	const size_t TileSize = DoTextureCoords ? sizeof(CTileVertex) * 4 : sizeof(CGraphicTile);
+	const size_t UploadDataSize = (NumTiles + NumBorderTiles) * TileSize;
+	if(UploadDataSize == 0)
+	{
+		return;
+	}
+	void *pUploadData = malloc(UploadDataSize);
+	size_t NumWritten = 0;
+	auto WriteTile = [&](const CGraphicTile &Tile, const CGraphicTileTextureCoords &TexCoords) {
+		dbg_assert(NumWritten < NumTiles + NumBorderTiles, "more tiles than counted");
+		if(DoTextureCoords)
+		{
+			CTileVertex *pDst = static_cast<CTileVertex *>(pUploadData) + NumWritten * 4;
+			pDst[0] = {Tile.m_TopLeft, TexCoords.m_TexCoordTopLeft};
+			pDst[1] = {Tile.m_TopRight, TexCoords.m_TexCoordTopRight};
+			pDst[2] = {Tile.m_BottomRight, TexCoords.m_TexCoordBottomRight};
+			pDst[3] = {Tile.m_BottomLeft, TexCoords.m_TexCoordBottomLeft};
+		}
+		else
+		{
+			static_cast<CGraphicTile *>(pUploadData)[NumWritten] = Tile;
+		}
+		NumWritten++;
+	};
 
 	int DrawLeft = m_pLayerTilemap->m_Width;
 	int DrawRight = 0;
@@ -683,8 +737,11 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 			int AngleRotate = -1;
 			GetTileData(&Index, &Flags, &AngleRotate, x, y, CurOverlay);
 
-			if(AddTile(vTmpTiles, vTmpTileTexCoords, Index, Flags, x, y, DoTextureCoords, AddAsSpeedup, AngleRotate))
+			CGraphicTile Tile;
+			CGraphicTileTextureCoords TexCoords;
+			if(FillTile(&Tile, DoTextureCoords ? &TexCoords : nullptr, Index, Flags, x, y, AddAsSpeedup, AngleRotate))
 			{
+				WriteTile(Tile, TexCoords);
 				Visuals.m_vTilePositions.push_back(y * m_pLayerTilemap->m_Width + x);
 
 				// calculate clip region boundaries based on draws
@@ -769,21 +826,26 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	// append one kill tile to the gamelayer
 	if(IsGameLayer)
 	{
-		Visuals.m_BorderKillTile.SetIndexBufferByteOffset((offset_ptr32)(vTmpTiles.size()));
-		if(AddTile(vTmpTiles, vTmpTileTexCoords, TILE_DEATH, 0, 0, 0, DoTextureCoords))
+		Visuals.m_BorderKillTile.SetIndexBufferByteOffset((offset_ptr32)NumWritten);
+		CGraphicTile Tile;
+		CGraphicTileTextureCoords TexCoords;
+		if(FillTile(&Tile, DoTextureCoords ? &TexCoords : nullptr, TILE_DEATH, 0, 0, 0))
+		{
+			WriteTile(Tile, TexCoords);
 			Visuals.m_BorderKillTile.Draw(true);
+		}
 	}
 
-	// inserts and clears tiles and tile texture coords
+	// writes and clears tiles and tile texture coords
 	auto InsertTiles = [&](std::vector<CGraphicTile> &vTiles, std::vector<CGraphicTileTextureCoords> &vTexCoords) {
-		vTmpTiles.insert(vTmpTiles.end(), vTiles.begin(), vTiles.end());
-		vTmpTileTexCoords.insert(vTmpTileTexCoords.end(), vTexCoords.begin(), vTexCoords.end());
+		for(size_t i = 0; i < vTiles.size(); i++)
+			WriteTile(vTiles[i], DoTextureCoords ? vTexCoords[i] : CGraphicTileTextureCoords());
 		vTiles.clear();
 		vTexCoords.clear();
 	};
 
 	// add the border corners, then the borders and fix their byte offsets
-	int TilesHandledCount = vTmpTiles.size();
+	int TilesHandledCount = NumWritten;
 	Visuals.m_BorderTopLeft.AddIndexBufferByteOffset(TilesHandledCount);
 	Visuals.m_BorderTopRight.AddIndexBufferByteOffset(TilesHandledCount);
 	Visuals.m_BorderBottomLeft.AddIndexBufferByteOffset(TilesHandledCount);
@@ -793,7 +855,7 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	InsertTiles(vTmpBorderCorners, vTmpBorderCornersTexCoords);
 
 	// now the borders
-	int TilesHandledCountTop = vTmpTiles.size();
+	int TilesHandledCountTop = NumWritten;
 	int TilesHandledCountBottom = TilesHandledCountTop + vTmpBorderTopTiles.size();
 	int TilesHandledCountLeft = TilesHandledCountBottom + vTmpBorderBottomTiles.size();
 	int TilesHandledCountRight = TilesHandledCountLeft + vTmpBorderLeftTiles.size();
@@ -820,48 +882,8 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	InsertTiles(vTmpBorderLeftTiles, vTmpBorderLeftTilesTexCoords);
 	InsertTiles(vTmpBorderRightTiles, vTmpBorderRightTilesTexCoords);
 
+	dbg_assert(NumWritten == NumTiles + NumBorderTiles, "fewer tiles than counted");
 	Visuals.m_BufferContainerIndex = -1;
-
-	// upload data to gpu
-	size_t UploadDataSize = vTmpTileTexCoords.size() * sizeof(CGraphicTileTextureCoords) + vTmpTiles.size() * sizeof(CGraphicTile);
-	if(UploadDataSize == 0)
-	{
-		return;
-	}
-
-	void *pUploadData = malloc(UploadDataSize);
-
-	if(DoTextureCoords)
-	{
-		class CVertex
-		{
-		public:
-			vec2 m_Pos;
-			ubvec4 m_Tex;
-		};
-
-		static_assert(sizeof(CVertex) == sizeof(vec2) + sizeof(ubvec4)); // no padding
-
-		CVertex *pDst = static_cast<CVertex *>(pUploadData);
-		dbg_assert(UploadDataSize == vTmpTiles.size() * sizeof(*pDst) * 4, "invalid upload size");
-
-		for(size_t TileIndex = 0; TileIndex < vTmpTiles.size(); ++TileIndex)
-		{
-			const auto &GraphicTile = vTmpTiles[TileIndex];
-			const auto &GraphicCoords = vTmpTileTexCoords[TileIndex];
-
-			*pDst++ = {GraphicTile.m_TopLeft, GraphicCoords.m_TexCoordTopLeft};
-			*pDst++ = {GraphicTile.m_TopRight, GraphicCoords.m_TexCoordTopRight};
-			*pDst++ = {GraphicTile.m_BottomRight, GraphicCoords.m_TexCoordBottomRight};
-			*pDst++ = {GraphicTile.m_BottomLeft, GraphicCoords.m_TexCoordBottomLeft};
-		}
-	}
-	else
-	{
-		// we don't have texture coords, so we can optimize
-		dbg_assert(UploadDataSize == vTmpTiles.size() * sizeof(CGraphicTile), "invalid upload size");
-		mem_copy(pUploadData, vTmpTiles.data(), vTmpTiles.size() * sizeof(CGraphicTile));
-	}
 
 	// first create the buffer object
 	int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData, 0, true);
@@ -890,7 +912,7 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 
 	Visuals.m_BufferContainerIndex = Graphics()->CreateBufferContainer(&ContainerInfo);
 	// and finally inform the backend how many indices are required
-	Graphics()->IndicesNumRequiredNotify(vTmpTiles.size() * 6);
+	Graphics()->IndicesNumRequiredNotify(NumWritten * 6);
 }
 
 void CRenderLayerTile::Unload()

@@ -1,6 +1,7 @@
 #ifndef GAME_MAP_RENDER_LAYER_H
 #define GAME_MAP_RENDER_LAYER_H
 
+#include <algorithm>
 #include <cstdint>
 
 using offset_ptr_size = char *;
@@ -194,7 +195,23 @@ protected:
 			}
 		};
 
-		std::vector<CTileVisual> m_vTilesOfLayer;
+		// The positions (y * width + x) of the drawn tiles, ascending: a tile's
+		// place in this list is its place in the vertex buffer. One entry per
+		// map cell instead would cost 4 bytes per cell of every layer, 800 MB
+		// for the 42 mostly empty full-size layers of Abyss.
+		std::vector<uint32_t> m_vTilePositions;
+
+		// The tiles drawn between two positions of the layer (inclusive) as
+		// the byte offset of the first one in the index buffer and the
+		// number of vertices, false when there is none
+		bool TileRange(size_t StartPos, size_t EndPos, offset_ptr_size *pByteOffset, unsigned int *pNumVertices) const
+		{
+			const auto Begin = std::lower_bound(m_vTilePositions.begin(), m_vTilePositions.end(), (uint32_t)StartPos);
+			const auto End = std::upper_bound(Begin, m_vTilePositions.end(), (uint32_t)EndPos);
+			*pByteOffset = (offset_ptr_size)((Begin - m_vTilePositions.begin()) * 6 * sizeof(uint32_t));
+			*pNumVertices = (End - Begin) * 6;
+			return End != Begin;
+		}
 
 		CTileVisual m_BorderTopLeft;
 		CTileVisual m_BorderTopRight;

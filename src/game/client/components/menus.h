@@ -21,6 +21,7 @@
 #include <game/client/components/menus_ingame_touch_controls.h>
 #include <game/client/components/menus_settings_controls.h>
 #include <game/client/components/menus_start.h>
+#include <game/client/components/multi_server.h>
 #include <game/client/components/skins7.h>
 #include <game/client/lineinput.h>
 #include <game/client/ui.h>
@@ -173,6 +174,7 @@ protected:
 	bool m_ForceRefreshLanPage = false;
 
 	char m_aNextServer[256];
+	std::vector<CMultiServer::CServerEntry> m_vNextServers;
 
 	// images
 	struct CMenuImage
@@ -202,6 +204,7 @@ protected:
 
 	CUIElement m_RefreshButton;
 	CUIElement m_ConnectButton;
+	CUIElement m_ObserveButton;
 
 	// generic popups
 	typedef void (CMenus::*FPopupButtonCallback)();
@@ -520,6 +523,8 @@ protected:
 	void RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemActivated);
 	void RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItemActivated);
 	void Connect(const char *pAddress);
+	void ConnectAllOnSameMap();
+	void PopupConfirmObserveServers();
 	void PopupConfirmSwitchServer();
 	void RenderServerbrowserFilters(CUIRect View);
 	void ResetServerbrowserFilters();

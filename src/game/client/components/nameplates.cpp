@@ -619,19 +619,54 @@ public:
 class CNamePlates::CNamePlatesData
 {
 public:
-	CNamePlate m_aNamePlates[MAX_CLIENTS];
+	// One for every player of the server we are on, then one for every player of each
+	// observed server, see CMultiServer.
+	CNamePlate m_aNamePlates[(MAX_OBSERVERS + 1) * MAX_CLIENTS];
 };
 
-void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *pPlayerInfo, float Alpha)
+// Video recordings get their own direction setting.
+static int ShowDirectionConfig()
 {
-	// Get screen edges to avoid rendering offscreen
-	CScreenRect ScreenRect = Graphics()->GetScreen();
+#if defined(CONF_VIDEORECORDER)
+	if(IVideo::Current())
+		return g_Config.m_ClVideoShowDirection;
+#endif
+	return g_Config.m_ClShowDirection;
+}
 
-	// Assume that the name plate fits into a 800x800 box placed directly above the tee
+// Assume that the name plate fits into a 800x800 box placed directly above the tee.
+static bool NamePlateOnScreen(CScreenRect ScreenRect, vec2 Position)
+{
 	ScreenRect.m_TopLeft.x -= 400;
 	ScreenRect.m_BottomRight.x += 400;
 	ScreenRect.m_BottomRight.y += 800;
-	if(!ScreenRect.Inside(Position))
+	return ScreenRect.Inside(Position);
+}
+
+// The parts of a name plate that only depend on the settings and on who the player is.
+static void SetNamePlateIdentity(CNamePlateData &Data, bool ShowName, bool Friend, int ClientId, const char *pName, const char *pClan)
+{
+	Data.m_ShowName = ShowName;
+	str_copy(Data.m_aName, pName);
+	Data.m_ShowFriendMark = ShowName && g_Config.m_ClNamePlatesFriendMark && Friend;
+	Data.m_FontSize = 18.0f + 20.0f * g_Config.m_ClNamePlatesSize / 100.0f;
+
+	Data.m_ShowClientId = ShowName && (g_Config.m_Debug || g_Config.m_ClNamePlatesIds);
+	Data.m_ClientId = ClientId;
+	Data.m_ClientIdSeparateLine = g_Config.m_ClNamePlatesIdsSeparateLine;
+	Data.m_FontSizeClientId = Data.m_ClientIdSeparateLine ? (18.0f + 20.0f * g_Config.m_ClNamePlatesIdsSize / 100.0f) : Data.m_FontSize;
+
+	Data.m_ShowClan = ShowName && g_Config.m_ClNamePlatesClan;
+	str_copy(Data.m_aClan, pClan);
+	Data.m_FontSizeClan = 18.0f + 20.0f * g_Config.m_ClNamePlatesClanSize / 100.0f;
+
+	Data.m_FontSizeHookStrongWeak = 18.0f + 20.0f * g_Config.m_ClNamePlatesStrongSize / 100.0f;
+	Data.m_FontSizeDirection = 18.0f + 20.0f * g_Config.m_ClDirectionSize / 100.0f;
+}
+
+void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *pPlayerInfo, float Alpha)
+{
+	if(!NamePlateOnScreen(Graphics()->GetScreen(), Position))
 		return;
 
 	CNamePlateData Data;
@@ -640,23 +675,8 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 	const bool OtherTeam = GameClient()->IsOtherTeam(pPlayerInfo->m_ClientId);
 
 	Data.m_InGame = true;
-
-	Data.m_ShowName = pPlayerInfo->m_Local ? g_Config.m_ClNamePlatesOwn : g_Config.m_ClNamePlates;
-	str_copy(Data.m_aName, GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_aName);
-	Data.m_ShowFriendMark = Data.m_ShowName && g_Config.m_ClNamePlatesFriendMark && GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_Friend;
-	Data.m_ShowClientId = Data.m_ShowName && (g_Config.m_Debug || g_Config.m_ClNamePlatesIds);
-	Data.m_FontSize = 18.0f + 20.0f * g_Config.m_ClNamePlatesSize / 100.0f;
-
-	Data.m_ClientId = pPlayerInfo->m_ClientId;
-	Data.m_ClientIdSeparateLine = g_Config.m_ClNamePlatesIdsSeparateLine;
-	Data.m_FontSizeClientId = Data.m_ClientIdSeparateLine ? (18.0f + 20.0f * g_Config.m_ClNamePlatesIdsSize / 100.0f) : Data.m_FontSize;
-
-	Data.m_ShowClan = Data.m_ShowName && g_Config.m_ClNamePlatesClan;
-	str_copy(Data.m_aClan, GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_aClan);
-	Data.m_FontSizeClan = 18.0f + 20.0f * g_Config.m_ClNamePlatesClanSize / 100.0f;
-
-	Data.m_FontSizeHookStrongWeak = 18.0f + 20.0f * g_Config.m_ClNamePlatesStrongSize / 100.0f;
-	Data.m_FontSizeDirection = 18.0f + 20.0f * g_Config.m_ClDirectionSize / 100.0f;
+	SetNamePlateIdentity(Data, pPlayerInfo->m_Local ? g_Config.m_ClNamePlatesOwn : g_Config.m_ClNamePlates,
+		ClientData.m_Friend, pPlayerInfo->m_ClientId, ClientData.m_aName, ClientData.m_aClan);
 
 	if(g_Config.m_ClNamePlatesAlways == 0)
 		Alpha *= std::clamp(1.0f - std::pow(distance(GameClient()->m_Controls.m_aTargetPos[g_Config.m_ClDummy], Position) / 200.0f, 16.0f), 0.0f, 1.0f);
@@ -682,13 +702,8 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 	}
 	Data.m_Color.a = Alpha;
 
-	int ShowDirectionConfig = g_Config.m_ClShowDirection;
-#if defined(CONF_VIDEORECORDER)
-	if(IVideo::Current())
-		ShowDirectionConfig = g_Config.m_ClVideoShowDirection;
-#endif
 	Data.m_DirLeft = Data.m_DirJump = Data.m_DirRight = false;
-	switch(ShowDirectionConfig)
+	switch(ShowDirectionConfig())
 	{
 	case 0: // Off
 		Data.m_ShowDirection = false;
@@ -762,6 +777,41 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 
 	// Check if the nameplate is actually on screen
 	CNamePlate &NamePlate = m_pData->m_aNamePlates[pPlayerInfo->m_ClientId];
+	NamePlate.Update(*GameClient(), Data);
+	NamePlate.Render(*GameClient(), Position - vec2(0.0f, (float)g_Config.m_ClNamePlatesOffset));
+}
+
+void CNamePlates::RenderNamePlateRemote(vec2 Position, int Server, int ClientId, const CMultiServer::CRemotePlayer &Player)
+{
+	if(!NamePlateOnScreen(Graphics()->GetScreen(), Position))
+		return;
+
+	CNamePlateData Data;
+
+	Data.m_InGame = true;
+	SetNamePlateIdentity(Data, g_Config.m_ClNamePlates, Player.m_Friend, ClientId, Player.m_aName, Player.m_aClan);
+
+	float Alpha = GameClient()->m_MultiServer.PlayerAlpha(Server);
+	if(g_Config.m_ClNamePlatesAlways == 0)
+		Alpha *= std::clamp(1.0f - std::pow(distance(GameClient()->m_Controls.m_aTargetPos[g_Config.m_ClDummy], Position) / 200.0f, 16.0f), 0.0f, 1.0f);
+
+	Data.m_Color = ColorRGBA(1.0f, 1.0f, 1.0f);
+	if(g_Config.m_ClNamePlatesTeamcolors && Player.m_DdTeam != TEAM_FLOCK)
+		Data.m_Color = GameClient()->GetDDTeamColor(Player.m_DdTeam, 0.75f);
+	Data.m_Color.a = Alpha;
+
+	// Their input is not sent to us, so no arrow is shown. The line is still reserved
+	// while direction indicators are on, so these names line up with the local ones.
+	Data.m_ShowDirection = ShowDirectionConfig() != 0;
+	Data.m_DirLeft = Data.m_DirJump = Data.m_DirRight = false;
+
+	// Hook strength needs the prediction of a world we do not simulate.
+	Data.m_ShowHookStrongWeak = false;
+	Data.m_ShowHookStrongWeakId = false;
+	Data.m_HookStrongWeakState = EHookStrongWeakState::NEUTRAL;
+	Data.m_HookStrongWeakId = 0;
+
+	CNamePlate &NamePlate = m_pData->m_aNamePlates[(Server + 1) * MAX_CLIENTS + ClientId];
 	NamePlate.Update(*GameClient(), Data);
 	NamePlate.Render(*GameClient(), Position - vec2(0.0f, (float)g_Config.m_ClNamePlatesOffset));
 }
@@ -858,12 +908,7 @@ void CNamePlates::OnRender()
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
 
-	int ShowDirection = g_Config.m_ClShowDirection;
-#if defined(CONF_VIDEORECORDER)
-	if(IVideo::Current())
-		ShowDirection = g_Config.m_ClVideoShowDirection;
-#endif
-	if(!g_Config.m_ClNamePlates && !g_Config.m_ClNamePlatesOwn && ShowDirection == 0)
+	if(!g_Config.m_ClNamePlates && !g_Config.m_ClNamePlatesOwn && ShowDirectionConfig() == 0)
 		return;
 
 	for(int i = 0; i < MAX_CLIENTS; i++)
@@ -885,6 +930,12 @@ void CNamePlates::OnRender()
 			RenderNamePlateGame(RenderPos, pInfo, 1.0f);
 		}
 	}
+
+	// Players of the observed servers, they are drawn into the same world
+	const CMultiServer &MultiServer = GameClient()->m_MultiServer;
+	MultiServer.ForEachRemotePlayer([&](int Server, int ClientId, const CMultiServer::CRemotePlayer &Player) {
+		RenderNamePlateRemote(MultiServer.RenderPos(Server, Player), Server, ClientId, Player);
+	});
 }
 
 void CNamePlates::OnWindowResize()

@@ -825,6 +825,7 @@ void CMenus::OnInit()
 	m_MenuPage = g_Config.m_UiPage;
 
 	m_RefreshButton.Init(Ui(), -1);
+	m_ObserveButton.Init(Ui(), -1);
 	m_ConnectButton.Init(Ui(), -1);
 
 	Console()->Chain("add_favorite", ConchainFavoritesUpdate, this);

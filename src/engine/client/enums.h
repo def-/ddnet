@@ -6,6 +6,11 @@
 enum
 {
 	NUM_DUMMIES = 2,
+	/**
+	 * Maximum number of additional servers that can be observed at the same time,
+	 * on top of the server the client is connected to.
+	 */
+	MAX_OBSERVERS = 8,
 };
 
 #endif

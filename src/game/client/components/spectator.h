@@ -21,6 +21,12 @@ class CSpectator : public CComponent
 	bool m_WasActive;
 
 	int m_SelectedSpectatorId;
+	// Server of m_SelectedSpectatorId while watching several servers, -1 is our own.
+	int m_SelectedSpectatorServer;
+	// First shown column and the last column that can be scrolled to in the multi
+	// server selector.
+	int m_SelectorScroll;
+	int m_SelectorMaxScroll;
 	vec2 m_SelectorMouse;
 
 	CUi::CTouchState m_TouchState;
@@ -29,6 +35,7 @@ class CSpectator : public CComponent
 
 	bool CanChangeSpectatorId();
 	void SpectateNext(bool Reverse);
+	void RenderMultiServerSelector();
 
 	static void ConKeySpectator(IConsole::IResult *pResult, void *pUserData);
 	static void ConSpectate(IConsole::IResult *pResult, void *pUserData);

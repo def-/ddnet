@@ -72,11 +72,13 @@ void CSmoothTime::Update(CGraph *pGraph, int64_t Target, int TimeLeft, EAdjustDi
 		{
 			// ignore this ping spike
 			UpdateTimer = false;
-			pGraph->Add(TimeLeft, ColorRGBA(1.0f, 1.0f, 0.0f, 0.75f));
+			if(pGraph != nullptr)
+				pGraph->Add(TimeLeft, ColorRGBA(1.0f, 1.0f, 0.0f, 0.75f));
 		}
 		else
 		{
-			pGraph->Add(TimeLeft, ColorRGBA(1.0f, 0.0f, 0.0f, 0.75f));
+			if(pGraph != nullptr)
+				pGraph->Add(TimeLeft, ColorRGBA(1.0f, 0.0f, 0.0f, 0.75f));
 			if(m_aAdjustSpeed[AdjustDirection] < 30.0f)
 				m_aAdjustSpeed[AdjustDirection] *= 2.0f;
 		}
@@ -86,7 +88,8 @@ void CSmoothTime::Update(CGraph *pGraph, int64_t Target, int TimeLeft, EAdjustDi
 		if(m_SpikeCounter)
 			m_SpikeCounter--;
 
-		pGraph->Add(TimeLeft, ColorRGBA(0.0f, 1.0f, 0.0f, 0.75f));
+		if(pGraph != nullptr)
+			pGraph->Add(TimeLeft, ColorRGBA(0.0f, 1.0f, 0.0f, 0.75f));
 
 		m_aAdjustSpeed[AdjustDirection] *= 0.95f;
 		if(m_aAdjustSpeed[AdjustDirection] < 2.0f)

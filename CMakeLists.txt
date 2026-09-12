@@ -2719,6 +2719,8 @@ if(CLIENT)
     components/menus_start.h
     components/motd.cpp
     components/motd.h
+    components/multi_server.cpp
+    components/multi_server.h
     components/nameplates.cpp
     components/nameplates.h
     components/particles.cpp

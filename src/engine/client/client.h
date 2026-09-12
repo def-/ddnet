@@ -97,7 +97,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	bool m_HaveGlobalTcpAddr = false;
 	NETADDR m_GlobalTcpAddr = NETADDR_ZEROED;
 
-	uint64_t m_aSnapshotParts[NUM_DUMMIES] = {0, 0};
+	uint64_t m_aSnapshotParts[NUM_CONNS] = {0};
 	int64_t m_LocalStartTime = 0;
 	int64_t m_GlobalStartTime = 0;
 
@@ -105,14 +105,14 @@ class CClient : public IClient, public CDemoPlayer::IListener
 
 	int64_t m_LastRenderTime;
 
-	int m_SnapCrcErrors = 0;
+	int m_aSnapCrcErrors[NUM_CONNS] = {0};
 	bool m_AutoScreenshotRecycle = false;
 	bool m_AutoStatScreenshotRecycle = false;
 	bool m_AutoCSVRecycle = false;
 	bool m_EditorActive = false;
 
-	int m_aAckGameTick[NUM_DUMMIES] = {-1, -1};
-	int m_aCurrentRecvTick[NUM_DUMMIES] = {0, 0};
+	int m_aAckGameTick[NUM_CONNS]; // filled with -1 in the constructor
+	int m_aCurrentRecvTick[NUM_CONNS] = {0};
 	int m_aRconAuthed[NUM_DUMMIES] = {0, 0};
 	char m_aRconUsername[64] = "";
 	char m_aRconPassword[sizeof(g_Config.m_SvRconPassword)] = "";
@@ -167,7 +167,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	std::shared_ptr<IHttpRequest> m_pDDNetInfoTask = nullptr;
 
 	// time
-	CSmoothTime m_aGameTime[NUM_DUMMIES];
+	CSmoothTime m_aGameTime[NUM_CONNS];
 	CSmoothTime m_PredictedTime;
 
 	// input
@@ -188,6 +188,25 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	float m_LastDummyConnectTime = 0.0f;
 	bool m_DummyReconnectOnReload = false;
 	bool m_DummyDeactivateOnReconnect = false;
+
+	enum class EObserverState
+	{
+		OFFLINE = 0,
+		// Waiting for the network connection to come up.
+		CONNECTING,
+		// Info sent, waiting for the map change message to confirm the map matches.
+		CHECKING_MAP,
+		// In game as a spectator, receiving snapshots.
+		ONLINE,
+	};
+	class CObserver
+	{
+	public:
+		EObserverState m_State = EObserverState::OFFLINE;
+		NETADDR m_Addr = NETADDR_ZEROED;
+		char m_aName[64] = "";
+	};
+	CObserver m_aObservers[MAX_OBSERVERS];
 #if defined(CONF_PLATFORM_IOS)
 	bool m_DummyReconnectOnResume = false;
 #endif
@@ -198,12 +217,12 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	CGraph m_FpsGraph;
 
 	// the game snapshots are modifiable by the game
-	CSnapshotStorage m_aSnapshotStorage[NUM_DUMMIES];
-	CSnapshotStorage::CHolder *m_aapSnapshots[NUM_DUMMIES][NUM_SNAPSHOT_TYPES];
+	CSnapshotStorage m_aSnapshotStorage[NUM_CONNS];
+	CSnapshotStorage::CHolder *m_aapSnapshots[NUM_CONNS][NUM_SNAPSHOT_TYPES];
 
-	int m_aReceivedSnapshots[NUM_DUMMIES] = {0, 0};
-	char m_aaSnapshotIncomingData[NUM_DUMMIES][CSnapshot::MAX_SIZE];
-	int m_aSnapshotIncomingDataSize[NUM_DUMMIES] = {0, 0};
+	int m_aReceivedSnapshots[NUM_CONNS] = {0};
+	char m_aaSnapshotIncomingData[NUM_CONNS][CSnapshot::MAX_SIZE];
+	int m_aSnapshotIncomingDataSize[NUM_CONNS] = {0};
 
 	CSnapshotStorage::CHolder m_aDemorecSnapshotHolders[NUM_SNAPSHOT_TYPES];
 	CSnapshotBuffer m_aaDemorecSnapshotData[NUM_SNAPSHOT_TYPES][2];
@@ -322,6 +341,14 @@ public:
 	IGraphics::CTextureHandle GetDebugFont() const override { return m_DebugFont; }
 
 	void SendInput();
+	void SendObserverInput();
+	void UpdateObservers();
+	void ObserverDisconnect(int Conn);
+	void ResetObserverSnapshots(int Conn);
+	void ObserverEnterGame(int Conn);
+	static bool ObserverMessageAllowed(int Msg, bool Sys);
+	CObserver &Observer(int Conn) { return m_aObservers[Conn - CONN_OBSERVER_FIRST]; }
+	const CObserver &Observer(int Conn) const { return m_aObservers[Conn - CONN_OBSERVER_FIRST]; }
 
 	// TODO: OPT: do this a lot smarter!
 	int *GetInput(int Tick, int IsDummy) const override;
@@ -347,6 +374,10 @@ public:
 	bool DummyConnected() const override;
 	bool DummyConnecting() const override;
 	bool DummyConnectingDelayed() const override;
+
+	int ObserverConnect(const NETADDR &Addr, const char *pName) override;
+	void ObserverDisconnectAll() override;
+	bool ObserverOnline(int Conn) const override;
 	bool DummyAllowed() const override;
 
 	const CServerInfo &ServerInfo() const override;
@@ -362,6 +393,10 @@ public:
 	int GetPredictionTick() override;
 	const void *SnapFindItem(int SnapId, int Type, int Id) const override;
 	int SnapNumItems(int SnapId) const override;
+	int ObserverSnapNumItems(int Conn, int SnapId) const override;
+	const void *ObserverSnapFindItem(int Conn, int SnapId, int Type, int Id) const;
+	CSnapItem ObserverSnapGetItem(int Conn, int SnapId, int Index) const override;
+
 	void SnapSetStaticsize(int ItemType, int Size) override;
 	void SnapSetStaticsize7(int ItemType, int Size) override;
 
@@ -388,7 +423,7 @@ public:
 	bool PreprocessConnlessPacket7(CNetChunk *pPacket);
 	void ProcessConnlessPacket(CNetChunk *pPacket);
 	void ProcessServerInfo(int Type, NETADDR *pFrom, const void *pData, int DataSize);
-	void ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy);
+	void ProcessServerPacket(CNetChunk *pPacket, int Conn);
 
 	int UnpackAndValidateSnapshot(CSnapshot *pFrom, CSnapshotBuffer *pTo);
 
@@ -421,6 +456,8 @@ public:
 
 	void Run();
 
+	bool ConnHasSocket(int Conn) const;
+	bool NetworkBindAddr(NETADDR *pBindAddr, char *pError, size_t ErrorSize);
 	bool InitNetworkClient(char *pError, size_t ErrorSize);
 	bool InitNetworkClientImpl(NETADDR BindAddr, int Conn, char *pError, size_t ErrorSize);
 	bool CtrlShiftKey(int Key, bool &Last);

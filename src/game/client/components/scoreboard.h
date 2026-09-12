@@ -29,6 +29,8 @@ class CScoreboard : public CComponent
 	void RenderSpectators(CUIRect Spectators);
 	void RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart, int CountEnd, CScoreboardRenderState &State, int NumPlayersForSize = -1);
 	void RenderRecordingNotification(float x);
+	// Recording notification, popups and the cursor, on top of either scoreboard.
+	void RenderOverlay(const CUIRect &Screen);
 
 	static void ConKeyScoreboard(IConsole::IResult *pResult, void *pUserData);
 	static void ConToggleScoreboardCursor(IConsole::IResult *pResult, void *pUserData);

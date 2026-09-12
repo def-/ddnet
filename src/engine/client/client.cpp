@@ -123,6 +123,7 @@ CClient::CClient() :
 	m_LastRenderTime = time_get();
 	mem_zero(m_aInputs, sizeof(m_aInputs));
 	mem_zero(m_aapSnapshots, sizeof(m_aapSnapshots));
+	std::fill(std::begin(m_aAckGameTick), std::end(m_aAckGameTick), -1);
 	for(auto &SnapshotStorage : m_aSnapshotStorage)
 		SnapshotStorage.Init();
 	mem_zero(m_aDemorecSnapshotHolders, sizeof(m_aDemorecSnapshotHolders));
@@ -351,6 +352,9 @@ void CClient::SendInput()
 {
 	int64_t Now = time_get();
 
+	// Observers do not predict, they only tell the servers they watch where to look.
+	SendObserverInput();
+
 	if(m_aPredTick[g_Config.m_ClDummy] <= 0)
 		return;
 
@@ -486,7 +490,7 @@ void CClient::OnEnterGame(bool Dummy)
 	m_aReceivedSnapshots[Dummy] = 0;
 	m_aSnapshotParts[Dummy] = 0;
 	m_aSnapshotIncomingDataSize[Dummy] = 0;
-	m_SnapCrcErrors = 0;
+	m_aSnapCrcErrors[Dummy] = 0;
 	// Also make gameclient aware that snapshots have been purged
 	GameClient()->InvalidateSnapshot();
 
@@ -738,6 +742,7 @@ void CClient::DisconnectWithReason(const char *pReason)
 		pReason = nullptr;
 
 	DummyDisconnect(pReason);
+	ObserverDisconnectAll();
 
 	char aBuf[512];
 	str_format(aBuf, sizeof(aBuf), "disconnecting. reason='%s'", pReason ? pReason : "unknown");
@@ -886,6 +891,191 @@ bool CClient::DummyAllowed() const
 	return m_ServerCapabilities.m_AllowDummy;
 }
 
+int CClient::ObserverConnect(const NETADDR &Addr, const char *pName)
+{
+	if(State() != IClient::STATE_ONLINE)
+	{
+		log_info("client/observer", "Not online.");
+		return -1;
+	}
+	if(IsSixup())
+	{
+		log_info("client/observer", "Observing is not supported on 0.7 servers.");
+		return -1;
+	}
+
+	if(net_addr_comp(&Addr, m_aNetClient[CONN_MAIN].ServerAddress()) == 0)
+	{
+		// Already covered by the main connection.
+		return -1;
+	}
+	int FreeConn = -1;
+	for(int Conn = CONN_OBSERVER_FIRST; Conn < NUM_CONNS; Conn++)
+	{
+		if(Observer(Conn).m_State == EObserverState::OFFLINE)
+		{
+			FreeConn = FreeConn < 0 ? Conn : FreeConn;
+		}
+		else if(net_addr_comp(&Addr, &Observer(Conn).m_Addr) == 0)
+		{
+			// Already watching that server.
+			return -1;
+		}
+	}
+
+	if(FreeConn >= 0)
+	{
+		const int Conn = FreeConn;
+		CObserver &Observer = this->Observer(Conn);
+
+		NETADDR BindAddr;
+		char aError[256];
+		if(!NetworkBindAddr(&BindAddr, aError, sizeof(aError)) ||
+			!InitNetworkClientImpl(BindAddr, Conn, aError, sizeof(aError)))
+		{
+			log_error("client/observer", "%s", aError);
+			return -1;
+		}
+
+		Observer.m_State = EObserverState::CONNECTING;
+		Observer.m_Addr = Addr;
+		str_copy(Observer.m_aName, pName);
+		ResetObserverSnapshots(Conn);
+		m_aNetClient[Conn].Connect(&Observer.m_Addr, 1);
+
+		char aAddr[NETADDR_MAXSTRSIZE];
+		net_addr_str(&Addr, aAddr, sizeof(aAddr), true);
+		log_info("client/observer", "connecting to '%s' (%s)", pName, aAddr);
+		return Conn;
+	}
+
+	log_info("client/observer", "No free observer connection.");
+	return -1;
+}
+
+bool CClient::ObserverOnline(int Conn) const
+{
+	dbg_assert(Conn >= CONN_OBSERVER_FIRST && Conn < NUM_CONNS, "not an observer connection");
+	return Observer(Conn).m_State == EObserverState::ONLINE;
+}
+
+void CClient::ResetObserverSnapshots(int Conn)
+{
+	m_aSnapshotStorage[Conn].PurgeAll();
+	m_aapSnapshots[Conn][SNAP_CURRENT] = nullptr;
+	m_aapSnapshots[Conn][SNAP_PREV] = nullptr;
+	m_aAckGameTick[Conn] = -1;
+	m_aCurrentRecvTick[Conn] = 0;
+	m_aCurGameTick[Conn] = 0;
+	m_aPrevGameTick[Conn] = 0;
+	m_aReceivedSnapshots[Conn] = 0;
+	m_aSnapshotParts[Conn] = 0;
+	m_aSnapshotIncomingDataSize[Conn] = 0;
+	m_aSnapCrcErrors[Conn] = 0;
+}
+
+void CClient::ObserverDisconnect(int Conn)
+{
+	CObserver &Observer = this->Observer(Conn);
+	if(Observer.m_State == EObserverState::OFFLINE)
+	{
+		return;
+	}
+
+	m_aNetClient[Conn].Disconnect(nullptr);
+	m_aNetClient[Conn].Close();
+	ResetObserverSnapshots(Conn);
+	Observer = CObserver();
+	GameClient()->OnObserverDisconnect(Conn);
+}
+
+void CClient::ObserverDisconnectAll()
+{
+	for(int Conn = CONN_OBSERVER_FIRST; Conn < NUM_CONNS; Conn++)
+	{
+		ObserverDisconnect(Conn);
+	}
+}
+
+void CClient::ObserverEnterGame(int Conn)
+{
+	SendReady(Conn);
+	GameClient()->SendObserverStartInfo(Conn);
+	SendEnterGame(Conn);
+	Observer(Conn).m_State = EObserverState::ONLINE;
+}
+
+bool CClient::ObserverMessageAllowed(int Msg, bool Sys)
+{
+	// Observer connections are read only. Of the system messages they need the map
+	// check to verify that they joined the right server, the snapshot stream and the
+	// connection keepalive, the rest belongs to the server the player is connected to.
+	// Game messages are passed on to the game client, which picks the few it wants.
+	if(!Sys)
+	{
+		return true;
+	}
+	return Msg == NETMSG_MAP_CHANGE ||
+	       Msg == NETMSG_SNAP || Msg == NETMSG_SNAPSINGLE || Msg == NETMSG_SNAPEMPTY ||
+	       Msg == NETMSG_PING || Msg == NETMSG_PINGEX;
+}
+
+void CClient::UpdateObservers()
+{
+	for(int Conn = CONN_OBSERVER_FIRST; Conn < NUM_CONNS; Conn++)
+	{
+		CObserver &Observer = this->Observer(Conn);
+		if(Observer.m_State == EObserverState::OFFLINE)
+		{
+			continue;
+		}
+		if(m_aNetClient[Conn].State() == NETSTATE_OFFLINE)
+		{
+			log_info("client/observer", "'%s' went offline, error='%s'", Observer.m_aName, m_aNetClient[Conn].ErrorString());
+			ObserverDisconnect(Conn);
+			continue;
+		}
+		if(Observer.m_State == EObserverState::CONNECTING && m_aNetClient[Conn].State() == NETSTATE_ONLINE)
+		{
+			// The map is only confirmed once the server announced it, see ProcessServerPacket.
+			Observer.m_State = EObserverState::CHECKING_MAP;
+			// Sends the password as well, moderators need it to take a reserved slot on
+			// a full server, see CServer::CheckReservedSlotAuth.
+			SendInfo(Conn);
+			m_aNetClient[Conn].Update();
+		}
+	}
+}
+
+void CClient::SendObserverInput()
+{
+	for(int Conn = CONN_OBSERVER_FIRST; Conn < NUM_CONNS; Conn++)
+	{
+		if(Observer(Conn).m_State != EObserverState::ONLINE)
+		{
+			continue;
+		}
+
+		int aData[MAX_INPUT_SIZE];
+		const int Size = GameClient()->OnObserverSnapInput(Conn, aData);
+		if(!Size)
+		{
+			continue;
+		}
+
+		CMsgPacker Msg(NETMSG_INPUT, true);
+		Msg.AddInt(m_aAckGameTick[Conn]);
+		// Observers do not predict, the server only uses this to time the input.
+		Msg.AddInt(m_aCurGameTick[Conn] + 1);
+		Msg.AddInt(Size);
+		for(int k = 0; k < Size / 4; k++)
+		{
+			Msg.AddInt(aData[k]);
+		}
+		SendMsg(Conn, &Msg, MSGFLAG_FLUSH);
+	}
+}
+
 const CServerInfo &CClient::ServerInfo() const
 {
 	return m_CurrentServerInfo;
@@ -915,8 +1105,24 @@ void CClient::LoadDebugFont()
 
 IClient::CSnapItem CClient::SnapGetItem(int SnapId, int Index) const
 {
+	return CClient::ObserverSnapGetItem(g_Config.m_ClDummy, SnapId, Index);
+}
+
+const void *CClient::SnapFindItem(int SnapId, int Type, int Id) const
+{
+	return CClient::ObserverSnapFindItem(g_Config.m_ClDummy, SnapId, Type, Id);
+}
+
+int CClient::SnapNumItems(int SnapId) const
+{
+	return CClient::ObserverSnapNumItems(g_Config.m_ClDummy, SnapId);
+}
+
+IClient::CSnapItem CClient::ObserverSnapGetItem(int Conn, int SnapId, int Index) const
+{
 	dbg_assert(SnapId >= 0 && SnapId < NUM_SNAPSHOT_TYPES, "invalid SnapId");
-	const CSnapshot *pSnapshot = m_aapSnapshots[g_Config.m_ClDummy][SnapId]->m_pAltSnap;
+	dbg_assert(m_aapSnapshots[Conn][SnapId] != nullptr, "no snapshot, ObserverSnapNumItems was not checked");
+	const CSnapshot *pSnapshot = m_aapSnapshots[Conn][SnapId]->m_pAltSnap;
 	const CSnapshotItem *pSnapshotItem = pSnapshot->GetItem(Index);
 	CSnapItem Item;
 	Item.m_Type = pSnapshot->GetItemType(Index);
@@ -926,20 +1132,20 @@ IClient::CSnapItem CClient::SnapGetItem(int SnapId, int Index) const
 	return Item;
 }
 
-const void *CClient::SnapFindItem(int SnapId, int Type, int Id) const
+const void *CClient::ObserverSnapFindItem(int Conn, int SnapId, int Type, int Id) const
 {
-	if(!m_aapSnapshots[g_Config.m_ClDummy][SnapId])
+	if(!m_aapSnapshots[Conn][SnapId])
 		return nullptr;
 
-	return m_aapSnapshots[g_Config.m_ClDummy][SnapId]->m_pAltSnap->FindItem(Type, Id);
+	return m_aapSnapshots[Conn][SnapId]->m_pAltSnap->FindItem(Type, Id);
 }
 
-int CClient::SnapNumItems(int SnapId) const
+int CClient::ObserverSnapNumItems(int Conn, int SnapId) const
 {
 	dbg_assert(SnapId >= 0 && SnapId < NUM_SNAPSHOT_TYPES, "invalid SnapId");
-	if(!m_aapSnapshots[g_Config.m_ClDummy][SnapId])
+	if(!m_aapSnapshots[Conn][SnapId])
 		return 0;
-	return m_aapSnapshots[g_Config.m_ClDummy][SnapId]->m_pAltSnap->NumItems();
+	return m_aapSnapshots[Conn][SnapId]->m_pAltSnap->NumItems();
 }
 
 void CClient::SnapSetStaticsize(int ItemType, int Size)
@@ -1115,19 +1321,14 @@ void CClient::Quit()
 void CClient::ResetSocket()
 {
 	NETADDR BindAddr;
-	if(g_Config.m_Bindaddr[0] == '\0')
+	char aError[256];
+	if(!NetworkBindAddr(&BindAddr, aError, sizeof(aError)))
 	{
-		mem_zero(&BindAddr, sizeof(BindAddr));
-	}
-	else if(net_host_lookup(g_Config.m_Bindaddr, &BindAddr, NETTYPE_ALL) != 0)
-	{
-		log_error("client", "The configured bindaddr '%s' cannot be resolved.", g_Config.m_Bindaddr);
+		log_error("client", "%s", aError);
 		return;
 	}
-	BindAddr.type = NETTYPE_ALL;
-	for(size_t Conn = 0; Conn < std::size(m_aNetClient); Conn++)
+	for(int Conn = 0; Conn < CONN_OBSERVER_FIRST; Conn++)
 	{
-		char aError[256];
 		if(!InitNetworkClientImpl(BindAddr, Conn, aError, sizeof(aError)))
 			log_error("client", "%s", aError);
 	}
@@ -1252,8 +1453,8 @@ const char *CClient::LoadMap(const char *pName, const char *pFilename, const std
 		m_aReceivedSnapshots[Dummy] = 0;
 		m_aSnapshotParts[Dummy] = 0;
 		m_aSnapshotIncomingDataSize[Dummy] = 0;
+		m_aSnapCrcErrors[Dummy] = 0;
 	}
-	m_SnapCrcErrors = 0;
 	GameClient()->InvalidateSnapshot();
 
 	if(!GameClient()->Map()->Load(pName, Storage(), pFilename, IStorage::TYPE_ALL))
@@ -1635,8 +1836,10 @@ static CServerCapabilities GetServerCapabilities(int Version, int Flags, bool Si
 	return Result;
 }
 
-void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
+void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn)
 {
+	// Whether this is the connection the player is controlling right now.
+	const bool ActiveConn = Conn == g_Config.m_ClDummy;
 	CUnpacker Unpacker;
 	Unpacker.Reset(pPacket->m_pData, pPacket->m_DataSize);
 	CMsgPacker Packer(NETMSG_EX, true);
@@ -1668,6 +1871,11 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 		{
 			Unpacker.Reset(Packer6.Data(), Packer6.Size());
 		}
+	}
+
+	if(Conn >= CONN_OBSERVER_FIRST && !ObserverMessageAllowed(Msg, Sys))
+	{
+		return;
 	}
 
 	if(Sys)
@@ -1747,6 +1955,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 			{
 				DummyDisconnect(nullptr);
 			}
+			ObserverDisconnectAll();
 
 			ResetMapDownload(true);
 
@@ -1913,6 +2122,26 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 			}
 #endif
 		}
+		else if(Conn >= CONN_OBSERVER_FIRST && (pPacket->m_Flags & NET_CHUNKFLAG_VITAL) != 0 && Msg == NETMSG_MAP_CHANGE)
+		{
+			const char *pMap = Unpacker.GetString(CUnpacker::SANITIZE_CC | CUnpacker::SKIP_START_WHITESPACES);
+			const int MapCrc = Unpacker.GetInt();
+			if(Unpacker.Error())
+			{
+				return;
+			}
+			if(str_comp(pMap, GameClient()->Map()->FullName()) != 0 || (unsigned)MapCrc != GameClient()->Map()->Crc())
+			{
+				log_info("client/observer", "'%s' runs '%s' instead of '%s', disconnecting", Observer(Conn).m_aName, pMap, GameClient()->Map()->FullName());
+				ObserverDisconnect(Conn);
+				return;
+			}
+			// The server starts its ticks over on every map load, so its snapshots would
+			// all be dropped as too old without this.
+			ResetObserverSnapshots(Conn);
+			GameClient()->OnObserverEnterGame(Conn);
+			ObserverEnterGame(Conn);
+		}
 		else if(Conn == CONN_DUMMY && Msg == NETMSG_CON_READY)
 		{
 			m_DummyConnected = true;
@@ -2067,7 +2296,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 				}
 			}
 		}
-		else if(!Dummy && (pPacket->m_Flags & NET_CHUNKFLAG_VITAL) != 0 && Msg == NETMSG_RCON_LINE)
+		else if(ActiveConn && (pPacket->m_Flags & NET_CHUNKFLAG_VITAL) != 0 && Msg == NETMSG_RCON_LINE)
 		{
 			const char *pLine = Unpacker.GetString();
 			if(!Unpacker.Error())
@@ -2220,23 +2449,23 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 
 					if(Msg != NETMSG_SNAPEMPTY && TmpBuffer3.AsSnapshot()->Crc() != Crc)
 					{
-						log_error("client", "snapshot crc error #%d - tick=%d wantedcrc=%d gotcrc=%d compressed_size=%d delta_tick=%d",
-							m_SnapCrcErrors, GameTick, Crc, TmpBuffer3.AsSnapshot()->Crc(), m_aSnapshotIncomingDataSize[Conn], DeltaTick);
+						log_error("client", "snapshot crc error #%d - conn=%d tick=%d wantedcrc=%d gotcrc=%d compressed_size=%d delta_tick=%d",
+							m_aSnapCrcErrors[Conn], Conn, GameTick, Crc, TmpBuffer3.AsSnapshot()->Crc(), m_aSnapshotIncomingDataSize[Conn], DeltaTick);
 
-						m_SnapCrcErrors++;
-						if(m_SnapCrcErrors > 10)
+						m_aSnapCrcErrors[Conn]++;
+						if(m_aSnapCrcErrors[Conn] > 10)
 						{
 							// to many errors, send reset
 							m_aAckGameTick[Conn] = -1;
 							SendInput();
-							m_SnapCrcErrors = 0;
+							m_aSnapCrcErrors[Conn] = 0;
 						}
 						return;
 					}
 					else
 					{
-						if(m_SnapCrcErrors)
-							m_SnapCrcErrors--;
+						if(m_aSnapCrcErrors[Conn])
+							m_aSnapCrcErrors[Conn]--;
 					}
 
 					// purge old snapshots
@@ -2255,7 +2484,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 					{
 						CSnapshotBuffer TmpTransSnapBuffer;
 						mem_copy(&TmpTransSnapBuffer, &TmpBuffer3, sizeof(TmpTransSnapBuffer));
-						AltSnapSize = GameClient()->TranslateSnap(&AltSnapBuffer, TmpTransSnapBuffer.AsSnapshot(), Conn, Dummy);
+						AltSnapSize = GameClient()->TranslateSnap(&AltSnapBuffer, TmpTransSnapBuffer.AsSnapshot(), Conn, !ActiveConn);
 					}
 					else
 					{
@@ -2271,7 +2500,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 					// add new
 					m_aSnapshotStorage[Conn].Add(GameTick, time_get(), SnapSize, TmpBuffer3.AsSnapshot(), AltSnapSize, AltSnapBuffer.AsSnapshot());
 
-					if(!Dummy)
+					if(ActiveConn)
 					{
 						GameClient()->ProcessDemoSnapshot(TmpBuffer3.AsSnapshot());
 
@@ -2307,7 +2536,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 					if(m_aReceivedSnapshots[Conn] == 2)
 					{
 						// start at 200ms and work from there
-						if(!Dummy)
+						if(ActiveConn)
 						{
 							m_PredictedTime.Init(GameTick * time_freq() / GameTickSpeed());
 							m_PredictedTime.SetAdjustSpeed(CSmoothTime::ADJUSTDIRECTION_UP, 1000.0f);
@@ -2328,11 +2557,18 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 							}
 #endif
 						}
-						if(!Dummy)
+						if(Conn >= CONN_OBSERVER_FIRST)
 						{
-							GameClient()->OnNewSnapshot(false);
+							GameClient()->OnObserverSnapshot(Conn);
 						}
-						SetState(IClient::STATE_ONLINE);
+						else
+						{
+							if(ActiveConn)
+							{
+								GameClient()->OnNewSnapshot(false);
+							}
+							SetState(IClient::STATE_ONLINE);
+						}
 						if(Conn == CONN_MAIN)
 						{
 							DemoRecorder_HandleAutoStart();
@@ -2345,10 +2581,13 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 						int64_t Now = m_aGameTime[Conn].Get(time_get());
 						int64_t TickStart = GameTick * time_freq() / GameTickSpeed();
 						int64_t TimeLeft = (TickStart - Now) * 1000 / time_freq();
-						m_aGameTime[Conn].Update(&m_aGametimeMarginGraphs[Conn], (GameTick - 1) * time_freq() / GameTickSpeed(), TimeLeft, CSmoothTime::ADJUSTDIRECTION_DOWN);
+						// Only main and dummy have a margin graph in the debug overlay.
+						CGraph *pGraph = Conn < NUM_DUMMIES ? &m_aGametimeMarginGraphs[Conn] : nullptr;
+						m_aGameTime[Conn].Update(pGraph, (GameTick - 1) * time_freq() / GameTickSpeed(), TimeLeft, CSmoothTime::ADJUSTDIRECTION_DOWN);
 					}
 
-					if(m_aReceivedSnapshots[Conn] > GameTickSpeed() && !m_aDidPostConnect[Conn])
+					// Observers have no timeout code and nothing to say to the server they watch.
+					if(Conn < CONN_OBSERVER_FIRST && m_aReceivedSnapshots[Conn] > GameTickSpeed() && !m_aDidPostConnect[Conn])
 					{
 						OnPostConnect(Conn);
 						m_aDidPostConnect[Conn] = true;
@@ -2414,8 +2653,15 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 	// the client handles only vital messages https://github.com/ddnet/ddnet/issues/11178
 	else if((pPacket->m_Flags & NET_CHUNKFLAG_VITAL) != 0 || Msg == NETMSGTYPE_SV_PREINPUT)
 	{
+		if(Conn >= CONN_OBSERVER_FIRST)
+		{
+			// Observed servers must not talk to the game state of the server we play on.
+			GameClient()->OnObserverMessage(Msg, &Unpacker, Conn);
+			return;
+		}
+
 		// game message
-		if(!Dummy)
+		if(ActiveConn)
 		{
 			for(auto &DemoRecorder : DemoRecorders())
 			{
@@ -2426,7 +2672,7 @@ void CClient::ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy)
 			}
 		}
 
-		GameClient()->OnMessage(Msg, &Unpacker, Conn, Dummy);
+		GameClient()->OnMessage(Msg, &Unpacker, Conn, !ActiveConn);
 	}
 }
 
@@ -2675,9 +2921,12 @@ void CClient::PumpNetwork()
 	RecreateBrokenSockets();
 #endif
 
-	for(auto &NetClient : m_aNetClient)
+	for(int Conn = 0; Conn < NUM_CONNS; Conn++)
 	{
-		NetClient.Update();
+		if(ConnHasSocket(Conn))
+		{
+			m_aNetClient[Conn].Update();
+		}
 	}
 
 	if(State() != IClient::STATE_DEMOPLAYBACK)
@@ -2718,6 +2967,8 @@ void CClient::PumpNetwork()
 			SendInfo(CONN_MAIN);
 		}
 
+		UpdateObservers();
+
 		// progress on dummy connect when the connection is online
 		if(m_DummySendConnInfo && m_aNetClient[CONN_DUMMY].State() == NETSTATE_ONLINE)
 		{
@@ -2735,7 +2986,9 @@ void CClient::PumpNetwork()
 	SECURITY_TOKEN ResponseToken;
 	for(int Conn = 0; Conn < NUM_CONNS; Conn++)
 	{
-		while(m_aNetClient[Conn].Recv(&Packet, &ResponseToken, IsSixup()))
+		// Processing a packet can close the connection it came from, an observed server
+		// that runs another map is dropped right away.
+		while(ConnHasSocket(Conn) && m_aNetClient[Conn].Recv(&Packet, &ResponseToken, IsSixup()))
 		{
 			if(Packet.m_ClientId == -1)
 			{
@@ -2745,9 +2998,9 @@ void CClient::PumpNetwork()
 				ProcessConnlessPacket(&Packet);
 				continue;
 			}
-			if(Conn == CONN_MAIN || Conn == CONN_DUMMY)
+			if(Conn != CONN_CONTACT)
 			{
-				ProcessServerPacket(&Packet, Conn, g_Config.m_ClDummy ^ Conn);
+				ProcessServerPacket(&Packet, Conn);
 			}
 		}
 	}
@@ -2896,6 +3149,37 @@ void CClient::Update()
 				// set ticks
 				m_aCurGameTick[!g_Config.m_ClDummy] = m_aapSnapshots[!g_Config.m_ClDummy][SNAP_CURRENT]->m_Tick;
 				m_aPrevGameTick[!g_Config.m_ClDummy] = m_aapSnapshots[!g_Config.m_ClDummy][SNAP_PREV]->m_Tick;
+			}
+		}
+
+		// switch observer snapshots, they run on their own server's clock
+		for(int Conn = CONN_OBSERVER_FIRST; Conn < NUM_CONNS; Conn++)
+		{
+			if(!m_aapSnapshots[Conn][SNAP_CURRENT])
+			{
+				continue;
+			}
+			const int64_t Now = m_aGameTime[Conn].Get(time_get());
+			while(m_aapSnapshots[Conn][SNAP_CURRENT]->m_pNext)
+			{
+				const int64_t TickStart = m_aapSnapshots[Conn][SNAP_CURRENT]->m_Tick * time_freq() / GameTickSpeed();
+				if(TickStart >= Now)
+				{
+					break;
+				}
+
+				m_aapSnapshots[Conn][SNAP_PREV] = m_aapSnapshots[Conn][SNAP_CURRENT];
+				m_aapSnapshots[Conn][SNAP_CURRENT] = m_aapSnapshots[Conn][SNAP_CURRENT]->m_pNext;
+				m_aCurGameTick[Conn] = m_aapSnapshots[Conn][SNAP_CURRENT]->m_Tick;
+				m_aPrevGameTick[Conn] = m_aapSnapshots[Conn][SNAP_PREV]->m_Tick;
+				GameClient()->OnObserverSnapshot(Conn);
+			}
+
+			if(m_aapSnapshots[Conn][SNAP_PREV])
+			{
+				const int64_t CurTickStart = m_aapSnapshots[Conn][SNAP_CURRENT]->m_Tick * time_freq() / GameTickSpeed();
+				const int64_t PrevTickStart = m_aapSnapshots[Conn][SNAP_PREV]->m_Tick * time_freq() / GameTickSpeed();
+				m_aGameIntraTick[Conn] = (Now - PrevTickStart) / (float)(CurTickStart - PrevTickStart);
 			}
 		}
 
@@ -3560,22 +3844,39 @@ void CClient::Run()
 	m_pTextRender->Shutdown();
 }
 
-bool CClient::InitNetworkClient(char *pError, size_t ErrorSize)
+bool CClient::ConnHasSocket(int Conn) const
 {
-	NETADDR BindAddr;
+	// Observer connections only have a socket while they are in use.
+	return Conn < CONN_OBSERVER_FIRST || Observer(Conn).m_State != EObserverState::OFFLINE;
+}
+
+bool CClient::NetworkBindAddr(NETADDR *pBindAddr, char *pError, size_t ErrorSize)
+{
 	if(g_Config.m_Bindaddr[0] == '\0')
 	{
-		mem_zero(&BindAddr, sizeof(BindAddr));
+		mem_zero(pBindAddr, sizeof(*pBindAddr));
 	}
-	else if(net_host_lookup(g_Config.m_Bindaddr, &BindAddr, NETTYPE_ALL) != 0)
+	else if(net_host_lookup(g_Config.m_Bindaddr, pBindAddr, NETTYPE_ALL) != 0)
 	{
 		str_format(pError, ErrorSize, "The configured bindaddr '%s' cannot be resolved.", g_Config.m_Bindaddr);
 		return false;
 	}
-	BindAddr.type = NETTYPE_ALL;
-	for(size_t i = 0; i < std::size(m_aNetClient); i++)
+	pBindAddr->type = NETTYPE_ALL;
+	return true;
+}
+
+bool CClient::InitNetworkClient(char *pError, size_t ErrorSize)
+{
+	NETADDR BindAddr;
+	if(!NetworkBindAddr(&BindAddr, pError, ErrorSize))
 	{
-		if(!InitNetworkClientImpl(BindAddr, i, pError, ErrorSize))
+		return false;
+	}
+	// Observer connections get their socket in ObserverConnect, watching other servers
+	// should not cost anything while nobody does it.
+	for(int Conn = 0; Conn < CONN_OBSERVER_FIRST; Conn++)
+	{
+		if(!InitNetworkClientImpl(BindAddr, Conn, pError, ErrorSize))
 		{
 			return false;
 		}
@@ -3585,6 +3886,8 @@ bool CClient::InitNetworkClient(char *pError, size_t ErrorSize)
 
 bool CClient::InitNetworkClientImpl(NETADDR BindAddr, int Conn, char *pError, size_t ErrorSize)
 {
+	// Observer connections always use an ephemeral port, there can be many of them.
+	int ObserverPort = 0;
 	int *pPort;
 	const char *pName;
 	switch(Conn)
@@ -3602,7 +3905,10 @@ bool CClient::InitNetworkClientImpl(NETADDR BindAddr, int Conn, char *pError, si
 		pName = "contact";
 		break;
 	default:
-		dbg_assert_failed("unreachable");
+		dbg_assert(Conn >= CONN_OBSERVER_FIRST && Conn < NUM_CONNS, "invalid connection");
+		pPort = &ObserverPort;
+		pName = "observer";
+		break;
 	}
 	if(m_aNetClient[Conn].State() != NETSTATE_OFFLINE)
 	{

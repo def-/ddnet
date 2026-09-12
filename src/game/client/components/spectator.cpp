@@ -32,6 +32,12 @@ bool CSpectator::CanChangeSpectatorId()
 
 void CSpectator::SpectateNext(bool Reverse)
 {
+	if(GameClient()->m_MultiServer.IsActive())
+	{
+		GameClient()->m_MultiServer.SpectateNext(Reverse);
+		return;
+	}
+
 	int CurIndex = -1;
 	const CNetObj_PlayerInfo **paPlayerInfos = GameClient()->m_Snap.m_apInfoByDDTeamName;
 
@@ -173,6 +179,13 @@ bool CSpectator::OnInput(const IInput::CEvent &Event)
 		return true;
 	}
 
+	if(IsActive() && GameClient()->m_MultiServer.IsActive() && (Event.m_Flags & IInput::FLAG_PRESS) != 0 &&
+		(Event.m_Key == KEY_MOUSE_WHEEL_UP || Event.m_Key == KEY_MOUSE_WHEEL_DOWN))
+	{
+		m_SelectorScroll = std::clamp(m_SelectorScroll + (Event.m_Key == KEY_MOUSE_WHEEL_UP ? -1 : 1), 0, m_SelectorMaxScroll);
+		return true;
+	}
+
 	if(g_Config.m_ClSpectatorMouseclicks)
 	{
 		if(GameClient()->m_Snap.m_SpecInfo.m_Active && !IsActive() && !GameClient()->m_MultiViewActivated &&
@@ -206,6 +219,156 @@ void CSpectator::OnRelease()
 	OnReset();
 }
 
+void CSpectator::RenderMultiServerSelector()
+{
+	const std::vector<CMultiServer::CScoreboardRow> &vRows = GameClient()->m_MultiServer.BuildScoreboard();
+
+	const float Width = 400 * 3.0f * Graphics()->ScreenAspect();
+	const float Height = 400 * 3.0f;
+	const vec2 ScreenSize = vec2(Width, Height);
+	const vec2 ScreenCenter = ScreenSize / 2.0f;
+	const float Margin = 40.0f;
+
+	const CUIRect Panel = {Margin, Margin, Width - 2.0f * Margin, Height - 2.0f * Margin};
+
+	const bool WasTouchPressed = m_TouchState.m_AnyPressed;
+	Ui()->UpdateTouchState(m_TouchState);
+	const vec2 TouchPos = (m_TouchState.m_PrimaryPosition - vec2(0.5f, 0.5f)) * ScreenSize;
+	if(m_TouchState.m_AnyPressed)
+	{
+		m_SelectorMouse = TouchPos;
+	}
+	else if(WasTouchPressed && !Panel.Inside(ScreenCenter + TouchPos))
+	{
+		OnRelease();
+		return;
+	}
+
+	Graphics()->MapScreenToSize(Width, Height);
+	Panel.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.5f), IGraphics::CORNER_ALL, 20.0f);
+
+	m_SelectorMouse.x = std::clamp(m_SelectorMouse.x, -(Width / 2.0f - Margin), Width / 2.0f - Margin);
+	m_SelectorMouse.y = std::clamp(m_SelectorMouse.y, -(Height / 2.0f - Margin), Height / 2.0f - Margin);
+	const bool MousePressed = Input()->KeyPress(KEY_MOUSE_1) || m_TouchState.m_PrimaryPressed;
+
+	const float HeaderHeight = 60.0f;
+	const float FooterHeight = 34.0f;
+	const float Left = -Width / 2.0f + Margin + 10.0f;
+	const float Top = -Height / 2.0f + Margin + HeaderHeight;
+	const float Bottom = Height / 2.0f - Margin - FooterHeight;
+	const float ContentWidth = Width - 2.0f * Margin - 20.0f;
+
+	const float LineHeight = 36.0f;
+	const float FontSize = 24.0f;
+	const float ColumnWidth = 330.0f;
+	const int Columns = std::max(1, (int)(ContentWidth / ColumnWidth));
+	const int PerColumn = std::max(2, (int)((Bottom - Top) / LineHeight));
+
+	// Lay the rows out once to know how many columns they need. Clamping against a
+	// count from the previous frame would fight with the scrolling.
+	const int NeededColumns = CMultiServer::FlowRows(vRows, PerColumn, true, [](const CMultiServer::CFlowSlot &Slot) {});
+	// Only clamp for drawing. The row count dips for a frame whenever a snapshot is
+	// invalidated, and writing that back would throw the scroll position away.
+	m_SelectorMaxScroll = std::max(0, NeededColumns - Columns);
+	const int Scroll = std::clamp(m_SelectorScroll, 0, m_SelectorMaxScroll);
+
+	// free view
+	const CUIRect FreeViewRect = {Width / 2.0f + Left, Margin + 8.0f, 260.0f, 44.0f};
+	const bool FreeViewSelected = FreeViewRect.Inside(ScreenCenter + m_SelectorMouse);
+	if(GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == SPEC_FREEVIEW && !GameClient()->m_MultiServer.IsSpectatingRemote())
+	{
+		FreeViewRect.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, 10.0f);
+	}
+	if(FreeViewSelected)
+	{
+		m_SelectedSpectatorId = SPEC_FREEVIEW;
+		m_SelectedSpectatorServer = -1;
+		if(MousePressed)
+		{
+			GameClient()->m_MultiViewActivated = false;
+			GameClient()->m_MultiServer.Spectate(-1, SPEC_FREEVIEW);
+		}
+	}
+	TextRender()->TextColor(1.0f, 1.0f, 1.0f, FreeViewSelected ? 1.0f : 0.6f);
+	TextRender()->Text(FreeViewRect.x + 14.0f, FreeViewRect.y + (FreeViewRect.h - 26.0f) / 2.0f, 26.0f, Localize("Free-View"), -1.0f);
+
+	const auto &&SlotRectAt = [&](int Col, int InColumn) {
+		return CUIRect{Width / 2.0f + Left + (Col - Scroll) * ColumnWidth, Height / 2.0f + Top + InColumn * LineHeight, ColumnWidth - 10.0f, LineHeight};
+	};
+
+	CMultiServer::FlowRows(vRows, PerColumn, true, [&](const CMultiServer::CFlowSlot &Slot) {
+		if(Slot.m_Column < Scroll || Slot.m_Column >= Scroll + Columns)
+		{
+			return;
+		}
+		const CUIRect SlotRect = SlotRectAt(Slot.m_Column, Slot.m_RowInColumn);
+		if(Slot.m_pHeader != nullptr)
+		{
+			CTextCursor Cursor;
+			Cursor.SetPosition(vec2(SlotRect.x, SlotRect.y + (LineHeight - FontSize) / 2.0f));
+			Cursor.m_FontSize = FontSize;
+			Cursor.m_Flags |= TEXTFLAG_ELLIPSIS_AT_END;
+			Cursor.m_LineWidth = SlotRect.w;
+			TextRender()->TextColor(0.6f, 0.8f, 1.0f, 0.9f);
+			TextRender()->TextEx(&Cursor, Slot.m_pHeader);
+			return;
+		}
+
+		const CMultiServer::CScoreboardRow &Row = *Slot.m_pRow;
+		const bool Hovered = SlotRect.Inside(ScreenCenter + m_SelectorMouse);
+		if(Hovered)
+		{
+			m_SelectedSpectatorId = Row.m_ClientId;
+			m_SelectedSpectatorServer = Row.m_Server;
+			if(MousePressed)
+			{
+				GameClient()->m_MultiViewActivated = false;
+				GameClient()->m_MultiServer.Spectate(Row.m_Server, Row.m_ClientId);
+			}
+		}
+		if(GameClient()->m_MultiServer.IsWatching(Row.m_Server, Row.m_ClientId))
+		{
+			SlotRect.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, 6.0f);
+		}
+		if(Row.m_DdTeam != TEAM_FLOCK)
+		{
+			CUIRect TeamBar = {SlotRect.x, SlotRect.y + 3.0f, 8.0f, SlotRect.h - 6.0f};
+			TeamBar.Draw(GameClient()->GetDDTeamColor(Row.m_DdTeam).WithAlpha(0.8f), IGraphics::CORNER_ALL, 3.0f);
+		}
+
+		const CTeeRenderInfo *pRenderInfo = GameClient()->m_MultiServer.PlayerRenderInfo(Row.m_Server, Row.m_ClientId);
+		if(pRenderInfo != nullptr)
+		{
+			CTeeRenderInfo TeeInfo = *pRenderInfo;
+			TeeInfo.m_Size *= 0.5f;
+			TeeInfo.m_TeeRenderFlags = 0;
+			const CAnimState *pIdleState = CAnimState::GetIdle();
+			vec2 OffsetToMid;
+			CRenderTools::GetRenderTeeOffsetToRenderedTee(pIdleState, &TeeInfo, OffsetToMid);
+			RenderTools()->RenderTee(pIdleState, &TeeInfo, EMOTE_NORMAL, vec2(1.0f, 0.0f),
+				vec2(SlotRect.x + 28.0f, SlotRect.y + SlotRect.h / 2.0f + OffsetToMid.y), Hovered ? 1.0f : 0.6f);
+		}
+
+		CTextCursor NameCursor;
+		NameCursor.SetPosition(vec2(SlotRect.x + 50.0f, SlotRect.y + (LineHeight - FontSize) / 2.0f));
+		NameCursor.m_FontSize = FontSize;
+		NameCursor.m_Flags |= TEXTFLAG_ELLIPSIS_AT_END;
+		NameCursor.m_LineWidth = SlotRect.w - 55.0f;
+		TextRender()->TextColor(1.0f, 1.0f, 1.0f, Hovered ? 1.0f : 0.6f);
+		TextRender()->TextEx(&NameCursor, Row.m_pName);
+	});
+	if(NeededColumns > Columns)
+	{
+		char aBuf[64];
+		str_format(aBuf, sizeof(aBuf), Localize("Scroll for more (%d/%d)"), Scroll + 1, NeededColumns - Columns + 1);
+		TextRender()->TextColor(1.0f, 1.0f, 1.0f, 0.6f);
+		TextRender()->Text(Width / 2.0f + Left, Height / 2.0f + Bottom + 6.0f, 22.0f, aBuf, -1.0f);
+	}
+
+	TextRender()->TextColor(1.0f, 1.0f, 1.0f, 1.0f);
+	RenderTools()->RenderCursor(ScreenCenter + m_SelectorMouse, 48.0f);
+}
+
 void CSpectator::OnRender()
 {
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
@@ -232,7 +395,9 @@ void CSpectator::OnRender()
 				else if(m_SelectedSpectatorId == SPEC_FREEVIEW || m_SelectedSpectatorId == SPEC_FOLLOW)
 					GameClient()->m_MultiViewActivated = false;
 
-				if(!GameClient()->m_MultiViewActivated)
+				if(GameClient()->m_MultiServer.IsActive())
+					GameClient()->m_MultiServer.Spectate(m_SelectedSpectatorServer, m_SelectedSpectatorId);
+				else if(!GameClient()->m_MultiViewActivated)
 					Spectate(m_SelectedSpectatorId);
 
 				if(GameClient()->m_MultiViewActivated && m_SelectedSpectatorId != MULTI_VIEW && GameClient()->m_Teams.Team(m_SelectedSpectatorId) != GameClient()->m_MultiViewTeam)
@@ -256,6 +421,14 @@ void CSpectator::OnRender()
 
 	m_WasActive = true;
 	m_SelectedSpectatorId = NO_SELECTION;
+	m_SelectedSpectatorServer = -1;
+
+	if(GameClient()->m_MultiServer.IsActive())
+	{
+		// The players of several servers do not fit into the single server panel.
+		RenderMultiServerSelector();
+		return;
+	}
 
 	// draw background
 	float Width = 400 * 3.0f * Graphics()->ScreenAspect();
@@ -602,10 +775,17 @@ void CSpectator::OnReset()
 	m_WasActive = false;
 	m_Active = false;
 	m_SelectedSpectatorId = NO_SELECTION;
+	m_SelectedSpectatorServer = -1;
+	m_SelectorScroll = 0;
+	m_SelectorMaxScroll = 0;
 }
 
 void CSpectator::Spectate(int SpectatorId)
 {
+	// Reached from binds and the console as well, those must not leave the camera stuck
+	// on a player of an observed server.
+	GameClient()->m_MultiServer.ClearRemoteWatch();
+
 	if(Client()->State() == IClient::STATE_DEMOPLAYBACK)
 	{
 		GameClient()->m_DemoSpecId = std::clamp(SpectatorId, (int)SPEC_FOLLOW, MAX_CLIENTS - 1);

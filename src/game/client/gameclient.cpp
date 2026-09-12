@@ -142,6 +142,7 @@ void CGameClient::OnConsoleInit()
 					      &m_Items,
 					      &m_Ghost,
 					      &m_Players,
+					      &m_MultiServer,
 					      &m_MapLayersForeground,
 					      &m_Particles.m_RenderExplosions,
 					      &m_NamePlates,
@@ -738,7 +739,12 @@ void CGameClient::UpdatePositions()
 	// spectator position
 	if(m_Snap.m_SpecInfo.m_Active)
 	{
-		if(m_MultiViewActivated)
+		if(m_MultiServer.IsSpectatingRemote())
+		{
+			m_Snap.m_SpecInfo.m_Position = m_MultiServer.SpectatePosition();
+			m_Snap.m_SpecInfo.m_UsePosition = true;
+		}
+		else if(m_MultiViewActivated)
 		{
 			HandleMultiView();
 		}
@@ -1722,27 +1728,29 @@ void CGameClient::InvalidateSnapshot()
 	SnapCollectEntities();
 }
 
+void CGameClient::Evolve(CNetObj_Character *pCharacter, int Tick)
+{
+	// The scratch world and teams stay empty, the core only needs them to exist. They
+	// are kept because building them costs more than the evolving itself, and with
+	// several observed servers this runs for every player of every one of them.
+	CCharacterCore TempCore = CCharacterCore();
+	TempCore.Init(&m_EvolveWorld, Collision(), &m_EvolveTeams);
+	TempCore.Read(pCharacter);
+	TempCore.m_ActiveWeapon = pCharacter->m_Weapon;
+
+	while(pCharacter->m_Tick < Tick)
+	{
+		pCharacter->m_Tick++;
+		TempCore.Tick(false);
+		TempCore.Move();
+		TempCore.Quantize();
+	}
+
+	TempCore.Write(pCharacter);
+}
+
 void CGameClient::OnNewSnapshot(bool DummySwapped)
 {
-	auto &&Evolve = [this](CNetObj_Character *pCharacter, int Tick) {
-		CWorldCore TempWorld;
-		CCharacterCore TempCore = CCharacterCore();
-		CTeamsCore TempTeams = CTeamsCore();
-		TempCore.Init(&TempWorld, Collision(), &TempTeams);
-		TempCore.Read(pCharacter);
-		TempCore.m_ActiveWeapon = pCharacter->m_Weapon;
-
-		while(pCharacter->m_Tick < Tick)
-		{
-			pCharacter->m_Tick++;
-			TempCore.Tick(false);
-			TempCore.Move();
-			TempCore.Quantize();
-		}
-
-		TempCore.Write(pCharacter);
-	};
-
 	InvalidateSnapshot();
 
 	m_NewTick = true;
@@ -2420,6 +2428,9 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 		if(Client()->DummyConnected() && m_LastDummyConnected)
 			Client()->SendMsg(IClient::CONN_DUMMY, &Packer, MSGFLAG_VITAL);
 	}
+
+	// The observed servers clip their snapshots to the same box, see CMultiServer.
+	m_MultiServer.SendShowDistance(ShowDistanceZoom);
 
 	m_LastShowDistanceZoom = ShowDistanceZoom;
 	m_LastZoom = Zoom;
@@ -3221,6 +3232,19 @@ bool CGameClient::GotWantedSkin7(bool Dummy)
 	return true;
 }
 
+void CGameClient::SendStartInfo(int Conn)
+{
+	CNetMsg_Cl_StartInfo Msg;
+	Msg.m_pName = Client()->PlayerName();
+	Msg.m_pClan = g_Config.m_PlayerClan;
+	Msg.m_Country = g_Config.m_PlayerCountry;
+	Msg.m_pSkin = g_Config.m_ClPlayerSkin;
+	Msg.m_UseCustomColor = g_Config.m_ClPlayerUseCustomColor;
+	Msg.m_ColorBody = g_Config.m_ClPlayerColorBody;
+	Msg.m_ColorFeet = g_Config.m_ClPlayerColorFeet;
+	Client()->SendPackMsg(Conn, &Msg, MSGFLAG_VITAL | MSGFLAG_FLUSH);
+}
+
 void CGameClient::SendInfo(bool Start)
 {
 	if(m_pClient->IsSixup())
@@ -3233,17 +3257,7 @@ void CGameClient::SendInfo(bool Start)
 	}
 	if(Start)
 	{
-		CNetMsg_Cl_StartInfo Msg;
-		Msg.m_pName = Client()->PlayerName();
-		Msg.m_pClan = g_Config.m_PlayerClan;
-		Msg.m_Country = g_Config.m_PlayerCountry;
-		Msg.m_pSkin = g_Config.m_ClPlayerSkin;
-		Msg.m_UseCustomColor = g_Config.m_ClPlayerUseCustomColor;
-		Msg.m_ColorBody = g_Config.m_ClPlayerColorBody;
-		Msg.m_ColorFeet = g_Config.m_ClPlayerColorFeet;
-		CMsgPacker Packer(&Msg);
-		Msg.Pack(&Packer);
-		Client()->SendMsg(IClient::CONN_MAIN, &Packer, MSGFLAG_VITAL | MSGFLAG_FLUSH);
+		SendStartInfo(IClient::CONN_MAIN);
 		m_aCheckInfo[0] = -1;
 	}
 	else
@@ -3261,6 +3275,36 @@ void CGameClient::SendInfo(bool Start)
 		Client()->SendMsg(IClient::CONN_MAIN, &Packer, MSGFLAG_VITAL);
 		m_aCheckInfo[0] = Client()->GameTickSpeed();
 	}
+}
+
+void CGameClient::OnObserverSnapshot(int Conn)
+{
+	m_MultiServer.OnObserverSnapshot(Conn);
+}
+
+void CGameClient::OnObserverMessage(int MsgId, CUnpacker *pUnpacker, int Conn)
+{
+	m_MultiServer.OnObserverMessage(MsgId, pUnpacker, Conn);
+}
+
+void CGameClient::OnObserverDisconnect(int Conn)
+{
+	m_MultiServer.OnObserverDisconnect(Conn);
+}
+
+void CGameClient::OnObserverEnterGame(int Conn)
+{
+	m_MultiServer.OnObserverEnterGame(Conn);
+}
+
+void CGameClient::SendObserverStartInfo(int Conn)
+{
+	SendStartInfo(Conn);
+}
+
+int CGameClient::OnObserverSnapInput(int Conn, int *pData)
+{
+	return m_MultiServer.SnapInput(Conn, pData);
 }
 
 void CGameClient::SendDummyInfo(bool Start)

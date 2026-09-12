@@ -83,6 +83,16 @@ public:
 	typedef std::function<void(ELoadingCallbackDetail Detail)> TLoadingCallback;
 	CTranslationContext m_TranslationContext;
 
+	enum
+	{
+		CONN_MAIN = 0,
+		CONN_DUMMY,
+		CONN_CONTACT,
+		// Read only connections to other servers running the same map, see ObserverConnect
+		CONN_OBSERVER_FIRST,
+		NUM_CONNS = CONN_OBSERVER_FIRST + MAX_OBSERVERS,
+	};
+
 protected:
 	// quick access to state of the client
 	EClientState m_State = IClient::STATE_OFFLINE;
@@ -90,9 +100,9 @@ protected:
 	int64_t m_StateStartTime;
 
 	// quick access to time variables
-	int m_aPrevGameTick[NUM_DUMMIES] = {0, 0};
-	int m_aCurGameTick[NUM_DUMMIES] = {0, 0};
-	float m_aGameIntraTick[NUM_DUMMIES] = {0.0f, 0.0f};
+	int m_aPrevGameTick[NUM_CONNS] = {0};
+	int m_aCurGameTick[NUM_CONNS] = {0};
+	float m_aGameIntraTick[NUM_CONNS] = {0.0f};
 	float m_aGameTickTime[NUM_DUMMIES] = {0.0f, 0.0f};
 	float m_aGameIntraTickSincePrev[NUM_DUMMIES] = {0.0f, 0.0f};
 
@@ -118,14 +128,6 @@ public:
 		int m_Id;
 		const void *m_pData;
 		int m_DataSize;
-	};
-
-	enum
-	{
-		CONN_MAIN = 0,
-		CONN_DUMMY,
-		CONN_CONTACT,
-		NUM_CONNS,
 	};
 
 	enum
@@ -222,6 +224,21 @@ public:
 	virtual bool DummyConnected() const = 0;
 	virtual bool DummyConnecting() const = 0;
 	virtual bool DummyConnectingDelayed() const = 0;
+
+	/**
+	 * Attaches a read only connection to another server that runs the same map.
+	 *
+	 * The connection joins the spectators and only feeds its snapshots to the game
+	 * client, it never sends chat, votes or player input other than the camera.
+	 *
+	 * @param Addr Address of the server to observe.
+	 * @param pName Server name to show in the user interface.
+	 *
+	 * @return The connection index, or `-1` when no connection slot is free.
+	 */
+	virtual int ObserverConnect(const NETADDR &Addr, const char *pName) = 0;
+	virtual void ObserverDisconnectAll() = 0;
+	virtual bool ObserverOnline(int Conn) const = 0;
 	virtual bool DummyAllowed() const = 0;
 
 	virtual void Restart() = 0;
@@ -290,6 +307,12 @@ public:
 	virtual int SnapNumItems(int SnapId) const = 0;
 	virtual const void *SnapFindItem(int SnapId, int Type, int Id) const = 0;
 	virtual CSnapItem SnapGetItem(int SnapId, int Index) const = 0;
+
+	/**
+	 * Snapshot access for observer connections, @see ObserverConnect.
+	 */
+	virtual int ObserverSnapNumItems(int Conn, int SnapId) const = 0;
+	virtual CSnapItem ObserverSnapGetItem(int Conn, int SnapId, int Index) const = 0;
 
 	virtual void SnapSetStaticsize(int ItemType, int Size) = 0;
 	virtual void SnapSetStaticsize7(int ItemType, int Size) = 0;
@@ -421,6 +444,13 @@ public:
 	virtual int OnSnapInput(int *pData, bool Dummy, bool Force) = 0;
 	virtual void OnDummySwap() = 0;
 	virtual void SendDummyInfo(bool Start) = 0;
+
+	virtual void OnObserverSnapshot(int Conn) = 0;
+	virtual void OnObserverMessage(int MsgId, CUnpacker *pUnpacker, int Conn) = 0;
+	virtual void OnObserverDisconnect(int Conn) = 0;
+	virtual void OnObserverEnterGame(int Conn) = 0;
+	virtual void SendObserverStartInfo(int Conn) = 0;
+	virtual int OnObserverSnapInput(int Conn, int *pData) = 0;
 
 	virtual const char *GetItemName(int Type) const = 0;
 	virtual const char *Version() const = 0;

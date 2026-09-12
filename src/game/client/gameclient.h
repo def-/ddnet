@@ -56,6 +56,7 @@
 #include "components/menu_background.h"
 #include "components/menus.h"
 #include "components/motd.h"
+#include "components/multi_server.h"
 #include "components/nameplates.h"
 #include "components/particles.h"
 #include "components/players.h"
@@ -181,6 +182,7 @@ public:
 	CSpectator m_Spectator;
 
 	CPlayers m_Players;
+	CMultiServer m_MultiServer;
 	CNamePlates m_NamePlates;
 	CFreezeBars m_FreezeBars;
 	CItems m_Items;
@@ -268,8 +270,6 @@ private:
 	static void ConMapbug(IConsole::IResult *pResult, void *pUserData);
 
 	static void ConchainMenuMap(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
-
-	static std::function<bool(int, int, int, int)> GetScoreComparator(bool TimeScore, bool ReceivedMillisecondFinishTimes, bool Race7);
 
 	// only used in OnPredict
 	vec2 m_aLastPos[MAX_CLIENTS];
@@ -627,10 +627,26 @@ public:
 	void OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dummy) override;
 	void InvalidateSnapshot() override;
 	void OnNewSnapshot(bool DummySwapped) override;
+	/**
+	 * Advances a snapped character to `Tick` with the dead reckoning the server expects.
+	 *
+	 * Servers keep sending the same character state with an old `m_Tick` while its
+	 * movement stays predictable, so a character that is not evolved renders at a
+	 * position that can be seconds old.
+	 */
+	void Evolve(CNetObj_Character *pCharacter, int Tick);
+	static std::function<bool(int, int, int, int)> GetScoreComparator(bool TimeScore, bool ReceivedMillisecondFinishTimes, bool Race7);
 	void OnPredict() override;
 	void OnActivateEditor() override;
 	void OnDummySwap() override;
 	int OnSnapInput(int *pData, bool Dummy, bool Force) override;
+
+	void OnObserverSnapshot(int Conn) override;
+	void OnObserverMessage(int MsgId, CUnpacker *pUnpacker, int Conn) override;
+	void OnObserverDisconnect(int Conn) override;
+	void OnObserverEnterGame(int Conn) override;
+	void SendObserverStartInfo(int Conn) override;
+	int OnObserverSnapInput(int Conn, int *pData) override;
 	void OnShutdown() override;
 	void OnEnterGame() override;
 	void OnRconType(bool UsernameReq) override;
@@ -675,6 +691,8 @@ public:
 	void SendSkinChange7(bool Dummy);
 	// Returns true if the requested skin change got applied by the server
 	bool GotWantedSkin7(bool Dummy);
+	// Our own player info, `Conn` is an observed server for the ones we only watch.
+	void SendStartInfo(int Conn);
 	void SendInfo(bool Start);
 	void SendDummyInfo(bool Start) override;
 	void SendKill() const;
@@ -924,6 +942,10 @@ public:
 	char m_aMapDescription[512];
 
 private:
+	// Scratch state of Evolve, see there.
+	CWorldCore m_EvolveWorld;
+	CTeamsCore m_EvolveTeams;
+
 	std::unique_ptr<IMap> m_pMap;
 
 	std::vector<CSnapEntities> m_vSnapEntities;

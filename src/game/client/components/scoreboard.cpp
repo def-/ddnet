@@ -174,6 +174,14 @@ bool CScoreboard::OnInput(const IInput::CEvent &Event)
 		return true;
 	}
 
+	// The players of several servers do not fit on one page.
+	if(IsActive() && GameClient()->m_MultiServer.IsActive() && (Event.m_Flags & IInput::FLAG_PRESS) != 0 &&
+		(Event.m_Key == KEY_MOUSE_WHEEL_UP || Event.m_Key == KEY_MOUSE_WHEEL_DOWN))
+	{
+		GameClient()->m_MultiServer.ScrollScoreboard(Event.m_Key == KEY_MOUSE_WHEEL_UP ? -1 : 1);
+		return true;
+	}
+
 	return IsActive() && m_MouseUnlocked;
 }
 
@@ -925,6 +933,14 @@ void CScoreboard::OnRender()
 	const CUIRect Screen = *Ui()->Screen();
 	Ui()->MapScreen();
 
+	if(GameClient()->m_MultiServer.IsActive())
+	{
+		// The per server layout has no room for the players of the other servers.
+		GameClient()->m_MultiServer.RenderScoreboard(Screen);
+		RenderOverlay(Screen);
+		return;
+	}
+
 	const CNetObj_GameInfo *pGameInfoObj = GameClient()->m_Snap.m_pGameInfoObj;
 	const bool Teams = GameClient()->IsTeamPlay();
 	const auto &aTeamSize = GameClient()->m_Snap.m_aTeamSize;
@@ -1078,6 +1094,11 @@ void CScoreboard::OnRender()
 	}
 	RenderSpectators(Spectators);
 
+	RenderOverlay(Screen);
+}
+
+void CScoreboard::RenderOverlay(const CUIRect &Screen)
+{
 	RenderRecordingNotification((Screen.w / 7) * 4 + 10);
 
 	if(!GameClient()->m_Menus.IsActive() && !GameClient()->m_Chat.IsActive())

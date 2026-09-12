@@ -503,6 +503,10 @@ void CPlayers::RenderHook(
 	float Alpha = (OtherTeam || ClientId < 0) ? g_Config.m_ClShowOthersAlpha / 100.0f : 1.0f;
 	if(ClientId == -2) // ghost
 		Alpha = g_Config.m_ClRaceGhostAlpha / 100.0f;
+	else if(CMultiServer::IsRenderClientId(ClientId)) // player on an observed server
+		Alpha = GameClient()->m_MultiServer.PlayerAlpha(CMultiServer::RenderServer(ClientId));
+	else if(ClientId >= 0)
+		Alpha = std::min(Alpha, GameClient()->m_MultiServer.PlayerAlpha(-1));
 
 	RenderInfo.m_Size = 64.0f;
 
@@ -514,7 +518,7 @@ void CPlayers::RenderHook(
 
 	// draw hook
 	Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
-	if(ClientId < 0)
+	if(ClientId < 0 && !CMultiServer::IsRenderClientId(ClientId)) // spectator char or race ghost
 		Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.5f);
 
 	vec2 Pos = Position;
@@ -592,6 +596,10 @@ void CPlayers::RenderPlayer(
 	float Alpha = (OtherTeam || ClientId < 0) ? g_Config.m_ClShowOthersAlpha / 100.0f : 1.0f;
 	if(ClientId == -2) // ghost
 		Alpha = g_Config.m_ClRaceGhostAlpha / 100.0f;
+	else if(CMultiServer::IsRenderClientId(ClientId)) // player on an observed server
+		Alpha = GameClient()->m_MultiServer.PlayerAlpha(CMultiServer::RenderServer(ClientId));
+	else if(ClientId >= 0)
+		Alpha = std::min(Alpha, GameClient()->m_MultiServer.PlayerAlpha(-1));
 	// TODO: snd_game_volume_others
 	const float Volume = 1.0f;
 

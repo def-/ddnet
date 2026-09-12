@@ -612,8 +612,10 @@ void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItem
 
 	// buttons
 	{
-		CUIRect ButtonRefresh, ButtonConnect;
-		ConnectButtons.VSplitMid(&ButtonRefresh, &ButtonConnect, 5.0f);
+		CUIRect ButtonRefresh, ButtonObserve, ButtonConnect;
+		ConnectButtons.VSplitLeft((ConnectButtons.w - 10.0f) / 3.0f, &ButtonRefresh, &ConnectButtons);
+		ConnectButtons.VSplitLeft(5.0f, nullptr, &ConnectButtons);
+		ConnectButtons.VSplitMid(&ButtonObserve, &ButtonConnect, 5.0f);
 
 		// refresh button
 		{
@@ -635,6 +637,22 @@ void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItem
 			{
 				RefreshBrowserTab(true);
 			}
+		}
+
+		// observe button, joins every server of the list that runs the same map
+		{
+			const auto &&ObserveLabelFunc = []() { return FontIcon::EYE; };
+
+			SMenuButtonProperties Props;
+			Props.m_UseIconFont = true;
+			Props.m_Color = ColorRGBA(0.5f, 0.7f, 1.0f, 0.5f);
+
+			static CButtonContainer s_ObserveButton;
+			if(Ui()->DoButton_Menu(m_ObserveButton, &s_ObserveButton, ObserveLabelFunc, &ButtonObserve, Props))
+			{
+				ConnectAllOnSameMap();
+			}
+			GameClient()->m_Tooltips.DoToolTip(&s_ObserveButton, &ButtonObserve, Localize("Join a server of the list and watch every other server in it that runs the same map"));
 		}
 
 		// connect button
@@ -665,6 +683,93 @@ void CMenus::Connect(const char *pAddress)
 	{
 		Client()->Connect(pAddress);
 	}
+}
+
+// Observing speaks 0.6 only and needs an address to connect to, see IClient::ObserverConnect.
+static bool CanObserveServer(const CServerInfo *pInfo)
+{
+	return pInfo->m_NumAddresses > 0 && (pInfo->m_aAddresses[0].type & NETTYPE_TW7) == 0;
+}
+
+static bool SameMap(const CServerInfo *pInfo, const CServerInfo *pOther)
+{
+	return pInfo->m_MapCrc == pOther->m_MapCrc && str_comp(pInfo->m_aMap, pOther->m_aMap) == 0;
+}
+
+void CMenus::ConnectAllOnSameMap()
+{
+	const CServerInfo *pSelected = nullptr;
+	for(int i = 0; i < ServerBrowser()->NumSortedServers(); i++)
+	{
+		const CServerInfo *pInfo = ServerBrowser()->SortedGet(i);
+		if(str_comp(pInfo->m_aAddress, g_Config.m_UiServerAddress) == 0)
+		{
+			pSelected = pInfo;
+			break;
+		}
+	}
+
+	if(pSelected == nullptr || !CanObserveServer(pSelected))
+	{
+		// Nothing usable is clicked, so join the map that most of the list runs. The map
+		// of the first server would depend on how the list happens to be sorted.
+		int MostServers = 0;
+		for(int i = 0; i < ServerBrowser()->NumSortedServers(); i++)
+		{
+			const CServerInfo *pInfo = ServerBrowser()->SortedGet(i);
+			if(!CanObserveServer(pInfo))
+			{
+				continue;
+			}
+			int NumServers = 1;
+			for(int j = i + 1; j < ServerBrowser()->NumSortedServers(); j++)
+			{
+				const CServerInfo *pOther = ServerBrowser()->SortedGet(j);
+				if(CanObserveServer(pOther) && SameMap(pInfo, pOther))
+				{
+					NumServers++;
+				}
+			}
+			// Counting forward means the first server of a map always wins its own group.
+			if(NumServers > MostServers)
+			{
+				pSelected = pInfo;
+				MostServers = NumServers;
+			}
+		}
+	}
+	if(pSelected == nullptr)
+	{
+		return;
+	}
+
+	std::vector<CMultiServer::CServerEntry> vObserve;
+	for(int i = 0; i < ServerBrowser()->NumSortedServers(); i++)
+	{
+		const CServerInfo *pInfo = ServerBrowser()->SortedGet(i);
+		if(pInfo == pSelected || !CanObserveServer(pInfo) || !SameMap(pInfo, pSelected))
+		{
+			continue;
+		}
+		vObserve.push_back({pInfo->m_aAddresses[0], {}});
+		str_copy(vObserve.back().m_aName, pInfo->m_aName);
+	}
+
+	if(Client()->State() == IClient::STATE_ONLINE && GameClient()->CurrentRaceTime() / 60 >= g_Config.m_ClConfirmDisconnectTime && g_Config.m_ClConfirmDisconnectTime >= 0)
+	{
+		str_copy(m_aNextServer, pSelected->m_aAddress);
+		m_vNextServers = vObserve;
+		PopupConfirm(Localize("Disconnect"), Localize("Are you sure that you want to disconnect and watch these servers?"), Localize("Yes"), Localize("No"), &CMenus::PopupConfirmObserveServers);
+	}
+	else
+	{
+		GameClient()->m_MultiServer.ConnectAll(pSelected->m_aAddress, vObserve);
+	}
+}
+
+void CMenus::PopupConfirmObserveServers()
+{
+	GameClient()->m_MultiServer.ConnectAll(m_aNextServer, m_vNextServers);
 }
 
 void CMenus::PopupConfirmSwitchServer()

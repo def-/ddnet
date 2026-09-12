@@ -1021,6 +1021,16 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 	if(Visuals.m_BufferContainerIndex == -1)
 		return; // no visuals were created
 
+	// Consecutive visible clusters are drawn in one call: their quads follow
+	// each other in the buffer, so the draw order does not change, and a
+	// large map has dozens of visible clusters a frame
+	int MergedStart = -1;
+	auto FlushMerged = [&]() {
+		if(MergedStart >= 0)
+			Graphics()->RenderQuadLayer(Visuals.m_BufferContainerIndex, m_vMergedQuadRenderInfo.data(), m_vMergedQuadRenderInfo.size(), MergedStart);
+		MergedStart = -1;
+		m_vMergedQuadRenderInfo.clear();
+	};
 	for(auto &QuadCluster : m_vQuadClusters)
 	{
 		if(!IsVisibleInClipRegion(QuadCluster.m_ClipRegion))
@@ -1056,10 +1066,17 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 				}
 			}
 			if(AnyVisible)
-				Graphics()->RenderQuadLayer(Visuals.m_BufferContainerIndex, QuadCluster.m_vQuadRenderInfo.data(), QuadCluster.m_NumQuads, QuadCluster.m_StartIndex);
+			{
+				if(MergedStart >= 0 && MergedStart + (int)m_vMergedQuadRenderInfo.size() != QuadCluster.m_StartIndex)
+					FlushMerged();
+				if(MergedStart < 0)
+					MergedStart = QuadCluster.m_StartIndex;
+				m_vMergedQuadRenderInfo.insert(m_vMergedQuadRenderInfo.end(), QuadCluster.m_vQuadRenderInfo.begin(), QuadCluster.m_vQuadRenderInfo.begin() + QuadCluster.m_NumQuads);
+			}
 		}
 		else
 		{
+			FlushMerged();
 			SQuadRenderInfo &QInfo = QuadCluster.m_vQuadRenderInfo[0];
 
 			ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1085,6 +1102,7 @@ void CRenderLayerQuads::RenderQuadLayer(float Alpha, const CRenderLayerParams &P
 			Graphics()->RenderQuadLayer(Visuals.m_BufferContainerIndex, &QInfo, (size_t)QuadCluster.m_NumQuads, QuadCluster.m_StartIndex, true);
 		}
 	}
+	FlushMerged();
 
 	if(Params.m_DebugRenderClusterClips)
 	{

@@ -294,6 +294,8 @@ protected:
 	bool CalculateQuadClipping(const CQuadCluster &QuadCluster, float aQuadOffsetMin[2], float aQuadOffsetMax[2]) const;
 
 	std::vector<CQuadCluster> m_vQuadClusters;
+	// The render info of the clusters drawn together this frame
+	std::vector<SQuadRenderInfo> m_vMergedQuadRenderInfo;
 	CQuad *m_pQuads;
 
 private:

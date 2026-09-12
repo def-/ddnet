@@ -649,11 +649,35 @@ public:
 };
 
 // --dump <cid> <from> <to>: what the demo holds for one tee, tick by tick
-static int g_DumpCid = -1;
+static int g_DumpCid = -2;
 static int g_DumpFrom = 0;
 static int g_DumpTo = 0;
 static void DumpCharacter(const CSnapshot *pSnapshot, int Tick)
 {
+	if(g_DumpCid == -1)
+	{
+		for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+		{
+			const CSnapshotItem *pItem = pSnapshot->GetItem(Index);
+			const int Type = pSnapshot->GetItemType(Index);
+			if(Type == NETOBJTYPE_CHARACTER)
+			{
+				const CNetObj_Character *pChar = (const CNetObj_Character *)pItem->Data();
+				log_info(TOOL_NAME, "ALL tick=%d char cid=%d pos=%d,%d vel=%d,%d hookstate=%d hook=%d,%d hooked=%d", Tick, pItem->Id(), pChar->m_X, pChar->m_Y, pChar->m_VelX, pChar->m_VelY, pChar->m_HookState, pChar->m_HookX, pChar->m_HookY, pChar->m_HookedPlayer);
+			}
+			else if(Type == NETOBJTYPE_DDNETLASER)
+			{
+				const CNetObj_DDNetLaser *pLaser = (const CNetObj_DDNetLaser *)pItem->Data();
+				log_info(TOOL_NAME, "ALL tick=%d laser id=%d from=%d,%d to=%d,%d start=%d owner=%d type=%d subtype=%d switch=%d flags=%d", Tick, pItem->Id(), pLaser->m_FromX, pLaser->m_FromY, pLaser->m_ToX, pLaser->m_ToY, pLaser->m_StartTick, pLaser->m_Owner, pLaser->m_Type, pLaser->m_Subtype, pLaser->m_SwitchNumber, pLaser->m_Flags);
+			}
+			else if(Type == NETOBJTYPE_DDNETPROJECTILE)
+			{
+				const CNetObj_DDNetProjectile *pProj = (const CNetObj_DDNetProjectile *)pItem->Data();
+				log_info(TOOL_NAME, "ALL tick=%d proj id=%d pos=%d,%d vel=%d,%d type=%d start=%d owner=%d flags=0x%x switch=%d tunezone=%d", Tick, pItem->Id(), pProj->m_X, pProj->m_Y, pProj->m_VelX, pProj->m_VelY, pProj->m_Type, pProj->m_StartTick, pProj->m_Owner, pProj->m_Flags, pProj->m_SwitchNumber, pProj->m_TuneZone);
+			}
+		}
+		return;
+	}
 	const CNetObj_Character *pChar = nullptr;
 	const CNetObj_DDNetCharacter *pExt = nullptr;
 	for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
@@ -686,7 +710,7 @@ static void DumpCharacter(const CSnapshot *pSnapshot, int Tick)
 				}
 			}
 			if(pItem->InternalType() == 0 && pItem->Id() >= CSnapshot::OFFSET_UUID_TYPE && str_length(aTypes) < 200)
-				str_format(aTypes + str_length(aTypes), sizeof(aTypes) - str_length(aTypes), "%x ", ((const int *)pItem->Data())[0] & 0xffff);
+				str_format(aTypes + str_length(aTypes), sizeof(aTypes) - str_length(aTypes), "%x ", pItem->Data()[0] & 0xffff);
 		}
 		log_info(TOOL_NAME, "STRUCT tick=%d items=%d dups=%d [%s] extypes=[%s]", Tick, pSnapshot->NumItems(), Dups, aDups, aTypes);
 	}
@@ -739,7 +763,7 @@ public:
 		// scrambling happens on a copy
 		mem_copy(m_Snapshot.m_aData, pData, Size);
 		const int Tick = m_pDemoPlayer->Info()->m_Info.m_CurrentTick;
-		if(g_DumpCid >= 0 && Tick >= g_DumpFrom && Tick <= g_DumpTo)
+		if(g_DumpCid >= -1 && Tick >= g_DumpFrom && Tick <= g_DumpTo)
 			DumpCharacter((const CSnapshot *)pData, Tick);
 		if(m_pReport != nullptr)
 			mem_copy(m_Recorded.m_aData, pData, Size);

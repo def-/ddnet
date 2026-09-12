@@ -239,16 +239,16 @@ def main():
                 output.flush()
                 continue
             published_entry = published.get(key)
-            if published_entry and args.reconvert:
+            if published_entry and (args.reconvert or map_name in args.reconvert_map):
                 # A demo that is already published is made again. It stays
-                # as it is when the recording is gone, there is nothing to
-                # make it from then. A recording that IS there and no
-                # longer yields the run means the demo that was published
-                # is of something else, and it goes.
+                # as it is when the recording is gone or the converter
+                # fails, there is nothing to make it from then. A recording
+                # that IS there and no longer yields the run means the demo
+                # that was published is of something else, and it goes.
                 result = future.result() if future is not None else generate(entry, reconvert=True)
-                if result["status"] != "ok" and "not in the archive" in result["message"]:
-                    print(f"{map_name} ({kind} #{entry.get('rank', '?')}): kept the published demo, "
-                        f"its recording is gone: {result['message']}", file=sys.stderr, flush=True)
+                if result["status"] != "ok" and "No finish" not in result["message"]:
+                    print(f"{map_name} ({kind} #{entry.get('rank', '?')}): kept the published demo: "
+                        f"{result['message']}", file=sys.stderr, flush=True)
                     result = outcome(published_entry)
                 elif result["status"] != "ok":
                     print(f"{map_name} ({kind} #{entry.get('rank', '?')}): dropped the published demo, "

@@ -17,6 +17,10 @@
 #include <engine/shared/websockets.h>
 #endif
 
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+#include <emscripten.h>
+#endif
+
 #if defined(CONF_FAMILY_UNIX)
 #include <sys/time.h> // timeval
 #include <unistd.h> // close
@@ -737,6 +741,15 @@ int net_socket_read_wait(NETSOCKET sock, std::chrono::nanoseconds nanoseconds)
 {
 	const int64_t microseconds = std::chrono::duration_cast<std::chrono::microseconds>(nanoseconds).count();
 	dbg_assert(microseconds >= 0, "Negative wait duration %" PRId64 " not allowed", microseconds);
+#if defined(CONF_PLATFORM_EMSCRIPTEN)
+	// The browser's socket emulation reports a UDP socket without a peer as
+	// readable at all times, so a select on it returns at once and the
+	// client spins through its frame wait, 36000 receive calls a second on
+	// an empty socket. Packets queue up in the emulation by themselves, the
+	// wait only has to hand the time to the browser.
+	emscripten_sleep(microseconds / 1000);
+	return 0;
+#endif
 
 	fd_set readfds;
 	FD_ZERO(&readfds);

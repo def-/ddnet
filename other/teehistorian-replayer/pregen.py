@@ -227,9 +227,12 @@ def main():
             if kind == "solo" and team_result is not None:
                 # The solo rank of a member of a team run links the team run's
                 # demo, which is the same run, instead of keeping a copy of its
-                # own from an earlier conversion
+                # own from an earlier conversion. It is one of the wanted ranks
+                # all the same, otherwise every member of every team run of the
+                # map has its team converted, 16 demos for Adrenaline 5.
                 if future is not None:
                     future.cancel()
+                group_wanted -= 1
                 written.add(key)
                 written_ok.add(key)
                 output.write(json.dumps({**entry, **team_result}, ensure_ascii=False) + "\n")

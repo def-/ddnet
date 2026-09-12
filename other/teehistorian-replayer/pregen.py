@@ -99,9 +99,8 @@ def main():
     # Conversions that failed on an archived recording fail the same way every
     # night (a full scan each, the expensive class), carry them forward.
     # "Not in the archive" is retried: the archive syncs daily.
-    # Ranks that were published once are carried forward as they are, whether
-    # or not they are still the best rank of their map: a link that was shared
-    # keeps working after the rank was beaten.
+    # A rank that was published once is not converted again, its demo is
+    # there. It stays published only while it is one of the wanted ranks.
     previous = {}
     previous_aliases = {}
     published = {}
@@ -121,12 +120,10 @@ def main():
         pass
 
     groups = {}
-    manifest_entries = {}
     with open(args.manifest) as manifest:
         for line in manifest:
             entry = json.loads(line)
             groups.setdefault((entry["map"], entry["kind"]), []).append(entry)
-            manifest_entries[entry_key(entry)] = entry
 
     # One pass over the archive indexes, so the candidates whose recording is
     # long gone are answered from memory instead of a stat in every location
@@ -288,22 +285,8 @@ def main():
                     written_ok.add(key)
                     output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
                     output.flush()
-        # The ranks of earlier runs that are not wanted any more, their demos
-        # are on the web host and their links are out there. A rank the
-        # manifest still names was beaten and carries its rank of today, one
-        # it no longer names was deleted.
-        kept = 0
-        for key, entry in published.items():
-            if key not in written:
-                kept += 1
-                current = manifest_entries.get(key)
-                if current is not None:
-                    entry = {**current, **outcome(entry), "kept": "beaten"}
-                else:
-                    entry = {**entry, "kept": "deleted"}
-                output.write(json.dumps(entry, ensure_ascii=False) + "\n")
     pathlib.Path(args.output + ".new").replace(args.output)
-    print(f"{ok} demos ready, {linked} further ranks link them, {kept} kept from earlier runs, {errors} candidates failed", file=sys.stderr)
+    print(f"{ok} demos ready, {linked} further ranks link them, {errors} candidates failed", file=sys.stderr)
     converter.drop_unnamed({entry.get("demo") for entry in map(json.loads, open(args.output, encoding="utf-8"))})
 
 

@@ -4842,6 +4842,15 @@ void CGameClient::LoadMapSettings()
 		Map()->UnloadData(pItem->m_Settings);
 		break;
 	}
+
+	// The tuning of the map until the server sends its own. A demo that was
+	// started after the join does not hold that message, and the vanilla
+	// defaults would then be used, which fly shotgun bullets five times as
+	// fast and along a curve.
+	for(CTuningParams &Tuning : m_aTuning)
+	{
+		Tuning = TuningList()[0];
+	}
 }
 
 void CGameClient::ConTuneParam(IConsole::IResult *pResult, void *pUserData)

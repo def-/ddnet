@@ -3799,12 +3799,12 @@ private:
 			char aRow[512];
 			str_format(aRow, sizeof(aRow),
 				"{\"t\":%d,\"cid\":%d,\"team\":%d,\"x\":%d,\"y\":%d,\"vx\":%.4f,\"vy\":%.4f,"
-				"\"hook_state\":%d,\"hook_x\":%.2f,\"hook_y\":%.2f,\"hooked\":%d,\"frozen\":%d,\"jumped\":%d,\"weapon\":%d,"
+				"\"hook_state\":%d,\"hook_x\":%.2f,\"hook_y\":%.2f,\"hooked\":%d,\"frozen\":%d,\"sim_error\":%.2f,\"jumped\":%d,\"weapon\":%d,"
 				"\"in_dir\":%d,\"in_tx\":%d,\"in_ty\":%d,\"in_jump\":%d,\"in_fire\":%d,\"in_hook\":%d,"
 				"\"in_flags\":%d,\"in_wanted\":%d,\"in_next\":%d,\"in_prev\":%d}\n",
 				m_Tick, Cid, m_TeamsCore.Team(Cid), Player.m_X, Player.m_Y, Player.m_Core.m_Vel.x, Player.m_Core.m_Vel.y,
 				Player.m_Core.m_HookState, Player.m_Core.m_HookPos.x, Player.m_Core.m_HookPos.y, Player.m_Core.HookedPlayer(),
-				(int)IsFrozen(Player), Player.m_Core.m_Jumped, Player.m_Core.m_ActiveWeapon,
+				(int)IsFrozen(Player), Player.m_SimError, Player.m_Core.m_Jumped, Player.m_Core.m_ActiveWeapon,
 				Input.m_Direction, Input.m_TargetX, Input.m_TargetY, Input.m_Jump, Input.m_Fire, Input.m_Hook,
 				Input.m_PlayerFlags, Input.m_WantedWeapon, Input.m_NextWeapon, Input.m_PrevWeapon);
 			io_write(m_DatasetFile, aRow, str_length(aRow));

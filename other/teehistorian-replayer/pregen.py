@@ -30,6 +30,8 @@ parser.add_argument("--cache-limit-gb", type=float, default=40)
 parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per map and kind")
 parser.add_argument("--jobs", type=int, default=4,
     help="conversions in flight at once, the archive disk answers several readers faster than one")
+parser.add_argument("--reconvert-map", action="append", default=[], metavar="MAP",
+    help="convert the ranks of this map again (repeatable), for a tool fix that concerns a few maps")
 parser.add_argument("--reconvert", action="store_true",
     help="convert every published rank again, to bring demos made by an older converter up to date")
 parser.add_argument("--retry-failed", action="store_true",
@@ -164,7 +166,7 @@ def main():
     def work_of(entry):
         key = entry_key(entry)
         if key in published:
-            return "reconvert" if args.reconvert else None
+            return "reconvert" if args.reconvert or entry["map"] in args.reconvert_map else None
         if carried(entry):
             return None
         return "generate"

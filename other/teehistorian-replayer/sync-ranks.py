@@ -29,6 +29,8 @@ parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per m
 parser.add_argument("--import-script", default="/home/teeworlds/servers/scripts/import-watchable.py",
     help="loads the uploaded manifest into the record_watch table on the web host")
 parser.add_argument("--retry-failed", action="store_true", help="passed on to pregen.py")
+parser.add_argument("--reconvert-map", action="append", default=[], metavar="MAP",
+    help="convert the ranks of this map again (repeatable)")
 parser.add_argument("--reconvert", action="store_true",
     help="passed on to pregen.py, converts every published rank again after a converter fix")
 parser.add_argument("--prune", action="store_true",
@@ -62,7 +64,8 @@ def generate():
     command = ["nice", "-n19", "ionice", "-c2", "-n7", sys.executable, str(HERE / "pregen.py"),
         args.manifest, str(WATCHABLE), "--cache", str(CACHE), "--ranks", str(args.ranks)] + \
         (["--retry-failed"] if args.retry_failed else []) + \
-        (["--reconvert"] if args.reconvert else [])
+        (["--reconvert"] if args.reconvert else []) + \
+        [arg for map_name in args.reconvert_map for arg in ("--reconvert-map", map_name)]
     print("+ " + " ".join(command), file=sys.stderr, flush=True)
     process = subprocess.Popen(command)
     # A run takes hours, what it has finished goes up every few minutes so

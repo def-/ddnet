@@ -3443,9 +3443,12 @@ private:
 			HandleWeaponSwitch(Cid);
 			if(Player.m_PainSoundTimer > 0)
 				Player.m_PainSoundTimer--;
+			// The server fires on an input's arrival as well as in its tick,
+			// so a press that arrives in the tick a reload runs out still
+			// fires. Here the press of that tick is honoured the same way.
 			if(Player.m_ReloadTimer)
 				Player.m_ReloadTimer--;
-			else
+			if(Player.m_ReloadTimer == 0)
 				FireWeapon(Cid);
 			// DDRacePostCoreTick clears this right after the weapons ran
 			Player.m_FrozenLastTick = false;

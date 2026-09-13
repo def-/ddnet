@@ -93,8 +93,20 @@ def team_ranks(cur, map_name):
     return ranks
 
 
+def connect():
+    """The sync on the archive host runs this over ssh as the user the web
+    scripts run as, which has its own connection; a run as root (the nightly
+    cron) falls back to the local maintenance account."""
+    sys.path.insert(0, "/home/teeworlds/servers/scripts")
+    try:
+        from mysql import mysqlConnect
+    except ImportError:
+        return MySQLdb.connect(read_default_file="/etc/mysql/debian.cnf", db="teeworlds", charset="utf8mb4")
+    return mysqlConnect()
+
+
 def main():
-    conn = MySQLdb.connect(read_default_file="/etc/mysql/debian.cnf", db="teeworlds", charset="utf8mb4")
+    conn = connect()
     cur = conn.cursor()
     # The global cap would kill the per-map queries on the largest maps
     cur.execute("SET SESSION max_statement_time=0")

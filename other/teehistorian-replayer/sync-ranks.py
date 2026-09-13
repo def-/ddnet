@@ -4,9 +4,11 @@
 # names and copies them and the manifest to the web host. Safe to re-run,
 # everything already converted and already uploaded is skipped.
 #
-# The manifest comes from top-ranks.py, which has to run on the database host
-# as root (it reads /etc/mysql/debian.cnf), so it is fetched instead of run
-# from here. Pass --manifest-source - to use an existing local file.
+# The candidate list comes from top-ranks.py, which runs on the database host
+# (deployed there as watch-candidates.py) and is run at the start of every
+# sync: a list from the last nightly is up to a day old, and every rank set
+# or deleted since is then missed. Pass --manifest-source - to use an
+# existing local file.
 #
 # Usage: sync-ranks.py [--ranks 1] [--dry-run]
 
@@ -19,9 +21,13 @@ import subprocess
 import sys
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--manifest-source", default="ddnet:/var/www/watch/top-ranks.jsonl",
-    help="scp source of the rank manifest, - to use --manifest as it is")
-parser.add_argument("--manifest", default="/tmp/top-ranks.jsonl")
+parser.add_argument("--manifest-host", default="ddnet",
+    help="the database host, where the candidate list is made")
+parser.add_argument("--manifest-script", default="/home/teeworlds/servers/scripts/watch-candidates.py",
+    help="the candidate list generator on that host")
+parser.add_argument("--manifest-source",
+    help="scp source of a ready candidate list instead of making one, - to use --manifest as it is")
+parser.add_argument("--manifest", help="where the candidate list is kept (default: <cache>/top-ranks.jsonl)")
 parser.add_argument("--cache", default=str(pathlib.Path.home() / "teehistorian-demos"))
 parser.add_argument("--target", default="ddnet:/var/www/watch",
     help="ssh destination of the web directory holding demos/ and watchable.jsonl")
@@ -41,6 +47,9 @@ parser.add_argument("--dry-run", action="store_true", help="report what would be
 parser.add_argument("--no-generate", action="store_true",
     help="upload the manifest as it is, for a pregen that was run separately")
 args = parser.parse_args()
+# Next to the demos, not in /tmp: the list of the last run is what a shrunken
+# fresh one is compared against
+args.manifest = args.manifest or str(pathlib.Path(args.cache) / "top-ranks.jsonl")
 
 HERE = pathlib.Path(__file__).resolve().parent
 CACHE = pathlib.Path(args.cache)
@@ -56,7 +65,21 @@ def run(command, **kwargs):
 def fetch_manifest():
     if args.manifest_source == "-":
         return
-    run(["scp", "-q", args.manifest_source, args.manifest])
+    if args.manifest_source:
+        run(["scp", "-q", args.manifest_source, args.manifest])
+        return
+    fresh = args.manifest + ".new"
+    with open(fresh, "w") as out:
+        run(["ssh", args.manifest_host, "python3", args.manifest_script], stdout=out)
+    lines = sum(1 for _ in open(fresh, encoding="utf-8", errors="replace"))
+    before = sum(1 for _ in open(args.manifest, encoding="utf-8", errors="replace")) \
+        if pathlib.Path(args.manifest).exists() else 0
+    # A query that fails halfway must not shrink the list: the ranks it leaves
+    # out would lose their demo and the links that were shared for them
+    if lines < 1000 or lines < before * 0.9:
+        sys.exit(f"the fresh candidate list has {lines} lines, the one before had {before}, refusing")
+    pathlib.Path(fresh).replace(args.manifest)
+    print(f"{lines} rank candidates", file=sys.stderr, flush=True)
 
 
 def generate():

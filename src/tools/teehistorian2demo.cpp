@@ -3878,8 +3878,14 @@ private:
 			return;
 
 		// Recordings from before September 2021 have no team chunks either,
-		// there the run is whoever holds the rank's names
-		if(m_pvRankNames != nullptr && m_ApproxCandidate.m_Cid < 0 && m_RankExpectedTick >= 0 && m_Tick >= m_RankExpectedTick)
+		// there the run is whoever holds the rank's names. Whoever holds them
+		// AT the rank's timestamp: a player of that name who only joins later
+		// was not the one who finished, and placing the run at the timestamp
+		// then shows whoever happened to sit in that slot, doing nothing.
+		// The window is the same slack a finish event gets, for the server
+		// ticks that fall behind wall-clock time over a long session.
+		if(m_pvRankNames != nullptr && m_ApproxCandidate.m_Cid < 0 && m_RankExpectedTick >= 0 &&
+			m_Tick >= m_RankExpectedTick && m_Tick <= m_RankExpectedTick + RANK_TIMESTAMP_SLACK_TICKS)
 		{
 			for(const char *pName : *m_pvRankNames)
 			{

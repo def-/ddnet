@@ -5812,6 +5812,15 @@ int main(int argc, const char *argv[])
 		DebugEndSeconds = ParseTimeSeconds(argv[ArgIndex + 2]);
 		ArgIndex += 3;
 	}
+	// The scan alone, without converting: which run the rank is and whether
+	// it loaded a save, which is what the pipeline needs to know before it
+	// spends minutes on a demo
+	bool RankInfoOnly = false;
+	if(ArgIndex < argc && str_comp(argv[ArgIndex], "--rank-info") == 0)
+	{
+		RankInfoOnly = true;
+		argv[ArgIndex] = "--rank";
+	}
 	const bool RankMode = ArgIndex < argc && str_comp(argv[ArgIndex], "--rank") == 0;
 	// The recording holds the /save of a run that was finished after a /load
 	// somewhere else: convert the part of the run that happened here, from
@@ -5839,6 +5848,8 @@ int main(int argc, const char *argv[])
 		log_error(TOOL_NAME, "before the recording started");
 		log_error(TOOL_NAME, "--alias names a rank player by a name the player had before, for a rank that");
 		log_error(TOOL_NAME, "was moved to a new name after the run");
+		log_error(TOOL_NAME, "--rank-info takes the same arguments as --rank and only says which run the");
+		log_error(TOOL_NAME, "rank is and whether it loaded a save, without converting anything");
 		log_error(TOOL_NAME, "--publish-name <name> <client id> writes that player under that client id,");
 		log_error(TOOL_NAME, "which is how the half before a /save gets the slots of the half after it");
 		log_error(TOOL_NAME, "--dataset <out.jsonl> additionally writes per-tick state and input rows");
@@ -6129,6 +6140,20 @@ int main(int argc, const char *argv[])
 			log_info(TOOL_NAME, "the run loaded a save at %d:%02d:%02d, the demo starts there",
 				LoadSeconds / 3600, LoadSeconds / 60 % 60, LoadSeconds % 60);
 		}
+	}
+
+	if(RankInfoOnly)
+	{
+		char aLoad[192] = "";
+		if(LoadTick >= 0)
+		{
+			str_format(aLoad, sizeof(aLoad), ",\"load\":{\"save\":\"%s\",\"source\":\"%s\",\"tick\":%d}",
+				aLoadSave, aLoadSource, LoadTick);
+		}
+		printf("{\"cid\":%d,\"team\":%d,\"demo_start_tick\":%d,\"run_start_tick\":%d,\"finish_tick\":%d%s}\n",
+			RankTarget.m_Cid, RankTarget.m_Team, DemoStartTick,
+			RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick, aLoad);
+		return 0;
 	}
 
 	if(FromSaveMode)

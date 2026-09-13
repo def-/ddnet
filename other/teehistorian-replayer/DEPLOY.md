@@ -232,10 +232,20 @@ run. That is a few seconds per hour of recording on an entity-heavy map.
 - The archive sync (`/media/teehistorian/download.sh`, daily 6:00) had a gap
   2026-07-13 to 2026-07-26 and the disk is 99% full, so recent ranks stay
   unwatchable until synced.
-- Recordings before 2024-04 have no finish events (timestamp approximation
-  with wider margins) and before 2023-08 no `prev_game_uuid` (players who
-  joined before the recording started cannot be identified, such ranks stay
-  unwatchable).
+- Recordings before 2024-04 have no finish events. The rank is then placed by
+  the player of its name at its timestamp, and when nobody of that name is
+  there, by the finish its run time crossed on the map's finish tile. Before
+  2023-08 there is no `prev_game_uuid` either (players who joined before the
+  recording started cannot be identified, such ranks stay unwatchable).
+- A run that was finished after a `/load` only played its last part in its own
+  recording. The converter reports the save it loaded and the game it came
+  from, `rankdemo.py` converts that game's half with `--from-save`, gives it
+  the client ids of the half we have (`--publish-name`) and joins both with
+  `demo_splice`. Where the source recording is no longer in the archive the
+  rank keeps the half it has, recorded in `meta["stitch"]`. Since 2026-09-13
+  `archive.sh` keeps every recording that saved a team, so newer sources stay.
+  Servers older than about 19.5 write no save or load events at all, there a
+  load cannot be followed.
 
 ## The moderators' converter
 

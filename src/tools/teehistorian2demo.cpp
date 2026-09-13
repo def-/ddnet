@@ -834,6 +834,49 @@ private:
 	int m_NumShotgunTurrets = 0;
 	int m_NextEventId = 0;
 	int m_MarkerStartTick = -1;
+	// Whether the run has been on the map at all, see FlushTick
+	bool m_RunVisible = false;
+	// The saves and loads of the recording (CGameTeams::ProcessSaveTeam),
+	// a save id links a load to the recording the run was saved in: each
+	// saved tee names the game it was saved in and its race time then
+	std::vector<CSaveEvent> m_vSaveEvents;
+
+	// The team save string, CSaveTeam::GetString: a header line, one line
+	// per tee (CSaveTee::GetString, tab separated, the game uuid is the one
+	// field shaped like a uuid, the race time sits 45 fields in), then the
+	// switchers. Older save strings lack fields, their time stays unknown.
+	void ParseSaveString(const char *pString, CSaveEvent &Event)
+	{
+		const char *pLine = str_find(pString, "\n");
+		int Members = 0;
+		if(sscanf(pString, "%*d\t%d", &Members) != 1)
+			return;
+		for(int i = 0; i < Members && pLine != nullptr; i++)
+		{
+			pLine++;
+			const char *pEnd = str_find(pLine, "\n");
+			std::vector<std::string> vFields;
+			const char *pField = pLine;
+			while(pField != nullptr && (pEnd == nullptr || pField < pEnd))
+			{
+				const char *pTab = str_find(pField, "\t");
+				const char *pStop = pTab != nullptr && (pEnd == nullptr || pTab < pEnd) ? pTab : pEnd;
+				vFields.emplace_back(pField, pStop != nullptr ? pStop - pField : str_length(pField));
+				pField = pStop == pTab && pTab != nullptr ? pTab + 1 : nullptr;
+			}
+			CSavedTee Tee;
+			str_copy(Tee.m_aName, vFields.empty() ? "" : vFields[0].c_str());
+			Tee.m_TimeTicks = vFields.size() > 100 ? str_toint(vFields[45].c_str()) : -1;
+			Tee.m_GameUuid = CalculateUuid("game-uuid-nonexistent@ddnet.tw");
+			for(const std::string &Field : vFields)
+			{
+				if(Field.size() == 36 && Field[8] == '-' && Field[13] == '-' && Field[18] == '-' && Field[23] == '-')
+					ParseUuid(&Tee.m_GameUuid, Field.c_str());
+			}
+			Event.m_vTees.push_back(Tee);
+			pLine = pEnd;
+		}
+	}
 	int m_MarkerFinishTick = -1;
 	bool m_InputAppliedNextTick = true;
 	double m_ErrSum = 0.0;
@@ -3917,7 +3960,18 @@ private:
 		m_TickEndPositions = false;
 	}
 
-	bool InRecordWindow() const { return m_Tick >= m_StartTick && m_Tick <= m_EndTick; }
+	bool InRecordWindow() const { return m_Tick >= m_StartTick && m_RunVisible && m_Tick <= m_EndTick; }
+
+	// Whether any player the demo shows is on the map
+	bool AnyIncludedAlive() const
+	{
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			if(m_aPlayers[Cid].m_Alive && IncludePlayer(Cid))
+				return true;
+		}
+		return false;
+	}
 
 	// One row per included alive player: the recorded position, the physics
 	// state of the guided simulation and the raw input that the following
@@ -4023,7 +4077,12 @@ private:
 			}
 		}
 
-		const bool Record = m_Tick >= m_StartTick;
+		// A run that began before this recording, a team that loaded a save,
+		// has nobody to show until its players are there: the demo would open
+		// with minutes of an empty map. It starts where they are instead.
+		if(!m_RunVisible && m_Tick >= m_StartTick && AnyIncludedAlive())
+			m_RunVisible = true;
+		const bool Record = m_Tick >= m_StartTick && m_RunVisible;
 		if(Record)
 		{
 			// An input is recorded in the tick section it ARRIVES in, but the

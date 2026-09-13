@@ -790,6 +790,12 @@ private:
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
 	std::vector<CTileFinish> m_vTileFinishes;
+	// A team's race is one race: the server times it from the tick the team
+	// started to the tick its last member crossed the finish, and every
+	// member gets that time (CGameTeams::CheckTeamFinished)
+	int m_aTeamRaceStartTick[MAX_CLIENTS];
+	bool m_aTeeRaceStarted[MAX_CLIENTS] = {};
+	bool m_aTeeRaceFinished[MAX_CLIENTS] = {};
 	int m_aPublishCid[MAX_CLIENTS];
 	int m_aSourceCid[MAX_CLIENTS];
 	// The names the rank's players had before their ranks were moved to a
@@ -948,6 +954,7 @@ public:
 		{
 			m_aPublishCid[Cid] = Cid;
 			m_aSourceCid[Cid] = Cid;
+			m_aTeamRaceStartTick[Cid] = -1;
 		}
 	}
 
@@ -1447,6 +1454,35 @@ public:
 	// loaded and the tick range left empty fills this without simulating or
 	// writing a demo.
 	const std::vector<CTileFinish> &TileFinishes() const { return m_vTileFinishes; }
+
+	// A death or a leave takes the team out of its run
+	// (CGameTeams::OnCharacterDeath), the next touch of the start band
+	// begins a new one
+	void ResetTeamRace(int Team)
+	{
+		if(Team == TEAM_FLOCK || Team == TEAM_SUPER)
+			return;
+		m_aTeamRaceStartTick[Team] = -1;
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			if(m_TeamsCore.Team(Cid) == Team)
+			{
+				m_aTeeRaceStarted[Cid] = false;
+				m_aTeeRaceFinished[Cid] = false;
+			}
+		}
+	}
+
+	// CGameTeams::TeamFinished: every member that started has crossed
+	bool TeamRaceFinished(int Team) const
+	{
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			if(m_TeamsCore.Team(Cid) == Team && m_aTeeRaceStarted[Cid] && !m_aTeeRaceFinished[Cid])
+				return false;
+		}
+		return true;
+	}
 
 	// Fallback for recordings older than April 2024 without finish events: the
 	// player found by name when the scan passes the rank's wall-clock offset.
@@ -2842,7 +2878,13 @@ private:
 		SetSolo(Cid, false);
 		const int Team = m_TeamsCore.Team(Cid);
 		if(m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO || (Team != TEAM_FLOCK && Team < TEAM_SUPER && m_aTeamLocked[Team]))
+		{
 			ResetSwitchers(Team);
+			// A locked team is killed as a whole, so its race is over and the
+			// next touch of the start band begins a new one. An unlocked team
+			// only loses the tee that died, it keeps the race it is running.
+			ResetTeamRace(Team);
+		}
 	}
 
 	// What a new character starts with: CCharacter::Spawn, the tile powerups
@@ -3094,14 +3136,16 @@ private:
 		// the band are kept and the rank's time decides which one it is.
 		const int RaceStartBefore = Player.m_RaceStartTick;
 		const int RaceStartFirstBefore = Player.m_RaceStartFirstTick;
-		if(RaceTile(TILE_START))
+		const bool OnStart = RaceTile(TILE_START);
+		const bool OnFinish = RaceTile(TILE_FINISH);
+		if(OnStart)
 		{
 			if(Player.m_LastStartTouchTick < m_Tick - 1)
 				Player.m_RaceStartFirstTick = m_Tick;
 			Player.m_LastStartTouchTick = m_Tick;
 			Player.m_RaceStartTick = m_Tick;
 		}
-		if(RaceTile(TILE_FINISH) && RaceStartBefore >= 0)
+		if(OnFinish && RaceStartBefore >= 0)
 		{
 			CTileFinish Finish = {m_Tick, Cid, Team, m_Tick - RaceStartBefore,
 				m_Tick - RaceStartFirstBefore, ""};
@@ -3109,6 +3153,39 @@ private:
 			m_vTileFinishes.push_back(Finish);
 			Player.m_RaceStartTick = -1;
 			Player.m_RaceStartFirstTick = -1;
+		}
+		// The same race read as the team's: it starts when the first member
+		// touches the start band, which the server hands to every member,
+		// and it ends when the last of them that started has crossed.
+		if(Team != TEAM_FLOCK && Team != TEAM_SUPER)
+		{
+			if(OnStart)
+			{
+				m_aTeeRaceStarted[Cid] = true;
+				m_aTeeRaceFinished[Cid] = false;
+				if(m_aTeamRaceStartTick[Team] < 0)
+					m_aTeamRaceStartTick[Team] = m_Tick;
+			}
+			if(OnFinish && m_aTeeRaceStarted[Cid] && m_aTeamRaceStartTick[Team] >= 0)
+			{
+				m_aTeeRaceFinished[Cid] = true;
+				if(TeamRaceFinished(Team))
+				{
+					const int TeamTicks = m_Tick - m_aTeamRaceStartTick[Team];
+					CTileFinish Finish = {m_Tick, Cid, Team, TeamTicks, TeamTicks, ""};
+					str_copy(Finish.m_aName, Player.m_aName);
+					m_vTileFinishes.push_back(Finish);
+					m_aTeamRaceStartTick[Team] = -1;
+					for(int Other = 0; Other < MAX_CLIENTS; Other++)
+					{
+						if(m_TeamsCore.Team(Other) == Team)
+						{
+							m_aTeeRaceStarted[Other] = false;
+							m_aTeeRaceFinished[Other] = false;
+						}
+					}
+				}
+			}
 		}
 
 		// A walljump tile gives the air jump back, which is also what draws

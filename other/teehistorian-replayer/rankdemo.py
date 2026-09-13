@@ -42,13 +42,16 @@ class DiskFullError(RankDemoError):
 
 
 class Converter:
-    def __init__(self, tool, archive_root, cache_dir, cache_limit_bytes, scramble_tool=None):
+    def __init__(self, tool, archive_root, cache_dir, cache_limit_bytes, scramble_tool=None, splice_tool=None):
         self.tool = Path(tool)
         # Every published demo goes through the scrambler, a raw one is an
         # input recording of the run and could be replayed by a bot
         self.scramble_tool = Path(scramble_tool) if scramble_tool else self.tool.with_name("demo_scramble")
         if not self.scramble_tool.is_file():
             raise FileNotFoundError(f"Scrambler not built: {self.scramble_tool}")
+        # Only a run that was saved and loaded needs it, so a missing splicer
+        # is not fatal: those runs keep the half that is in their own recording
+        self.splice_tool = Path(splice_tool) if splice_tool else self.tool.with_name("demo_splice")
         self.root = Path(archive_root)
         self.cache = Path(cache_dir)
         self.demos = self.cache / "demos"
@@ -90,10 +93,12 @@ class Converter:
                         self.index[line[:36].decode()] = sub
         return len(self.index)
 
-    def find_recording(self, uuid):
+    def find_recording(self, uuid, anywhere=False):
         """Exact-path stats only: the per-region directories are too large to
-        list, but the rank's game uuid is the file name."""
-        if self.index is None:
+        list, but the rank's game uuid is the file name. The index is a
+        shortcut for the uuids it was loaded for, anywhere stats every
+        location instead, for a recording nobody asked the index about."""
+        if self.index is None or anywhere:
             directories = [sub for sub in sorted(self.root.iterdir()) if sub.is_dir()]
         else:
             directories = self.unindexed[:]
@@ -285,6 +290,7 @@ class Converter:
                     for index, prev in enumerate(chain):
                         prev_args += ["--prev", str(prev)]
                     meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
+                self.stitch_save(workdir, map_path, meta)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:
@@ -299,6 +305,54 @@ class Converter:
                 shutil.rmtree(workdir, ignore_errors=True)
             self.prune()
             return demo_path, meta
+
+    def stitch_save(self, workdir, map_path, meta):
+        """A run that was finished after a /load only played its last part in
+        this recording. The rest is in the recording the save was made in,
+        which the load names: it is converted the same way, with the client
+        ids of this half so the demo does not switch slots halfway, and the
+        two are put together into one demo."""
+        load = meta.get("load")
+        if not load or not load.get("source") or not UUID_RE.match(load["source"]):
+            return
+        if not self.splice_tool.is_file():
+            meta["stitch"] = {"source": load["source"], "failed": "demo_splice is not built"}
+            return
+        # The index was loaded for the manifest's recordings, and the game a
+        # save came from is not one of them
+        source = self.find_recording(load["source"], anywhere=True)
+        if source is None:
+            meta["stitch"] = {"source": load["source"], "missing": True}
+            return
+        publish = []
+        for cid, name in (meta.get("roster") or {}).items():
+            publish += ["--publish-name", name, str(cid)]
+        result = subprocess.run(
+            [str(self.tool), str(source), str(map_path), "before.demo"] + publish +
+            ["--from-save", load["save"]],
+            cwd=workdir, capture_output=True, text=True)
+        if result.returncode != 0 or not (workdir / "before.demo").is_file():
+            output = (result.stdout + result.stderr).strip().splitlines()
+            meta["stitch"] = {"source": load["source"], "failed": output[-1] if output else "conversion failed"}
+            return
+        # The log goes to stdout as well, the result is the line of json
+        part = {}
+        for line in result.stdout.splitlines():
+            if line.startswith("{"):
+                part = json.loads(line)
+        if not part:
+            meta["stitch"] = {"source": load["source"], "failed": "the half before the save said nothing"}
+            return
+        spliced = subprocess.run(
+            [str(self.splice_tool), "before.demo", "out.demo", "joined.demo"],
+            cwd=workdir, capture_output=True, text=True)
+        if spliced.returncode != 0 or not (workdir / "joined.demo").is_file():
+            output = (spliced.stdout + spliced.stderr).strip().splitlines()
+            meta["stitch"] = {"source": load["source"], "failed": output[-1] if output else "splicing failed"}
+            return
+        (workdir / "joined.demo").replace(workdir / "out.demo")
+        meta["stitch"] = {"source": load["source"], "save_tick": part["save_tick"],
+            "part_ticks": part["save_tick"] - part["demo_start_tick"]}
 
     def run_tool(self, workdir, input_path, map_path, options, time_str, offset, names):
         result = subprocess.run(

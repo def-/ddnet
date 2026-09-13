@@ -21,12 +21,12 @@ docker run --rm -v "$REPO:$REPO" -v "$HOME/git/ddnet/.git:$HOME/git/ddnet/.git" 
 	git config --global --add safe.directory "*"
 	[ -f '"$BUILD"'/CMakeCache.txt ] || cmake -S . -B '"$BUILD"' -GNinja -DCMAKE_BUILD_TYPE=Release \
 		-DCLIENT=OFF -DSERVER=OFF -DTOOLS=ON -DVULKAN=OFF -DVIDEORECORDER=OFF -DANTIBOT=OFF -DMYSQL=OFF -DWEBSOCKETS=OFF -DUPNP=OFF
-	cmake --build '"$BUILD"' --target teehistorian2demo demo_scramble
+	cmake --build '"$BUILD"' --target teehistorian2demo demo_scramble demo_splice
 '
 
 # Installed by rename: a conversion that is running keeps the file it opened,
 # and the pipeline reads the mtime to decide which demos are out of date
-for tool in teehistorian2demo demo_scramble; do
+for tool in teehistorian2demo demo_scramble demo_splice; do
 	cp "$REPO/$BUILD/$tool" "$LOCAL/$tool.next"
 	chmod 755 "$LOCAL/$tool.next"
 	mv -f "$LOCAL/$tool.next" "$LOCAL/$tool"

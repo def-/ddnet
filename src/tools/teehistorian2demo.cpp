@@ -306,6 +306,30 @@ enum class ERankMatch
 	NAME,
 };
 
+// One tee of a team save, CSaveTee::GetString: the game it was saved in and
+// how long its run had been going by then.
+struct CSavedTee
+{
+	char m_aName[MAX_NAME_LENGTH];
+	int m_TimeTicks;
+	CUuid m_GameUuid;
+};
+
+// A /save or /load of a team, see CConverter::SaveEvents.
+struct CSaveEvent
+{
+	int m_Tick;
+	int m_Team;
+	bool m_Load;
+	CUuid m_SaveId;
+	std::vector<CSavedTee> m_vTees;
+	// Who was in the team when it happened, under which name: the recording
+	// knows the client ids the save string does not carry, and the names of
+	// that moment, not the ones the slots hold at the end of the recording
+	std::vector<int> m_vCids;
+	std::vector<std::pair<int, std::string>> m_vRoster;
+};
+
 // A finish seen on the map's start and finish tiles, see
 // CConverter::TileFinishes.
 struct CTileFinish
@@ -766,6 +790,8 @@ private:
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
 	std::vector<CTileFinish> m_vTileFinishes;
+	int m_aPublishCid[MAX_CLIENTS];
+	int m_aSourceCid[MAX_CLIENTS];
 	// The names the rank's players had before their ranks were moved to a
 	// new name, as (rank name, old name) pairs
 	const std::vector<std::pair<const char *, const char *>> *m_pvRankAliases = nullptr;
@@ -900,10 +926,29 @@ private:
 	int m_NumFrozenTicks = 0;
 
 public:
+	// The client ids the demo is written with. The half of a run that was
+	// played before a /save comes from another recording, where its players
+	// held other slots: written as they are, the demo would switch slots
+	// halfway and the camera would lose the player it follows.
+	void SetPublishCid(int From, int To)
+	{
+		if(From < 0 || From >= MAX_CLIENTS || To < 0 || To >= MAX_CLIENTS)
+			return;
+		m_aPublishCid[From] = To;
+		m_aSourceCid[To] = From;
+	}
+	int PublishCid(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aPublishCid[Cid] : Cid; }
+	int SourceCid(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aSourceCid[Cid] : Cid; }
+
 	CConverter(IStorage *pStorage, CSnapshotDelta *pSnapshotDelta) :
 		m_pStorage(pStorage),
 		m_Recorder(pSnapshotDelta)
 	{
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+		{
+			m_aPublishCid[Cid] = Cid;
+			m_aSourceCid[Cid] = Cid;
+		}
 	}
 
 	~CConverter()
@@ -1392,6 +1437,11 @@ public:
 
 	const std::vector<CRankCandidate> &RankCandidates() const { return m_vRankCandidates; }
 
+	// The /save and /load events of the recording, the link between the two
+	// halves of a run that was saved: the save names the game it was made in
+	// and how long the run had been going, the load names the save it took.
+	const std::vector<CSaveEvent> &SaveEvents() const { return m_vSaveEvents; }
+
 	// Every finish the tees crossed on the map, which is what a recording
 	// without finish events has instead. Walking the recording with the map
 	// loaded and the tick range left empty fills this without simulating or
@@ -1849,7 +1899,7 @@ public:
 		pLaser->m_FromX = (int)From.x;
 		pLaser->m_FromY = (int)From.y;
 		pLaser->m_StartTick = StartTick;
-		pLaser->m_Owner = Owner;
+		pLaser->m_Owner = PublishCid(Owner);
 		pLaser->m_Type = LaserType;
 		pLaser->m_Subtype = Subtype;
 		pLaser->m_SwitchNumber = SwitchNumber;
@@ -1892,7 +1942,7 @@ public:
 		pProjectile->m_VelY = round_to_int(Vel.y);
 		pProjectile->m_Type = Type;
 		pProjectile->m_StartTick = StartTick;
-		pProjectile->m_Owner = Owner;
+		pProjectile->m_Owner = PublishCid(Owner);
 		pProjectile->m_SwitchNumber = SwitchNumber;
 		pProjectile->m_TuneZone = TuneZone;
 		pProjectile->m_Flags = Flags;
@@ -2276,8 +2326,8 @@ private:
 			CPacker Packer;
 			Packer.Reset();
 			Packer.AddInt((NETMSGTYPE_SV_KILLMSG << 1) | 0);
-			Packer.AddInt(Cid); // killer
-			Packer.AddInt(Cid); // victim
+			Packer.AddInt(PublishCid(Cid)); // killer
+			Packer.AddInt(PublishCid(Cid)); // victim
 			Packer.AddInt(WEAPON_SELF);
 			Packer.AddInt(0); // mode special
 			QueueMessage(&Packer);
@@ -2291,7 +2341,7 @@ private:
 			CPacker Packer;
 			Packer.Reset();
 			Packer.AddInt((NETMSGTYPE_SV_EMOTICON << 1) | 0);
-			Packer.AddInt(Cid);
+			Packer.AddInt(PublishCid(Cid));
 			Packer.AddInt(pEmoticon->m_Emoticon);
 			QueueMessage(&Packer);
 			break;
@@ -2479,7 +2529,7 @@ private:
 		g_UuidManager.PackUuid(NETMSGTYPE_SV_TEAMSSTATE, &Packer);
 		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
 		{
-			Packer.AddInt(PublishedTeam(Cid));
+			Packer.AddInt(PublishedTeam(SourceCid(Cid)));
 		}
 		QueueMessage(&Packer);
 	}
@@ -2501,7 +2551,7 @@ private:
 		Packer.Reset();
 		Packer.AddInt((NETMSGTYPE_SV_CHAT << 1) | 0);
 		Packer.AddInt(Team);
-		Packer.AddInt(Cid);
+		Packer.AddInt(PublishCid(Cid));
 		Packer.AddString(pMessage, -1);
 		QueueMessage(&Packer);
 		if(m_Tick >= m_StartTick && m_Tick <= m_EndTick)
@@ -2556,6 +2606,42 @@ private:
 						m_vRankCandidates.push_back({m_Tick, Cid, m_TeamsCore.Team(Cid), ERankMatch::NAME});
 				}
 			}
+			break;
+		}
+		case TEEHISTORIAN_SAVE_SUCCESS:
+		case TEEHISTORIAN_LOAD_SUCCESS:
+		{
+			CSaveEvent Event;
+			Event.m_Tick = m_Tick;
+			Event.m_Team = Unpacker.GetInt();
+			Event.m_Load = Type == TEEHISTORIAN_LOAD_SUCCESS;
+			const unsigned char *pSaveId = Unpacker.GetRaw(sizeof(CUuid));
+			const char *pString = Unpacker.GetString();
+			if(Unpacker.Error() || pSaveId == nullptr)
+				break;
+			mem_copy(&Event.m_SaveId, pSaveId, sizeof(CUuid));
+			ParseSaveString(pString, Event);
+			for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+			{
+				if(m_aPlayers[Cid].m_Connected && m_TeamsCore.Team(Cid) == Event.m_Team)
+				{
+					Event.m_vCids.push_back(Cid);
+					Event.m_vRoster.emplace_back(Cid, m_aPlayers[Cid].m_aName);
+				}
+			}
+			if(getenv("T2D_SAVETRACE"))
+			{
+				char aSaveId[UUID_MAXSTRSIZE];
+				FormatUuid(Event.m_SaveId, aSaveId, sizeof(aSaveId));
+				log_info(TOOL_NAME, "SAVETRACE tick=%d %s team=%d save=%s tees=%zu", m_Tick, Event.m_Load ? "load" : "save", Event.m_Team, aSaveId, Event.m_vTees.size());
+				for(const CSavedTee &Tee : Event.m_vTees)
+				{
+					char aGame[UUID_MAXSTRSIZE];
+					FormatUuid(Tee.m_GameUuid, aGame, sizeof(aGame));
+					log_info(TOOL_NAME, "SAVETRACE   tee '%s' time=%d game=%s", Tee.m_aName, Tee.m_TimeTicks, aGame);
+				}
+			}
+			m_vSaveEvents.push_back(std::move(Event));
 			break;
 		}
 		case TEEHISTORIAN_TEAM_FINISH:
@@ -4234,7 +4320,7 @@ private:
 			if(!pPlayer->m_Connected || !IncludePlayer(Cid))
 				continue;
 
-			CNetObj_ClientInfo *pClientInfo = (CNetObj_ClientInfo *)Builder.NewItemRaw(NETOBJTYPE_CLIENTINFO, Cid, sizeof(CNetObj_ClientInfo));
+			CNetObj_ClientInfo *pClientInfo = (CNetObj_ClientInfo *)Builder.NewItemRaw(NETOBJTYPE_CLIENTINFO, PublishCid(Cid), sizeof(CNetObj_ClientInfo));
 			if(pClientInfo)
 			{
 				StrToInts(pClientInfo->m_aName, std::size(pClientInfo->m_aName), pPlayer->m_aName);
@@ -4246,11 +4332,11 @@ private:
 				pClientInfo->m_ColorFeet = pPlayer->m_ColorFeet;
 			}
 
-			CNetObj_PlayerInfo *pPlayerInfo = (CNetObj_PlayerInfo *)Builder.NewItemRaw(NETOBJTYPE_PLAYERINFO, Cid, sizeof(CNetObj_PlayerInfo));
+			CNetObj_PlayerInfo *pPlayerInfo = (CNetObj_PlayerInfo *)Builder.NewItemRaw(NETOBJTYPE_PLAYERINFO, PublishCid(Cid), sizeof(CNetObj_PlayerInfo));
 			if(pPlayerInfo)
 			{
 				pPlayerInfo->m_Local = 0;
-				pPlayerInfo->m_ClientId = Cid;
+				pPlayerInfo->m_ClientId = PublishCid(Cid);
 				pPlayerInfo->m_Team = pPlayer->m_Alive ? TEAM_RED : TEAM_SPECTATORS;
 				pPlayerInfo->m_Score = pPlayer->m_Score;
 				pPlayerInfo->m_Latency = 0;
@@ -4259,11 +4345,12 @@ private:
 			if(pPlayer->m_Alive)
 			{
 				const bool Frozen = IsFrozen(*pPlayer);
-				CNetObj_Character *pCharacter = (CNetObj_Character *)Builder.NewItemRaw(NETOBJTYPE_CHARACTER, Cid, sizeof(CNetObj_Character));
+				CNetObj_Character *pCharacter = (CNetObj_Character *)Builder.NewItemRaw(NETOBJTYPE_CHARACTER, PublishCid(Cid), sizeof(CNetObj_Character));
 				if(pCharacter)
 				{
 					mem_zero(pCharacter, sizeof(*pCharacter));
 					pPlayer->m_Core.Write(pCharacter);
+					pCharacter->m_HookedPlayer = PublishCid(pCharacter->m_HookedPlayer);
 					pCharacter->m_Tick = m_Tick;
 					pCharacter->m_X = pPlayer->m_X;
 					pCharacter->m_Y = pPlayer->m_Y;
@@ -4279,7 +4366,7 @@ private:
 					pCharacter->m_AttackTick = pPlayer->m_AttackTick;
 				}
 
-				CNetObj_DDNetCharacter *pDDNetCharacter = (CNetObj_DDNetCharacter *)Builder.NewItemRaw(NETOBJTYPE_DDNETCHARACTER, Cid, sizeof(CNetObj_DDNetCharacter));
+				CNetObj_DDNetCharacter *pDDNetCharacter = (CNetObj_DDNetCharacter *)Builder.NewItemRaw(NETOBJTYPE_DDNETCHARACTER, PublishCid(Cid), sizeof(CNetObj_DDNetCharacter));
 				if(pDDNetCharacter)
 				{
 					mem_zero(pDDNetCharacter, sizeof(*pDDNetCharacter));
@@ -5640,6 +5727,14 @@ static bool IsOneOfNames(const char *pName, const std::vector<const char *> &vNa
 	return false;
 }
 
+// A player name can carry a quote or a backslash, and the rank's roster below
+// is read as json
+static void JsonName(char *pBuf, int Size, const char *pName)
+{
+	char *pDst = pBuf;
+	str_escape(&pDst, pName, pBuf + Size);
+}
+
 int main(int argc, const char *argv[])
 {
 	std::unique_ptr<IStorage> pStorage = CreateLocalStorage();
@@ -5686,6 +5781,9 @@ int main(int argc, const char *argv[])
 	int ArgIndex = 4;
 	std::vector<const char *> vPrevPaths;
 	std::vector<std::pair<const char *, const char *>> vAliases;
+	// The client id a player of that name is written with, so the two halves
+	// of a run that was saved and loaded use the same slots
+	std::vector<std::pair<const char *, int>> vPublishNames;
 	while(ArgIndex < argc)
 	{
 		if(ArgIndex + 1 < argc && str_comp(argv[ArgIndex], "--prev") == 0)
@@ -5696,6 +5794,11 @@ int main(int argc, const char *argv[])
 		else if(ArgIndex + 2 < argc && str_comp(argv[ArgIndex], "--alias") == 0)
 		{
 			vAliases.push_back({argv[ArgIndex + 1], argv[ArgIndex + 2]});
+			ArgIndex += 3;
+		}
+		else if(ArgIndex + 2 < argc && str_comp(argv[ArgIndex], "--publish-name") == 0)
+		{
+			vPublishNames.push_back({argv[ArgIndex + 1], str_toint(argv[ArgIndex + 2])});
 			ArgIndex += 3;
 		}
 		else
@@ -5710,10 +5813,25 @@ int main(int argc, const char *argv[])
 		ArgIndex += 3;
 	}
 	const bool RankMode = ArgIndex < argc && str_comp(argv[ArgIndex], "--rank") == 0;
-	if(argc < 4 || (!RankMode && argc - ArgIndex > 2) || (RankMode && argc - ArgIndex < 4))
+	// The recording holds the /save of a run that was finished after a /load
+	// somewhere else: convert the part of the run that happened here, from
+	// its start to the save
+	CUuid FromSave = UUID_ZEROED;
+	const bool FromSaveMode = ArgIndex + 1 < argc && str_comp(argv[ArgIndex], "--from-save") == 0;
+	if(FromSaveMode && ParseUuid(&FromSave, argv[ArgIndex + 1]) != 0)
+	{
+		log_error(TOOL_NAME, "Invalid save id '%s'", argv[ArgIndex + 1]);
+		return -1;
+	}
+	if(argc < 4 || (!RankMode && !FromSaveMode && argc - ArgIndex > 2) ||
+		(RankMode && argc - ArgIndex < 4) || (FromSaveMode && argc - ArgIndex != 2))
 	{
 		log_error(TOOL_NAME, "Usage: %s <input.teehistorian> <map.map> <output.demo> [--prev <old.teehistorian>]... [start] [end]", TOOL_NAME);
 		log_error(TOOL_NAME, "       %s <input.teehistorian> <map.map> <output.demo> [--prev <old.teehistorian>]... [--alias <name> <old name>]... --rank <time> <offset|-> <name> [name] ...", TOOL_NAME);
+		log_error(TOOL_NAME, "       %s <input.teehistorian> <map.map> <output.demo> --from-save <save id>", TOOL_NAME);
+		log_error(TOOL_NAME, "--from-save converts the part of a run that ended in that /save: from where");
+		log_error(TOOL_NAME, "the run started in this recording to the save itself, which is the half a");
+		log_error(TOOL_NAME, "rank finished after a /load is missing");
 		log_error(TOOL_NAME, "start/end limit the converted time range, given as seconds, M:SS or H:MM:SS");
 		log_error(TOOL_NAME, "--rank converts only the run of the player (or team of players) finishing in");
 		log_error(TOOL_NAME, "<time> seconds around <offset> into the recording, hiding all other teams");
@@ -5721,6 +5839,8 @@ int main(int argc, const char *argv[])
 		log_error(TOOL_NAME, "before the recording started");
 		log_error(TOOL_NAME, "--alias names a rank player by a name the player had before, for a rank that");
 		log_error(TOOL_NAME, "was moved to a new name after the run");
+		log_error(TOOL_NAME, "--publish-name <name> <client id> writes that player under that client id,");
+		log_error(TOOL_NAME, "which is how the half before a /save gets the slots of the half after it");
 		log_error(TOOL_NAME, "--dataset <out.jsonl> additionally writes per-tick state and input rows");
 		return -1;
 	}
@@ -5753,7 +5873,7 @@ int main(int argc, const char *argv[])
 			vRankNames.push_back(argv[i]);
 		}
 	}
-	else
+	else if(!FromSaveMode)
 	{
 		if(argc - ArgIndex >= 1)
 		{
@@ -5797,6 +5917,17 @@ int main(int argc, const char *argv[])
 	int DemoEndTick = EndSeconds < 0 ? std::numeric_limits<int>::max() : EndSeconds * SERVER_TICK_SPEED;
 	CRankCandidate RankTarget = {-1, -1, -1};
 	std::vector<int> vRunCids;
+	int SaveTeam = -1;
+	std::vector<std::pair<int, std::string>> vSaveRoster;
+	int SaveTick = -1;
+	int SaveTimeTicks = 0;
+	std::vector<int> vSaveCids;
+	// Where the other half of a loaded run is. The scanner that found it is
+	// gone by the time this is written out, so it is kept, not pointed at.
+	char aLoadSave[UUID_MAXSTRSIZE] = "";
+	char aLoadSource[UUID_MAXSTRSIZE] = "";
+	int LoadTick = -1;
+	std::vector<std::pair<int, std::string>> vLoadRoster;
 	if(RankMode)
 	{
 		// First pass: find the rank's finish event. Without simulation and
@@ -5970,6 +6101,76 @@ int main(int argc, const char *argv[])
 		log_info(TOOL_NAME, "found finish at %d:%02d:%02d cid=%d team=%d", FinishSeconds / 3600, FinishSeconds / 60 % 60, FinishSeconds % 60, RankTarget.m_Cid, RankTarget.m_Team);
 		DemoStartTick = std::max(0, RankTarget.m_FinishTick - RankTimeTicks - PreSeconds * SERVER_TICK_SPEED);
 		DemoEndTick = RankTarget.m_FinishTick + PostSeconds * SERVER_TICK_SPEED;
+
+		// A run that loaded a save only played the part after the load in
+		// this recording. The demo starts there, the rest of the run is in
+		// the recording the save was made in, which the load names.
+		for(const CSaveEvent &Event : Scanner.SaveEvents())
+		{
+			if(!Event.m_Load || Event.m_Team != RankTarget.m_Team ||
+				Event.m_Tick > RankTarget.m_FinishTick || Event.m_Tick < DemoStartTick)
+				continue;
+			LoadTick = Event.m_Tick;
+			vLoadRoster = Event.m_vRoster;
+			FormatUuid(Event.m_SaveId, aLoadSave, sizeof(aLoadSave));
+			aLoadSource[0] = '\0';
+			for(const CSavedTee &Tee : Event.m_vTees)
+			{
+				if(Tee.m_GameUuid != UUID_ZEROED)
+					FormatUuid(Tee.m_GameUuid, aLoadSource, sizeof(aLoadSource));
+			}
+		}
+		if(LoadTick >= 0)
+		{
+			// The load tick is exact, so the run needs no more lead-in than
+			// any other, even when the finish was placed by its timestamp
+			DemoStartTick = std::max(DemoStartTick, LoadTick - RUN_PRE_SECONDS * SERVER_TICK_SPEED);
+			const int LoadSeconds = LoadTick / SERVER_TICK_SPEED;
+			log_info(TOOL_NAME, "the run loaded a save at %d:%02d:%02d, the demo starts there",
+				LoadSeconds / 3600, LoadSeconds / 60 % 60, LoadSeconds % 60);
+		}
+	}
+
+	if(FromSaveMode)
+	{
+		// Find the save: the same parse-only pass the rank search uses, the
+		// save string says how long the run had been going by then
+		CConverter Scanner(pStorage.get(), pSnapshotDelta.get());
+		NameScanner.CopyPlayerIdentitiesTo(&Scanner);
+		Scanner.SetTickRange(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+		CTeehistorianReader ScanReader;
+		json_value *pScanHeader = ScanReader.Open(argv[1]);
+		if(pScanHeader == nullptr)
+		{
+			return -1;
+		}
+		json_value_free(pScanHeader);
+		ScanReader.ParseChunks(&Scanner);
+		for(const CSaveEvent &Event : Scanner.SaveEvents())
+		{
+			if(Event.m_Load || Event.m_SaveId != FromSave)
+				continue;
+			SaveTick = Event.m_Tick;
+			SaveTeam = Event.m_Team;
+			vSaveCids = Event.m_vCids;
+			vSaveRoster = Event.m_vRoster;
+			for(const CSavedTee &Tee : Event.m_vTees)
+			{
+				SaveTimeTicks = std::max(SaveTimeTicks, Tee.m_TimeTicks);
+			}
+		}
+		if(SaveTick < 0)
+		{
+			log_error(TOOL_NAME, "No /save with that id in this recording");
+			return -1;
+		}
+		const int SaveSeconds = SaveTick / SERVER_TICK_SPEED;
+		log_info(TOOL_NAME, "found the save at %d:%02d:%02d team=%d after %.2f seconds of the run",
+			SaveSeconds / 3600, SaveSeconds / 60 % 60, SaveSeconds % 60, SaveTeam,
+			SaveTimeTicks / (float)SERVER_TICK_SPEED);
+		DemoStartTick = std::max(0, SaveTick - SaveTimeTicks - RUN_PRE_SECONDS * SERVER_TICK_SPEED);
+		// A second past the save, the part after it is the other recording's
+		DemoEndTick = SaveTick + SERVER_TICK_SPEED;
 	}
 
 	CTeehistorianReader Reader;
@@ -6026,6 +6227,23 @@ int main(int argc, const char *argv[])
 		Converter.SetSnapCid(RankTarget.m_Cid);
 		Converter.SetRankMarkers(RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick);
 	}
+	if(FromSaveMode)
+	{
+		for(const auto &[Cid, Name] : vSaveRoster)
+		{
+			for(const auto &[pName, PublishAs] : vPublishNames)
+			{
+				if(Name == pName)
+					Converter.SetPublishCid(Cid, PublishAs);
+			}
+		}
+		if(SaveTeam == TEAM_FLOCK && vSaveCids.size() >= 2)
+			Converter.SetRunCids(vSaveCids);
+		else
+			Converter.SetTeamFilter(SaveTeam);
+		Converter.SetSnapCid(vSaveCids.empty() ? -1 : vSaveCids[0]);
+		Converter.SetRankMarkers(SaveTick - SaveTimeTicks, SaveTick);
+	}
 
 	if(!Converter.StartDemo(argv[3], aMapName))
 	{
@@ -6071,9 +6289,59 @@ int main(int argc, const char *argv[])
 			str_format(aOne, sizeof(aOne), "%s%d", aFinishCids[0] == '\0' ? "" : ",", Cid);
 			str_append(aFinishCids, aOne);
 		}
-		printf("{\"cid\":%d,\"team\":%d,\"finish_cids\":[%s],\"demo_start_tick\":%d,\"run_start_tick\":%d,\"finish_tick\":%d,\"dataset_rows\":%d}\n",
-			RankTarget.m_Cid, RankTarget.m_Team, aFinishCids, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
-			RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick, Converter.NumDatasetRows());
+		// Where the other half of a loaded run is: the save it took and the
+		// game that save was made in, which the pipeline looks up to convert
+		// the part before the load and splice the two together
+		// Who the run's players are and under which client id, so the half
+		// before a /load can be written with the same slots. The server
+		// matched the save to them by name (CSaveTeam::MatchPlayers), so the
+		// names of the load are the ones the save carries, not the ones the
+		// players renamed to before they finished.
+		char aRoster[512] = "";
+		if(LoadTick >= 0)
+		{
+			for(const auto &[Cid, Name] : vLoadRoster)
+			{
+				char aName[MAX_NAME_LENGTH * 2];
+				JsonName(aName, sizeof(aName), Name.c_str());
+				char aOne[128];
+				str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aRoster[0] == '\0' ? "" : ",", Cid, aName);
+				str_append(aRoster, aOne);
+			}
+		}
+		else
+		{
+			for(const int Cid : vRankNames.size() == 1 ? vSolo : Converter.FinishCids())
+			{
+				char aName[MAX_NAME_LENGTH * 2];
+				JsonName(aName, sizeof(aName), Converter.PlayerName(Cid));
+				char aOne[128];
+				str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aRoster[0] == '\0' ? "" : ",", Cid, aName);
+				str_append(aRoster, aOne);
+			}
+		}
+		char aLoad[192] = "";
+		if(LoadTick >= 0)
+		{
+			str_format(aLoad, sizeof(aLoad), ",\"load\":{\"save\":\"%s\",\"source\":\"%s\",\"tick\":%d}",
+				aLoadSave, aLoadSource, LoadTick);
+		}
+		printf("{\"cid\":%d,\"team\":%d,\"finish_cids\":[%s],\"roster\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"finish_tick\":%d,\"dataset_rows\":%d%s}\n",
+			RankTarget.m_Cid, RankTarget.m_Team, aFinishCids, aRoster, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
+			RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick, Converter.NumDatasetRows(), aLoad);
+	}
+	if(Success && FromSaveMode)
+	{
+		char aCids[256] = "";
+		for(const int Cid : vSaveCids)
+		{
+			char aOne[16];
+			str_format(aOne, sizeof(aOne), "%s%d", aCids[0] == '\0' ? "" : ",", Cid);
+			str_append(aCids, aOne);
+		}
+		printf("{\"team\":%d,\"cids\":[%s],\"demo_start_tick\":%d,\"run_start_tick\":%d,\"save_tick\":%d,\"time_ticks\":%d}\n",
+			SaveTeam, aCids, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
+			SaveTick - SaveTimeTicks, SaveTick, SaveTimeTicks);
 	}
 	return Success ? 0 : -1;
 }

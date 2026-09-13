@@ -35,13 +35,15 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #if defined(CONF_FAMILY_UNIX) && !defined(CONF_PLATFORM_EMSCRIPTEN)
-#include <cerrno>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <cerrno>
 extern char **environ;
 #endif
 
@@ -302,6 +304,23 @@ enum class ERankMatch
 	EXACT,
 	TIME,
 	NAME,
+};
+
+// A finish seen on the map's start and finish tiles, see
+// CConverter::TileFinishes.
+struct CTileFinish
+{
+	int m_FinishTick;
+	int m_Cid;
+	int m_Team;
+	// From the last touch of the start tiles, which is what a server that
+	// lets a running race start again measures, and from the first touch of
+	// the same band, which is what the others do
+	int m_TimeTicks;
+	int m_TimeTicksFirst;
+	// The name the tee carried when it crossed, which is the name the rank
+	// was written under, not the one it renamed to later
+	char m_aName[MAX_NAME_LENGTH];
 };
 
 // A finish event matching the searched rank, see CConverter::ScanForRank.
@@ -665,6 +684,11 @@ public:
 		// The tick the recording placed the tee somewhere else, the
 		// simulation cannot be held to it there
 		int m_PlacedTick = -1;
+		// The tick the tee crossed a start tile, for the finishes of a
+		// recording that carries no finish events
+		int m_RaceStartTick = -1;
+		int m_RaceStartFirstTick = -1;
+		int m_LastStartTouchTick = -1;
 		int m_TeleCheckpoint = 0;
 		// The tile scan runs a tick behind the recording: the server handles
 		// the tiles of a position in the tick after the one that produced it
@@ -741,6 +765,7 @@ private:
 	int m_RankTimeTicks = 0;
 	int m_RankExpectedTick = -1;
 	std::vector<CRankCandidate> m_vRankCandidates;
+	std::vector<CTileFinish> m_vTileFinishes;
 	// The names the rank's players had before their ranks were moved to a
 	// new name, as (rank name, old name) pairs
 	const std::vector<std::pair<const char *, const char *>> *m_pvRankAliases = nullptr;
@@ -1323,6 +1348,12 @@ public:
 	}
 
 	const std::vector<CRankCandidate> &RankCandidates() const { return m_vRankCandidates; }
+
+	// Every finish the tees crossed on the map, which is what a recording
+	// without finish events has instead. Walking the recording with the map
+	// loaded and the tick range left empty fills this without simulating or
+	// writing a demo.
+	const std::vector<CTileFinish> &TileFinishes() const { return m_vTileFinishes; }
 
 	// Fallback for recordings older than April 2024 without finish events: the
 	// player found by name when the scan passes the rank's wall-clock offset.
@@ -2690,6 +2721,9 @@ private:
 	// the caller), and CPlayer::TryRespawn's solo on a forced solo server
 	void OnCharacterSpawn(CPlayer &Player)
 	{
+		Player.m_RaceStartTick = -1;
+		Player.m_RaceStartFirstTick = -1;
+		Player.m_LastStartTouchTick = -1;
 		Player.m_FreezeEndTick = 0;
 		Player.m_FreezeStartTick = 0;
 		Player.m_DeepFrozen = false;
@@ -2904,6 +2938,48 @@ private:
 				Player.m_DeepFrozen = true;
 			else if((Tile == TILE_DUNFREEZE || FrontTile == TILE_DUNFREEZE) && Player.m_DeepFrozen)
 				Player.m_DeepFrozen = false;
+		}
+
+		// The race tiles of CGameControllerDDNet::HandleCharacterTiles, the
+		// only ones the server also reads at four points around the tee
+		// ("sensitivity") and not only under its middle.
+		const auto RaceTile = [&](int Wanted) {
+			if(Tile == Wanted || FrontTile == Wanted)
+				return true;
+			const float Reach = CCharacterCore::PhysicalSize() / 3.0f;
+			for(int i = 0; i < 4; i++)
+			{
+				const vec2 Corner = vec2(Player.m_TileDueX, Player.m_TileDueY) +
+						    vec2(i < 2 ? Reach : -Reach, i % 2 == 0 ? -Reach : Reach);
+				const int Sensitivity = m_Collision.GetPureMapIndex(Corner);
+				if(m_Collision.GetTileIndex(Sensitivity) == Wanted ||
+					m_Collision.GetFrontTileIndex(Sensitivity) == Wanted)
+					return true;
+			}
+			return false;
+		};
+		// A finish only counts for a tee whose race was running before this
+		// tile, which the server reads before it handles the start. Whether
+		// a start tile touched while the race runs starts it again is a
+		// server setting and has changed over the years, so both readings of
+		// the band are kept and the rank's time decides which one it is.
+		const int RaceStartBefore = Player.m_RaceStartTick;
+		const int RaceStartFirstBefore = Player.m_RaceStartFirstTick;
+		if(RaceTile(TILE_START))
+		{
+			if(Player.m_LastStartTouchTick < m_Tick - 1)
+				Player.m_RaceStartFirstTick = m_Tick;
+			Player.m_LastStartTouchTick = m_Tick;
+			Player.m_RaceStartTick = m_Tick;
+		}
+		if(RaceTile(TILE_FINISH) && RaceStartBefore >= 0)
+		{
+			CTileFinish Finish = {m_Tick, Cid, Team, m_Tick - RaceStartBefore,
+				m_Tick - RaceStartFirstBefore, ""};
+			str_copy(Finish.m_aName, Player.m_aName);
+			m_vTileFinishes.push_back(Finish);
+			Player.m_RaceStartTick = -1;
+			Player.m_RaceStartFirstTick = -1;
 		}
 
 		// A walljump tile gives the air jump back, which is also what draws
@@ -5493,6 +5569,18 @@ public:
 	}
 };
 
+// Whether a recorded name is one of the rank's, trailing spaces and all
+// (CConverter::SameName is the same rule inside the converter)
+static bool IsOneOfNames(const char *pName, const std::vector<const char *> &vNames)
+{
+	for(const char *pRankName : vNames)
+	{
+		if(str_comp(pName, pRankName) == 0)
+			return true;
+	}
+	return false;
+}
+
 int main(int argc, const char *argv[])
 {
 	std::unique_ptr<IStorage> pStorage = CreateLocalStorage();
@@ -5700,6 +5788,118 @@ int main(int argc, const char *argv[])
 			log_warn(TOOL_NAME, "No finish event found (old recording), using the rank timestamp instead");
 			if(Scanner.ApproxMatchedNames() < vRankNames.size())
 				log_warn(TOOL_NAME, "%zu of %zu rank names are in the recording at the rank's time, the run is placed by those", Scanner.ApproxMatchedNames(), vRankNames.size());
+		}
+		// The names told nothing: the recording has no finish events and
+		// nobody of the rank's names was on the server at its timestamp. The
+		// map knows anyway, so walk the recording once more with it loaded
+		// and take the finish that ran the rank's time. No simulation and no
+		// demo, only the tiles the recorded positions cross.
+		CRankCandidate TileCandidate = {-1, -1, -1};
+		// T2D_TILESCAN lists what the map's tiles say about every run in the
+		// recording, for a rank whose time none of them matches
+		const bool TileScan = getenv("T2D_TILESCAN") != nullptr;
+		const bool TileFallback = pBest == nullptr && !Scanner.SawFinishEvent();
+		if(TileFallback || TileScan)
+		{
+			CTeehistorianReader TileReader;
+			json_value *pTileHeader = TileReader.Open(argv[1]);
+			if(pTileHeader == nullptr)
+			{
+				return -1;
+			}
+			CConverter TileScanner(pStorage.get(), pSnapshotDelta.get());
+			NameScanner.CopyPlayerIdentitiesTo(&TileScanner);
+			const json_value &TileSha256 = (*pTileHeader)["map_sha256"];
+			if(!TileScanner.LoadMap(argv[2], TileSha256.type == json_string ? (const char *)TileSha256 : nullptr))
+			{
+				json_value_free(pTileHeader);
+				return -1;
+			}
+			TileScanner.ApplyTuning(json_object_get(pTileHeader, "tuning"));
+			TileScanner.ApplyConfig(json_object_get(pTileHeader, "config"));
+			TileScanner.CreateAllEntities();
+			TileScanner.SetTickRange(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+			json_value_free(pTileHeader);
+			TileReader.ParseChunks(&TileScanner);
+
+			if(TileScan)
+			{
+				for(const CTileFinish &Finish : TileScanner.TileFinishes())
+				{
+					log_info(TOOL_NAME, "TILESCAN finish tick=%d ticks=%d time=%.2f first=%.2f cid=%d team=%d name='%s'",
+						Finish.m_FinishTick, Finish.m_TimeTicks,
+						Finish.m_TimeTicks / (float)SERVER_TICK_SPEED,
+						Finish.m_TimeTicksFirst / (float)SERVER_TICK_SPEED,
+						Finish.m_Cid, Finish.m_Team, Finish.m_aName);
+				}
+			}
+
+			// The rank's time to the tick, the one closest to its timestamp,
+			// and of those the tee that carries one of the rank's names
+			const CTileFinish *pFinish = nullptr;
+			const auto RanRankTime = [&](const CTileFinish &Finish) {
+				return absolute(Finish.m_TimeTicks - RankTimeTicks) <= 1 ||
+				       absolute(Finish.m_TimeTicksFirst - RankTimeTicks) <= 1;
+			};
+			for(const CTileFinish &Finish : TileScanner.TileFinishes())
+			{
+				if(!TileFallback || !RanRankTime(Finish))
+					continue;
+				const bool Named = IsOneOfNames(Finish.m_aName, vRankNames);
+				if(pFinish == nullptr)
+				{
+					pFinish = &Finish;
+					continue;
+				}
+				const bool BestNamed = IsOneOfNames(pFinish->m_aName, vRankNames);
+				if(Named != BestNamed)
+				{
+					if(Named)
+						pFinish = &Finish;
+					continue;
+				}
+				if(RankExpectedTick >= 0 && absolute(Finish.m_FinishTick - RankExpectedTick) <
+								    absolute(pFinish->m_FinishTick - RankExpectedTick))
+					pFinish = &Finish;
+			}
+			if(pFinish != nullptr)
+			{
+				TileCandidate = {pFinish->m_FinishTick, pFinish->m_Cid, pFinish->m_Team};
+				pBest = &TileCandidate;
+				// The teams of that time are not in the recording either, the
+				// run is everyone who crossed the finish with it
+				if(vRankNames.size() >= 2)
+				{
+					for(const CTileFinish &Finish : TileScanner.TileFinishes())
+					{
+						if(RanRankTime(Finish) &&
+							absolute(Finish.m_FinishTick - pFinish->m_FinishTick) <= 3 * SERVER_TICK_SPEED)
+							vRunCids.push_back(Finish.m_Cid);
+					}
+				}
+				const int TileSeconds = pFinish->m_FinishTick / SERVER_TICK_SPEED;
+				log_warn(TOOL_NAME, "No finish event and no rank name at the rank's time, taking the run of %.2f seconds that crossed the finish tile at %d:%02d:%02d by '%s'",
+					pFinish->m_TimeTicks / (float)SERVER_TICK_SPEED, TileSeconds / 3600, TileSeconds / 60 % 60,
+					TileSeconds % 60, pFinish->m_aName);
+			}
+			else
+			{
+				// What the recording does hold, so that a failure can be told
+				// apart from a run that is simply somewhere else
+				const CTileFinish *pNearest = nullptr;
+				for(const CTileFinish &Finish : TileScanner.TileFinishes())
+				{
+					if(pNearest == nullptr ||
+						absolute(Finish.m_TimeTicks - RankTimeTicks) < absolute(pNearest->m_TimeTicks - RankTimeTicks))
+						pNearest = &Finish;
+				}
+				if(pNearest == nullptr)
+					log_warn(TOOL_NAME, "no tee crossed the finish tile in the whole recording");
+				else
+					log_warn(TOOL_NAME, "%d finishes on the map's tiles, none of the rank's time, the closest is %.2f seconds by '%s'",
+						(int)TileScanner.TileFinishes().size(),
+						pNearest->m_TimeTicks / (float)SERVER_TICK_SPEED, pNearest->m_aName);
+			}
 		}
 		if(pBest == nullptr)
 		{

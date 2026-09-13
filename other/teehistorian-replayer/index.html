@@ -58,6 +58,11 @@
 		body.watchmode.failed #panel {
 			display: block;
 		}
+		/* A link to a run that is not there says only that, so the panel is
+		   the one line and nothing above it, centred like everything else */
+		body.notfound #status {
+			margin-top: 0;
+		}
 		#loading {
 			display: none;
 			width: min(320px, 70vw);
@@ -1813,7 +1818,14 @@
 				if (!params.get('demo') && params.get('uuid') && !params.get('ts') && !params.get('server')) {
 					const entry = await watchableEntry(params.get('uuid'), params.get('time'));
 					if (entry === null) {
-						statusError("This run is not one of the pre-generated ranks.");
+						// The link names a run the pre-generation does not
+						// have. There is nothing to play, so the page says
+						// that and nothing else: no title, no subtitle about
+						// a replay that is not there.
+						document.querySelector('h1').hidden = true;
+						document.querySelector('.subtitle').hidden = true;
+						document.body.classList.add('notfound');
+						statusError('Run not found');
 						busy = false;
 						return;
 					}

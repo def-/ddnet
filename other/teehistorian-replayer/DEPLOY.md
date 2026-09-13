@@ -241,8 +241,10 @@ run. That is a few seconds per hour of recording on an entity-heavy map.
 
 `https://ddnet.org/teehistorian2demo.php` converts whole recordings and single
 runs for moderators with `/home/teeworlds/bin/teehistorian2demo`, without
-scrambling. It has to be the converter of this checkout, built for the web
-host: `deploy-moderator-tool.sh` on the archive host builds it in a Debian 13
-container and renames it into place on the web host. Run it after every
-converter change, the rank demos and the moderators' demos then come from the
-same code.
+scrambling. It is the same binary the rank pipeline runs: `deploy-tools.sh` on
+the archive host builds the converter and the scrambler once in a Debian 13
+container and renames them into place in both spots, the archive host's
+`build-tools/` and the web host's `bin/`. A binary built on the archive host
+would not run on the web host (older glibc there), one built in the container
+runs on both. Run it after every converter change and the two can never drift
+apart.

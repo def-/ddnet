@@ -3324,6 +3324,7 @@ if(TOOLS)
     demo_extract_chat.cpp
     demo_scramble.cpp
     demo_scramble_noise.h
+    demo_splice.cpp
     dilate.cpp
     dummy_map.cpp
     map_convert_07.cpp

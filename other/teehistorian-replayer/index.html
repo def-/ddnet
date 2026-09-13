@@ -1017,6 +1017,7 @@
 					document.exitPointerLock();
 				}
 			});
+			document.addEventListener('pointerlockerror', () => showHint('The browser refused to lock the mouse'));
 			// A word at the top of the screen, gone after a moment
 			let hintTimer = null;
 			function showHint(text) {
@@ -1264,12 +1265,18 @@
 			}, true);
 			Module['canvas'].addEventListener('contextmenu', e => e.preventDefault());
 			// The canvas is only a video surface here, the page's own controls
-			// drive playback: a click reaching the client switches it to free view
+			// drive playback: a click reaching the client switches it to free
+			// view. The clicks never reach the engine, so the lock it asked
+			// for when it grabbed the mouse is never requested either, and in
+			// free view a click on the map asks for it here instead.
 			for (const eventName of ['mousedown', 'mouseup', 'click', 'dblclick']) {
 				document.addEventListener(eventName, event => {
 					if (event.target === Module['canvas']) {
 						event.preventDefault();
 						event.stopPropagation();
+						if (eventName === 'mousedown' && freeViewLock && requestPointerLockReal && !document.pointerLockElement) {
+							Promise.resolve(requestPointerLockReal.call(Module['canvas'])).catch(error => showHint(`The browser refused to lock the mouse: ${error.message}`));
+						}
 					}
 				}, true);
 			}

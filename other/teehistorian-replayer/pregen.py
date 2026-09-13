@@ -13,6 +13,7 @@
 
 import argparse
 import concurrent.futures
+import datetime
 import json
 import pathlib
 import sys
@@ -32,6 +33,9 @@ parser.add_argument("--jobs", type=int, default=4,
     help="conversions in flight at once, the archive disk answers several readers faster than one")
 parser.add_argument("--reconvert-map", action="append", default=[], metavar="MAP",
     help="convert the ranks of this map again (repeatable), for a tool fix that concerns a few maps")
+parser.add_argument("--reconvert-before", metavar="DATE",
+    help="make the demos of published ranks that finished before this date (YYYY-MM-DD) again, "
+        "for a fix that only changes recordings of that age")
 parser.add_argument("--reconvert", action="store_true",
     help="convert every published rank again, to bring demos made by an older converter up to date")
 parser.add_argument("--retry-failed", action="store_true",
@@ -39,6 +43,15 @@ parser.add_argument("--retry-failed", action="store_true",
 args = parser.parse_args()
 
 converter = Converter(args.tool, args.root, args.cache, int(args.cache_limit_gb * 1024**3))
+
+RECONVERT_BEFORE = datetime.datetime.strptime(args.reconvert_before, "%Y-%m-%d").timestamp() \
+    if args.reconvert_before else None
+
+
+def remake(entry):
+    """Whether a rank that is published already is converted again"""
+    return args.reconvert or entry["map"] in args.reconvert_map or \
+        (RECONVERT_BEFORE is not None and (entry.get("ts") or 0) < RECONVERT_BEFORE)
 
 
 # What a run of pregen decides about a rank, the rest of a line comes from the
@@ -166,7 +179,7 @@ def main():
     def work_of(entry):
         key = entry_key(entry)
         if key in published:
-            return "reconvert" if args.reconvert or entry["map"] in args.reconvert_map else None
+            return "reconvert" if remake(entry) else None
         if carried(entry):
             return None
         return "generate"
@@ -202,6 +215,13 @@ def main():
             if group_wanted == 0:
                 if future is not None:
                     future.cancel()
+                # A rank that was published and has been beaten since keeps the
+                # demo it was published with, and with it the links that were
+                # shared for it. The demo exists, so this costs nothing, and
+                # the pass below writes the rank out again.
+                published_entry = published.get(entry_key(entry))
+                if published_entry is not None:
+                    run_demos.setdefault((map_name, run_key(entry)), outcome(published_entry))
                 if kind == "team":
                     unwanted_teams.setdefault(map_name, {})[run_key(entry)] = entry
                 continue
@@ -239,7 +259,7 @@ def main():
                 output.flush()
                 continue
             published_entry = published.get(key)
-            if published_entry and (args.reconvert or map_name in args.reconvert_map):
+            if published_entry and remake(entry):
                 # A demo that is already published is made again. It stays
                 # as it is when the recording is gone or the converter
                 # fails, there is nothing to make it from then. A recording
@@ -275,8 +295,9 @@ def main():
         pool.shutdown(wait=False, cancel_futures=True)
         # Every rank of a run links the run's demo, whichever rank it was made
         # for: a team rank whose own conversion failed links a member's solo
-        # demo (it shows the whole team as well), and the ranks beyond the
-        # wanted ones of a run that has a demo are linked too
+        # demo (it shows the whole team as well), the ranks beyond the wanted
+        # ones of a run that has a demo are linked too, and so are the ranks
+        # that were published before and have been beaten since
         linked = 0
         for (map_name, kind), entries in groups.items():
             for entry in entries:

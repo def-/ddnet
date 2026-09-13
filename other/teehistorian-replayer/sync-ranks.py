@@ -31,6 +31,8 @@ parser.add_argument("--import-script", default="/home/teeworlds/servers/scripts/
 parser.add_argument("--retry-failed", action="store_true", help="passed on to pregen.py")
 parser.add_argument("--reconvert-map", action="append", default=[], metavar="MAP",
     help="convert the ranks of this map again (repeatable)")
+parser.add_argument("--reconvert-before", metavar="DATE",
+    help="passed on to pregen.py: redo the published ranks that finished before this date")
 parser.add_argument("--reconvert", action="store_true",
     help="passed on to pregen.py, converts every published rank again after a converter fix")
 parser.add_argument("--prune", action="store_true",
@@ -65,7 +67,8 @@ def generate():
         args.manifest, str(WATCHABLE), "--cache", str(CACHE), "--ranks", str(args.ranks)] + \
         (["--retry-failed"] if args.retry_failed else []) + \
         (["--reconvert"] if args.reconvert else []) + \
-        [arg for map_name in args.reconvert_map for arg in ("--reconvert-map", map_name)]
+        [arg for map_name in args.reconvert_map for arg in ("--reconvert-map", map_name)] + \
+        (["--reconvert-before", args.reconvert_before] if args.reconvert_before else [])
     print("+ " + " ".join(command), file=sys.stderr, flush=True)
     process = subprocess.Popen(command)
     # A run takes hours, what it has finished goes up every few minutes so

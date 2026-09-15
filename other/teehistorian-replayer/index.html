@@ -1833,7 +1833,19 @@
 					setRunTitle(titleOf(params));
 				}
 				if (params.get('demo')) {
-					url = params.get('demo');
+					// A demo of this deployment, not any address a link cares
+					// to name. The client parses whatever comes back, so an
+					// absolute url would let a link play someone else's bytes
+					// through it, under this page and this origin, and "../"
+					// would reach the rest of the site.
+					const here = new URL('.', location.href);
+					const wanted = new URL(params.get('demo'), here);
+					if (wanted.origin !== here.origin || !wanted.pathname.startsWith(here.pathname)) {
+						statusError('That demo is not part of this page.');
+						busy = false;
+						return;
+					}
+					url = wanted.href;
 				} else {
 					const server = params.get('server') || RANKDEMO_URL;
 					const query = new URLSearchParams();

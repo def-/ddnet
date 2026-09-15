@@ -312,8 +312,21 @@ def main():
                     written_ok.add(key)
                     output.write(json.dumps({**entry, **result}, ensure_ascii=False) + "\n")
                     output.flush()
+        # A rank that was published once keeps its line for good, whether it
+        # has been beaten, has fallen out of the candidate list or is no
+        # longer a rank at all: its demo is on the web host and the link that
+        # was shared for it has to go on working. "kept" says the line is
+        # there for the link alone and not because the map still counts the
+        # rank among its candidates. sync-ranks.py drops the line when the
+        # demo really is gone from both hosts.
+        kept = 0
+        for key, entry in published.items():
+            if key not in written:
+                kept += 1
+                output.write(json.dumps({**entry, "kept": True}, ensure_ascii=False) + "\n")
     pathlib.Path(args.output + ".new").replace(args.output)
-    print(f"{ok} demos ready, {linked} further ranks link them, {errors} candidates failed", file=sys.stderr)
+    print(f"{ok} demos ready, {linked} further ranks link them, {kept} kept for their links, "
+        f"{errors} candidates failed", file=sys.stderr)
     # Only a run over the whole manifest knows which demos nothing names any
     # more. A slice of it names a handful and would take the rest of the cache
     # with it.

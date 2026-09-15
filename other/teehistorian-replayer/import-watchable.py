@@ -23,13 +23,17 @@ parser.add_argument("--gone", action="store_true",
 args = parser.parse_args()
 
 
-def rows(path):
+def rows(path, skip_kept=False):
+    """skip_kept leaves out the lines the pre-generation keeps for their links
+    alone, which are no longer among their map's candidates."""
     for line in open(path, encoding="utf-8"):
         try:
             entry = json.loads(line)
         except ValueError:
             continue
         if entry.get("status") != "ok" or "demo" not in entry:
+            continue
+        if skip_kept and entry.get("kept"):
             continue
         yield (entry["map"], entry["kind"], round(float(entry["time"]) * 1000), entry["uuid"])
 
@@ -85,7 +89,10 @@ def main():
 
     con = mysqlConnect()
     if args.gone:
-        for map_name in gone_maps(con, watchable):
+        # A rank that is gone and whose line is only kept for its link needs no
+        # refresh, its map has one already: asking for it again would name the
+        # same map on every tick for good
+        for map_name in gone_maps(con, list(rows(args.manifest, skip_kept=True))):
             print(map_name)
         con.close()
         return

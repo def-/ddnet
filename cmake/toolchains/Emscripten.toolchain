@@ -45,6 +45,19 @@ set(WASM_LINKER_FLAGS "${WASM_LINKER_FLAGS} -s STACK_SIZE=1MB")
 # Even if slower, memory growth has the advantage of using less resources, keep it on for now (instead of a static memory pool).
 set(WASM_LINKER_FLAGS "${WASM_LINKER_FLAGS} -s ALLOW_MEMORY_GROWTH=1")
 # Maximum of ~2 GiB with WASM32. Using more with WASM64 isn't well supported yet.
+# This whole maximum is reserved as address space the moment the memory is
+# created, because SHARED_MEMORY below means it cannot move when it grows. iOS
+# refuses that reservation once a handful of pages hold one at the same time,
+# and the browser's back forward cache is enough to keep them: opening the same
+# page about twenty times is reliable. The client then dies inside initMemory,
+# before it has asked for its wasm, with "RangeError: Out of memory" and no
+# further sign of life, because nothing in the page is listening for it.
+# The replayer passes its own Module.wasmMemory capped at 512 MB
+# (other/teehistorian-replayer/index.html), which an imported memory may do,
+# and a replay of a large map measured 149 MB against that. The client at
+# client.ddnet.org has no such cap and fails the same way, which is what this
+# note is for: lowering the value here would fix both, at the cost of a ceiling
+# for whatever needs the most memory.
 set(WASM_LINKER_FLAGS "${WASM_LINKER_FLAGS} -s MAXIMUM_MEMORY=2000MB")
 # TODO: Without `--no-check-features` compilation fails with `--shared-memory is disallowed by "cxx.o" because it was not compiled with 'atomics' or 'bulk-memory' features.`
 set(WASM_LINKER_FLAGS "${WASM_LINKER_FLAGS} -s SHARED_MEMORY=1 -Wl,--no-check-features")

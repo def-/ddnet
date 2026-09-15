@@ -1063,9 +1063,36 @@
 			// screen walks through components, assets, skins and the map, and
 			// that is most of the wait. Follow it instead of showing one step.
 			let clientStage = '';
+			// The client is 37 MB on the first visit of a version and iOS has
+			// been seen to leave that download hanging, not always and not for
+			// long enough to blame the size. Nothing here can retry it, the
+			// runtime fetches its own wasm and assets, so the page says which
+			// of the three it is still waiting for: a browser adds the timing
+			// entry of a request when it finishes, so a file with no entry is
+			// the one that is stuck, and a screenshot of this is a report.
+			const CLIENT_FILES = ['DDNet.js', 'DDNet.wasm', 'DDNet.data'];
+			function clientDownloadState() {
+				const done = new Map();
+				for (const entry of performance.getEntriesByType('resource')) {
+					const name = CLIENT_FILES.find(file => entry.name.includes(file));
+					if (name !== undefined) {
+						done.set(name, entry.transferSize);
+					}
+				}
+				const waiting = CLIENT_FILES.filter(name => !done.has(name));
+				const arrived = [...done].map(([name, size]) => `${name} ${(size / 1048576).toFixed(1)} MB`);
+				return (arrived.length > 0 ? `${arrived.join(', ')} arrived. ` : '') +
+					(waiting.length > 0 ? `Still waiting for ${waiting.join(' and ')}. ` : '') +
+					'Reload if this does not finish.';
+			}
+			let clientSlow = false;
+			setTimeout(() => {
+				clientSlow = true;
+				updateLoadStage();
+			}, 30000);
 			function updateLoadStage() {
 				document.getElementById('loadingtext').textContent =
-					!clientReady ? 'Downloading the client…' :
+					!clientReady ? (clientSlow ? clientDownloadState() : 'Downloading the client…') :
 					!demoReady ? 'Downloading the replay…' :
 					clientStage !== '' ? clientStage : 'Loading the map…';
 			}

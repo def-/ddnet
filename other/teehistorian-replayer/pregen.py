@@ -38,6 +38,9 @@ parser.add_argument("--reconvert-before", metavar="DATE",
         "for a fix that only changes recordings of that age")
 parser.add_argument("--reconvert", action="store_true",
     help="convert every published rank again, to bring demos made by an older converter up to date")
+parser.add_argument("--partial", action="store_true",
+    help="the manifest is a slice of the whole one (sync-ranks.py --maps), so the cache keeps the demos "
+        "of every other map instead of being pruned to what this output names")
 parser.add_argument("--retry-failed", action="store_true",
     help="retry ranks whose conversion failed in the previous output (by default only \"not in the archive\" failures are retried, e.g. after a tool fix)")
 args = parser.parse_args()
@@ -311,7 +314,11 @@ def main():
                     output.flush()
     pathlib.Path(args.output + ".new").replace(args.output)
     print(f"{ok} demos ready, {linked} further ranks link them, {errors} candidates failed", file=sys.stderr)
-    converter.drop_unnamed({entry.get("demo") for entry in map(json.loads, open(args.output, encoding="utf-8"))})
+    # Only a run over the whole manifest knows which demos nothing names any
+    # more. A slice of it names a handful and would take the rest of the cache
+    # with it.
+    if not args.partial:
+        converter.drop_unnamed({entry.get("demo") for entry in map(json.loads, open(args.output, encoding="utf-8"))})
 
 
 if __name__ == "__main__":

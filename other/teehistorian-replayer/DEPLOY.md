@@ -174,6 +174,18 @@ again:
 pre-generation that was run separately (sharded over several `pregen.py`, or
 after `rescramble.py` re-scrambled the cache).
 
+A deleted top rank leaves the map linking a rank that is gone, with no demo
+of the one that took its place, and the next nightly is up to a day away.
+`import-watchable.py --gone` on the database host names the maps that happened
+to, out of the uploaded manifest rather than out of `record_watch` (the import
+leaves a deleted rank out of the table, so the table forgets it ever had one,
+while the manifest keeps the line until the map is converted again).
+`sync-ranks.py --maps <map>...` then refreshes those maps alone: their
+candidates, their conversions, merged into the manifest, uploaded and
+imported. Three minutes against the half hour a whole sync takes. li's
+`tick.sh` runs the two together every ten minutes as the `watch` lane, and a
+map that was refreshed drops off the list by itself.
+
 `--ranks N` publishes the N best ranks per map and kind instead of only the
 first one. It converts the candidates in rank order and stops after N of them
 worked, so a map whose #1 recording is gone still gets its best watchable

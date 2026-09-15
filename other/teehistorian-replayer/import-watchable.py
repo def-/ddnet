@@ -4,15 +4,23 @@
 # pages look up to make a rank time clickable. Runs on the web host, as the
 # user the web scripts run as, after the archive host uploaded the demos.
 #
-# Usage: import-watchable.py [/var/www/watch/watchable.jsonl]
+# --gone reports instead: the maps of the manifest whose rank has been
+# deleted since, which is what the watch lane on the archive host refreshes.
+#
+# Usage: import-watchable.py [--gone] [/var/www/watch/watchable.jsonl]
 
+import argparse
 import json
 import sys
 
 sys.path.insert(0, "/home/teeworlds/servers/scripts")
 from mysql import mysqlConnect
 
-MANIFEST = sys.argv[1] if len(sys.argv) > 1 else "/var/www/watch/watchable.jsonl"
+parser = argparse.ArgumentParser()
+parser.add_argument("manifest", nargs="?", default="/var/www/watch/watchable.jsonl")
+parser.add_argument("--gone", action="store_true",
+    help="print the maps whose rank is no longer a rank and change nothing")
+args = parser.parse_args()
 
 
 def rows(path):
@@ -51,20 +59,36 @@ def existing(con, watchable):
     return kept
 
 
+def gone_maps(con, watchable):
+    """The maps of the manifest whose rank is no longer a rank, which is what
+    tells the archive host to make a demo of the one that took its place.
+
+    The manifest, not record_watch: the import below leaves a deleted rank out
+    of the table, so the table forgets it ever had one, while the manifest
+    keeps the line until the map is converted again."""
+    kept = set(existing(con, watchable))
+    return sorted({row[0] for row in watchable if row not in kept})
+
+
 def main():
     # Two ranks of the same map and kind can carry the same time, a tie that
     # the manifest keeps both of. The table has one row per time, and the
     # first of them is the one the page links.
     seen = set()
     watchable = []
-    for row in rows(MANIFEST):
+    for row in rows(args.manifest):
         if row[:3] not in seen:
             seen.add(row[:3])
             watchable.append(row)
     if not watchable:
-        sys.exit(f"no watchable rank in {MANIFEST}, refusing to empty the table")
+        sys.exit(f"no watchable rank in {args.manifest}, refusing to empty the table")
 
     con = mysqlConnect()
+    if args.gone:
+        for map_name in gone_maps(con, watchable):
+            print(map_name)
+        con.close()
+        return
     watchable = existing(con, watchable)
     if not watchable:
         sys.exit("no watchable rank is still a rank, refusing to empty the table")

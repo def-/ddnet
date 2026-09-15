@@ -31,6 +31,10 @@ entry). The watch page is the directory index, so a rank link is
 location /watch/ {
   add_header Cross-Origin-Embedder-Policy require-corp;
   add_header Cross-Origin-Opener-Policy same-origin;
+  # The page carries the build tag that names the client files, so it has to
+  # reach a visitor soon after a deployment. Everything it loads is cached by
+  # the locations below.
+  add_header Cache-Control "public, max-age=300";
   types {
     application/wasm wasm;
     text/html html;
@@ -273,7 +277,10 @@ run. That is a few seconds per hour of recording on an entity-heavy map.
 
 `https://ddnet.org/teehistorian2demo.php` converts whole recordings and single
 runs for moderators with `/home/teeworlds/bin/teehistorian2demo`, without
-scrambling. It is the same binary the rank pipeline runs: `deploy-tools.sh` on
+scrambling. Its name and map query lists the deleted ranks next to the live
+ones, with the date they were removed and why: a run a moderator looks up is
+often one that is gone from `record_race` already. The older copy of the page
+under `/bep/` does the same. It is the same binary the rank pipeline runs: `deploy-tools.sh` on
 the archive host builds the converter and the scrambler once in a Debian 13
 container and renames them into place in both spots, the archive host's
 `build-tools/` and the web host's `bin/`. A binary built on the archive host

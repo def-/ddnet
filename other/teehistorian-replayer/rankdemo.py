@@ -67,30 +67,39 @@ class Converter:
 
     def load_index(self, uuids):
         """Which location directory holds a game uuid, read from the archive
-        indexes that archive.sh appends to when a recording arrives. Proving a
-        recording absent otherwise costs a stat in every location directory,
-        seconds each on the archive disk, and most ranks old enough to be a
-        record have no recording left."""
+        indexes. Proving a recording absent otherwise costs a stat in every
+        location directory, seconds each on the archive disk, and most ranks
+        old enough to be a record have no recording left.
+
+        Both indexes are read, because each holds what the other does not:
+        archive.sh appends to index.txt when it archives a recording, which is
+        twelve days after it arrives, and index.sh rebuilds index.new.txt
+        nightly from the files that are still uncompressed. A recording of the
+        last two weeks is only in the second one, and a rank of such a run is
+        reported as missing from the archive while it sits on the disk."""
         wanted = {uuid.encode() for uuid in uuids}
         self.index = {}
         self.unindexed = []
         for sub in sorted(self.root.iterdir()):
             if not sub.is_dir():
                 continue
-            index = sub / "index.txt.gz"
-            opener = gzip.open
-            if not index.is_file():
+            indexes = []
+            if (sub / "index.txt.gz").is_file():
+                indexes.append((sub / "index.txt.gz", gzip.open))
+            elif (sub / "index.txt").is_file():
                 # A location that started recording after the last daily
                 # gzip run, its index is still the plain file
-                index = sub / "index.txt"
-                opener = open
-            if not index.is_file():
+                indexes.append((sub / "index.txt", open))
+            if (sub / "index.new.txt").is_file():
+                indexes.append((sub / "index.new.txt", open))
+            if not indexes:
                 self.unindexed.append(sub)
                 continue
-            with opener(index, "rb") as file:
-                for line in file:
-                    if line[:36] in wanted:
-                        self.index[line[:36].decode()] = sub
+            for index, opener in indexes:
+                with opener(index, "rb") as file:
+                    for line in file:
+                        if line[:36] in wanted:
+                            self.index[line[:36].decode()] = sub
         return len(self.index)
 
     def find_recording(self, uuid, anywhere=False):
@@ -259,6 +268,12 @@ class Converter:
             # The run is normally in the recording of its own game id, a team
             # rank saved under a stale game id names the members' one
             recording = self.find_recording(recording_uuid or uuid, anywhere)
+            if recording is None and not anywhere:
+                # Neither index knows it, which is not the same as it not being
+                # there: archive.sh indexes a recording twelve days after it
+                # arrives and has missed some for good. A stat in every
+                # location is ~50 ms and only the ranks that would fail pay it.
+                recording = self.find_recording(recording_uuid or uuid, anywhere=True)
             if recording is None:
                 raise RankDemoError(404, "Recording not in the archive (yet)")
             header = self.read_header(recording)

@@ -11,9 +11,11 @@
 # existing local file.
 #
 # --maps refreshes a few maps instead of all of them, which is what the watch
-# lane runs when a deleted top rank leaves a map without a demo.
+# lane runs when a deleted top rank leaves a map without a demo. --runs does
+# the same for the single runs a moderation report links, whatever rank they
+# hold and whether or not they have been deleted since.
 #
-# Usage: sync-ranks.py [--ranks 1] [--maps MAP...] [--dry-run]
+# Usage: sync-ranks.py [--ranks 1] [--maps MAP... | --runs UUID=TIME...] [--dry-run]
 
 import argparse
 import fcntl
@@ -36,6 +38,9 @@ parser.add_argument("--cache", default=str(pathlib.Path.home() / "teehistorian-d
 parser.add_argument("--target", default="ddnet:/var/www/watch",
     help="ssh destination of the web directory holding demos/ and watchable.jsonl")
 parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per map and kind")
+parser.add_argument("--runs", nargs="+", metavar="UUID=TIME",
+    help="convert these runs and add them to the manifest, for the ranks a moderation report links: they "
+        "are published whatever rank they hold and deleted ones are found too")
 parser.add_argument("--maps", nargs="+", metavar="MAP",
     help="refresh only these maps, for a top rank that was deleted: their candidates are fetched and "
         "converted and the result is merged into the manifest, minutes instead of the half hour a whole one takes")
@@ -65,6 +70,8 @@ WATCHABLE = CACHE / "watchable.jsonl"
 # went wrong can be looked at
 PART_MANIFEST = CACHE / "top-ranks-maps.jsonl"
 PART_WATCHABLE = CACHE / "watchable-maps.jsonl"
+# Whether this run works on a slice of the manifest rather than the whole one
+PART = bool(args.maps or args.runs)
 HOST, _, REMOTE = args.target.partition(":")
 
 
@@ -79,11 +86,12 @@ def fetch_manifest():
     if args.manifest_source:
         run(["scp", "-q", args.manifest_source, args.manifest])
         return
-    if args.maps:
+    if args.maps or args.runs:
         # ssh hands the remote shell one string, and a map name has spaces in
         # it. A few hundred lines have nothing for the guard below to compare.
+        select = ["--maps"] + args.maps if args.maps else ["--runs"] + args.runs
         remote = " ".join(shlex.quote(part)
-            for part in ["python3", args.manifest_script, "--maps"] + args.maps)
+            for part in ["python3", args.manifest_script] + select)
         with open(PART_MANIFEST, "w") as out:
             run(["ssh", args.manifest_host, remote], stdout=out)
         return
@@ -101,40 +109,54 @@ def fetch_manifest():
     print(f"{lines} rank candidates", file=sys.stderr, flush=True)
 
 
+def part_key(line):
+    entry = json.loads(line)
+    return json.dumps([entry.get(field) for field in ("uuid", "time", "kind", "names")])
+
+
 def seed_part():
     """pregen carries a rank it published before and one whose conversion
     failed over from its previous output. A refresh of a few maps gets the
     lines of those maps to carry, so it converts what is new and nothing else."""
-    lines = [line for line in open(WATCHABLE, encoding="utf-8")
-        if json.loads(line).get("map") in set(args.maps)] if WATCHABLE.is_file() else []
+    lines = []
+    if WATCHABLE.is_file() and args.maps:
+        lines = [line for line in open(WATCHABLE, encoding="utf-8")
+            if json.loads(line).get("map") in set(args.maps)]
     PART_WATCHABLE.write_text("".join(lines), encoding="utf-8")
 
 
 def merge_part():
     """The manifest keeps every map it had, with the refreshed ones replaced by
     what the run made of them. A rank that was deleted is in no candidate list
-    any more, so it drops out here and stops being linked."""
-    kept = [line for line in open(WATCHABLE, encoding="utf-8")
-        if json.loads(line).get("map") not in set(args.maps)] if WATCHABLE.is_file() else []
+    any more, so it drops out here and stops being linked.
+
+    Named runs replace their own line and nothing else: the rest of their map
+    was never converted in this pass and would be lost."""
+    lines = list(open(WATCHABLE, encoding="utf-8")) if WATCHABLE.is_file() else []
     fresh = list(open(PART_WATCHABLE, encoding="utf-8"))
+    if args.maps:
+        kept = [line for line in lines if json.loads(line).get("map") not in set(args.maps)]
+    else:
+        replaced = {part_key(line) for line in fresh}
+        kept = [line for line in lines if part_key(line) not in replaced]
     temp = WATCHABLE.with_suffix(".jsonl.new")
     temp.write_text("".join(kept + fresh), encoding="utf-8")
     temp.replace(WATCHABLE)
-    print(f"{len(fresh)} manifest lines of {len(args.maps)} refreshed maps merged in, "
-        f"{len(kept)} kept", file=sys.stderr, flush=True)
+    print(f"{len(fresh)} manifest lines of {len(args.maps or args.runs)} refreshed "
+        f"{'maps' if args.maps else 'runs'} merged in, {len(kept)} kept", file=sys.stderr, flush=True)
 
 
 def generate():
     # Best effort at the lowest priority, not the idle class: the archive disk
     # is never idle (hourly rsyncs from every game server, the daily archive
     # and index runs) and an idle-class reader makes no progress at all
-    if args.maps:
+    if PART:
         seed_part()
     command = ["nice", "-n19", "ionice", "-c2", "-n7", sys.executable, str(HERE / "pregen.py"),
-        str(PART_MANIFEST) if args.maps else args.manifest,
-        str(PART_WATCHABLE) if args.maps else str(WATCHABLE),
+        str(PART_MANIFEST) if PART else args.manifest,
+        str(PART_WATCHABLE) if PART else str(WATCHABLE),
         "--cache", str(CACHE), "--ranks", str(args.ranks)] + \
-        (["--partial"] if args.maps else []) + \
+        (["--partial"] if PART else []) + \
         (["--retry-failed"] if args.retry_failed else []) + \
         (["--reconvert"] if args.reconvert else []) + \
         [arg for map_name in args.reconvert_map for arg in ("--reconvert-map", map_name)] + \
@@ -142,7 +164,7 @@ def generate():
     print("+ " + " ".join(command), file=sys.stderr, flush=True)
     # A refresh of a few maps is done in minutes, so it is waited out whole
     # and the manifest is only touched once it worked
-    if args.maps:
+    if PART:
         if subprocess.run(command).returncode != 0:
             sys.exit("pregen failed")
         merge_part()

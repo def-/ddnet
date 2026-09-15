@@ -22,6 +22,9 @@ parser.add_argument("--candidates", type=int, default=50,
 parser.add_argument("--min-age-days", type=int, default=14,
     help="skip finishes younger than this: a fresh rank can still turn out to be cheated and be deleted")
 parser.add_argument("--maps", nargs="+", help="only these maps (default: every map with a page)")
+parser.add_argument("--runs", nargs="+", metavar="UUID=TIME",
+    help="dump these runs instead of the top ranks, for a rank a report links that is too far down the "
+        "map to be published. Deleted ranks are found too, which is what a report is usually about.")
 args = parser.parse_args()
 
 
@@ -93,6 +96,31 @@ def team_ranks(cur, map_name):
     return ranks
 
 
+def named_runs(cur, wanted):
+    """The runs a report names, by game uuid and time. A rank that was deleted
+    is exactly the one a moderator wants to watch, so the deleted tables are
+    searched as well, and the entry is marked so that the pre-generation makes
+    its demo whatever rank the run holds."""
+    for spec in wanted:
+        game, _, time_str = spec.partition("=")
+        time = float(time_str)
+        for kind, table in (("team", "record_teamrace"), ("solo", "record_race"),
+                ("team", "record_teamrace_deleted"), ("solo", "record_race_deleted")):
+            cur.execute(f"SELECT Map, Name, Time, Timestamp FROM {table} "
+                "WHERE GameID = %s AND Time BETWEEN %s AND %s", (game, time - 0.005, time + 0.005))
+            rows = cur.fetchall()
+            if not rows:
+                continue
+            names = sorted({row[1] for row in rows})
+            if kind == "team" and len(names) < 2:
+                continue
+            yield {"kind": kind, "map": rows[0][0], "names": names, "time": str(rows[0][2]),
+                "ts": epoch(rows[0][3]), "uuid": game, "rank": 0, "extra": True}
+            break
+        else:
+            print(f"{game} at {time} is in no rank table", file=sys.stderr)
+
+
 def connect():
     """The sync on the archive host runs this over ssh as the user the web
     scripts run as, which has its own connection; a run as root (the nightly
@@ -112,6 +140,18 @@ def main():
     cur.execute("SET SESSION max_statement_time=0")
     # The default of 1024 bytes silently truncates the roster of a large team
     cur.execute("SET SESSION group_concat_max_len = 1000000")
+
+    if args.runs:
+        count = 0
+        for entry in named_runs(cur, args.runs):
+            for name in entry["names"]:
+                renamed = old_names(cur, name)
+                if renamed:
+                    entry.setdefault("aliases", {})[name] = renamed
+            print(json.dumps(entry, ensure_ascii=False))
+            count += 1
+        print(f"{count} of {len(args.runs)} named runs found", file=sys.stderr)
+        return
 
     if args.maps:
         maps = args.maps

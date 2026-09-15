@@ -25,7 +25,8 @@ args = parser.parse_args()
 
 def rows(path, skip_kept=False):
     """skip_kept leaves out the lines the pre-generation keeps for their links
-    alone, which are no longer among their map's candidates."""
+    alone, which are no longer among their map's candidates, and the runs a
+    report named: a deleted one of those is why its demo was made."""
     for line in open(path, encoding="utf-8"):
         try:
             entry = json.loads(line)
@@ -33,7 +34,7 @@ def rows(path, skip_kept=False):
             continue
         if entry.get("status") != "ok" or "demo" not in entry:
             continue
-        if skip_kept and entry.get("kept"):
+        if skip_kept and (entry.get("kept") or entry.get("extra")):
             continue
         yield (entry["map"], entry["kind"], round(float(entry["time"]) * 1000), entry["uuid"])
 

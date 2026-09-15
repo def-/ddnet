@@ -77,7 +77,7 @@ def ok_result(demo_path, meta):
 def generate(entry, reconvert=False):
     try:
         demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert,
-            entry.get("recording"), entry.get("aliases"))
+            entry.get("recording"), entry.get("aliases"), entry.get("extra", False))
         return ok_result(demo_path, meta)
     except DiskFullError:
         raise  # not the rank's failure, the run stops
@@ -88,7 +88,8 @@ def generate(entry, reconvert=False):
         if error.status == 404 and entry.get("ts") and "No finish" in str(error):
             try:
                 demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
-                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"))
+                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"),
+                    anywhere=entry.get("extra", False))
                 return ok_result(demo_path, meta)
             except DiskFullError:
                 raise
@@ -215,7 +216,9 @@ def main():
                 inflight_groups.discard((map_name, kind))
             if index == 0 or flat[index - 1][:2] != (map_name, kind):
                 group_wanted = args.ranks
-            if group_wanted == 0:
+            # A run a report names is published whatever rank it holds, and it
+            # does not take a place away from the map's own ranks
+            if group_wanted == 0 and not entry.get("extra"):
                 if future is not None:
                     future.cancel()
                 # A rank that was published and has been beaten since keeps the
@@ -284,7 +287,8 @@ def main():
                 result = future.result() if future is not None else generate(entry)
             if result["status"] == "ok":
                 ok += 1
-                group_wanted -= 1
+                if not entry.get("extra"):
+                    group_wanted -= 1
                 if kind == "team":
                     team_runs.setdefault(map_name, {})[run_key(entry)] = result
                 run_demos.setdefault((map_name, run_key(entry)), result)

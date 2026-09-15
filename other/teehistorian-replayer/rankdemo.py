@@ -210,10 +210,13 @@ class Converter:
         chain.reverse()
         return chain
 
-    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
+    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None,
+            anywhere=False):
         """Returns (demo_path, meta_dict), converting and caching on demand.
         aliases maps a rank name to the names the player had before, for a
-        rank that was moved to a new name after the run."""
+        rank that was moved to a new name after the run. anywhere looks past
+        the archive index, which a recording of the last twelve days is not in
+        yet, for a run named by hand rather than by the rank tables."""
         if not UUID_RE.match(uuid) or (recording_uuid is not None and not UUID_RE.match(recording_uuid)):
             raise RankDemoError(400, "Invalid game uuid")
         if not names or not all(names):
@@ -255,7 +258,7 @@ class Converter:
 
             # The run is normally in the recording of its own game id, a team
             # rank saved under a stale game id names the members' one
-            recording = self.find_recording(recording_uuid or uuid)
+            recording = self.find_recording(recording_uuid or uuid, anywhere)
             if recording is None:
                 raise RankDemoError(404, "Recording not in the archive (yet)")
             header = self.read_header(recording)

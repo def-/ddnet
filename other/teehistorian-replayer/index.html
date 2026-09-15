@@ -1071,6 +1071,37 @@
 			// entry of a request when it finishes, so a file with no entry is
 			// the one that is stuck, and a screenshot of this is a report.
 			const CLIENT_FILES = ['DDNet.js', 'DDNet.wasm', 'DDNet.data'];
+			// An exception thrown while the client script runs ends it where it
+			// stands, and the parts that had already started, the asset
+			// package above all, go on reporting progress as if all were well.
+			// Nothing was listening for that, so the loading screen showed a
+			// runtime that looked busy and was not there at all.
+			let scriptError = '';
+			const noteScriptError = text => {
+				if (scriptError === '') {
+					scriptError = String(text).slice(0, 120);
+					updateLoadStage();
+				}
+			};
+			window.addEventListener('error', event => {
+				noteScriptError(`${event.message} (${(event.filename || '?').split('/').pop()}:${event.lineno})`);
+			});
+			window.addEventListener('unhandledrejection', event => {
+				const reason = event.reason;
+				noteScriptError(`unhandled ${reason && reason.message ? reason.message : reason}`);
+			});
+			// What the runtime itself is waiting for, from its own globals.
+			// createWasm registers "wasm-instantiate" before it reads
+			// Module.instantiateWasm, so the dependency count says whether it
+			// ran at all, and the memory appears only once it has.
+			function runtimeState() {
+				const deps = typeof runDependencies !== 'undefined' ? runDependencies : '?';
+				const pool = typeof PThread !== 'undefined' ?
+					`${PThread.unusedWorkers.length}+${PThread.runningWorkers.length}` : '?';
+				const memory = typeof wasmMemory !== 'undefined' && wasmMemory ? 'yes' : 'no';
+				const hook = typeof Module !== 'undefined' && Module.instantiateWasm ? 'set' : 'MISSING';
+				return `deps ${deps}, workers ${pool}, memory ${memory}, hook ${hook}`;
+			}
 			function clientDownloadState() {
 				const done = new Map();
 				for (const entry of performance.getEntriesByType('resource')) {
@@ -1089,6 +1120,8 @@
 						'All three arrived, the client is starting. ') +
 					(lastRuntimeStatus !== '' ? `Last: ${lastRuntimeStatus}. ` : '') +
 					(wasmAttempts > 0 ? `Retried the client ${wasmAttempts}x. ` : '') +
+					`[${runtimeState()}] ` +
+					(scriptError !== '' ? `ERROR: ${scriptError}. ` : '') +
 					'Reload if this does not finish.';
 			}
 			let clientSlow = false;
@@ -1111,6 +1144,12 @@
 			}, 30000);
 			function updateLoadStage() {
 				document.getElementById('loadingtext').textContent =
+					// An exception while the client starts is shown the moment
+					// it happens, as it reads. It used to wait for the thirty
+					// second mark with the rest of the diagnosis, which meant a
+					// page that was already dead spent half a minute claiming
+					// to load.
+					!clientReady && scriptError !== '' ? scriptError :
 					!clientReady ? (clientSlow ? clientDownloadState() : 'Downloading the client…') :
 					!demoReady ? 'Downloading the replay…' :
 					clientStage !== '' ? clientStage : 'Loading the map…';

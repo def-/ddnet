@@ -38,10 +38,11 @@ parser.add_argument("--cache", default=str(pathlib.Path.home() / "teehistorian-d
 parser.add_argument("--target", default="ddnet:/var/www/watch",
     help="ssh destination of the web directory holding demos/ and watchable.jsonl")
 parser.add_argument("--ranks", type=int, default=1, help="ranks to publish per map and kind")
-parser.add_argument("--runs", nargs="+", metavar="UUID=TIME",
+part = parser.add_mutually_exclusive_group()
+part.add_argument("--runs", nargs="+", metavar="UUID=TIME",
     help="convert these runs and add them to the manifest, for the ranks a moderation report links: they "
         "are published whatever rank they hold and deleted ones are found too")
-parser.add_argument("--maps", nargs="+", metavar="MAP",
+part.add_argument("--maps", nargs="+", metavar="MAP",
     help="refresh only these maps, for a top rank that was deleted: their candidates are fetched and "
         "converted and the result is merged into the manifest, minutes instead of the half hour a whole one takes")
 parser.add_argument("--import-script", default="/home/teeworlds/servers/scripts/import-watchable.py",
@@ -66,12 +67,12 @@ args.manifest = args.manifest or str(pathlib.Path(args.cache) / "top-ranks.jsonl
 HERE = pathlib.Path(__file__).resolve().parent
 CACHE = pathlib.Path(args.cache)
 WATCHABLE = CACHE / "watchable.jsonl"
-# What a --maps run works on, kept beside the whole ones so a refresh that
-# went wrong can be looked at
-PART_MANIFEST = CACHE / "top-ranks-maps.jsonl"
-PART_WATCHABLE = CACHE / "watchable-maps.jsonl"
-# Whether this run works on a slice of the manifest rather than the whole one
+# Whether this run works on a slice of the manifest rather than the whole one,
+# and the files it works on, kept beside the whole ones so a refresh that went
+# wrong can be looked at
 PART = bool(args.maps or args.runs)
+PART_MANIFEST = CACHE / "top-ranks-part.jsonl"
+PART_WATCHABLE = CACHE / "watchable-part.jsonl"
 HOST, _, REMOTE = args.target.partition(":")
 
 
@@ -86,9 +87,10 @@ def fetch_manifest():
     if args.manifest_source:
         run(["scp", "-q", args.manifest_source, args.manifest])
         return
-    if args.maps or args.runs:
-        # ssh hands the remote shell one string, and a map name has spaces in
-        # it. A few hundred lines have nothing for the guard below to compare.
+    if PART:
+        # ssh hands the remote shell one string and a map name has spaces in
+        # it, so every word is quoted. The shrink guard below is skipped: a few
+        # hundred lines have nothing to be compared against.
         select = ["--maps"] + args.maps if args.maps else ["--runs"] + args.runs
         remote = " ".join(shlex.quote(part)
             for part in ["python3", args.manifest_script] + select)
@@ -109,38 +111,52 @@ def fetch_manifest():
     print(f"{lines} rank candidates", file=sys.stderr, flush=True)
 
 
-def part_key(line):
-    entry = json.loads(line)
+def part_key(entry):
     return json.dumps([entry.get(field) for field in ("uuid", "time", "kind", "names")])
+
+
+def manifest_entries(path):
+    """The lines of a manifest with what they say. A line that is not json is
+    left out, so one torn write drops itself here instead of stopping every
+    refresh from now on."""
+    if not path.is_file():
+        return
+    for line in open(path, encoding="utf-8"):
+        try:
+            yield line, json.loads(line)
+        except ValueError:
+            continue
 
 
 def seed_part():
     """pregen carries a rank it published before and one whose conversion
-    failed over from its previous output. A refresh of a few maps gets the
-    lines of those maps to carry, so it converts what is new and nothing else."""
+    failed over from its previous output. A map refresh hands it the lines of
+    those maps so it converts what is new and nothing else. A named run gets
+    nothing to carry: it is asked for because its demo is wanted now."""
     lines = []
-    if WATCHABLE.is_file() and args.maps:
-        lines = [line for line in open(WATCHABLE, encoding="utf-8")
-            if json.loads(line).get("map") in set(args.maps)]
+    if args.maps:
+        maps = set(args.maps)
+        lines = [line for line, entry in manifest_entries(WATCHABLE) if entry.get("map") in maps]
     PART_WATCHABLE.write_text("".join(lines), encoding="utf-8")
 
 
 def merge_part():
-    """The manifest keeps every map it had, with the refreshed ones replaced by
-    what the run made of them. A rank that was deleted is in no candidate list
-    any more, so it drops out here and stops being linked.
+    """What this run made of its slice replaces what the manifest had of it.
 
-    Named runs replace their own line and nothing else: the rest of their map
-    was never converted in this pass and would be lost."""
-    lines = list(open(WATCHABLE, encoding="utf-8")) if WATCHABLE.is_file() else []
-    fresh = list(open(PART_WATCHABLE, encoding="utf-8"))
+    A map refresh replaces everything its maps had, so a rank that was deleted,
+    and is in no candidate list any more, drops out here and stops being
+    linked. A named run replaces its own line alone: the rest of its map was
+    not converted in this pass and would be lost."""
+    fresh = list(manifest_entries(PART_WATCHABLE))
     if args.maps:
-        kept = [line for line in lines if json.loads(line).get("map") not in set(args.maps)]
+        maps = set(args.maps)
+        replaced = lambda entry: entry.get("map") in maps
     else:
-        replaced = {part_key(line) for line in fresh}
-        kept = [line for line in lines if part_key(line) not in replaced]
+        keys = {part_key(entry) for _, entry in fresh}
+        replaced = lambda entry: part_key(entry) in keys
+    kept = [line for line, entry in manifest_entries(WATCHABLE) if not replaced(entry)]
     temp = WATCHABLE.with_suffix(".jsonl.new")
-    temp.write_text("".join(kept + fresh), encoding="utf-8")
+    temp.write_text("".join(kept + [line for line, _ in fresh]), encoding="utf-8")
     temp.replace(WATCHABLE)
     print(f"{len(fresh)} manifest lines of {len(args.maps or args.runs)} refreshed "
         f"{'maps' if args.maps else 'runs'} merged in, {len(kept)} kept", file=sys.stderr, flush=True)
@@ -212,11 +228,9 @@ def upload_partial(uploaded):
     demos = [name for name in demos if (CACHE / "demos" / name).is_file()]
     if not demos:
         return
-    if WATCHABLE.is_file():
-        for line in WATCHABLE.read_text(encoding="utf-8").splitlines():
-            entry = json.loads(line)
-            if entry.get("status") == "ok" and entry.get("demo") and entry["uuid"] in fresh:
-                fresh[entry["uuid"]].setdefault((entry["kind"], entry["time"]), line)
+    for line, entry in manifest_entries(WATCHABLE):
+        if entry.get("status") == "ok" and entry.get("demo") and entry["uuid"] in fresh:
+            fresh[entry["uuid"]].setdefault((entry["kind"], entry["time"]), line.rstrip("\n"))
     runs = CACHE / "runs"
     runs.mkdir(exist_ok=True)
     changed = []
@@ -236,13 +250,7 @@ def upload_partial(uploaded):
 
 
 def wanted_demos():
-    demos = set()
-    with open(WATCHABLE, encoding="utf-8") as watchable:
-        for line in watchable:
-            entry = json.loads(line)
-            if entry.get("status") == "ok":
-                demos.add(entry["demo"])
-    return demos
+    return {entry["demo"] for _, entry in manifest_entries(WATCHABLE) if entry.get("status") == "ok"}
 
 
 def refresh_revisions():
@@ -255,19 +263,17 @@ def refresh_revisions():
         sys.exit(f"{WATCHABLE} does not exist, run the pre-generation first")
     lines = []
     changed = 0
-    with open(WATCHABLE, encoding="utf-8") as watchable:
-        for line in watchable:
-            entry = json.loads(line)
-            meta = CACHE / "demos" / (entry.get("demo", "x")[:-len(".demo.gz")] + ".json")
-            if entry.get("status") == "ok" and meta.is_file():
-                try:
-                    rev = json.loads(meta.read_text()).get("rev", "")
-                except ValueError:
-                    rev = ""
-                if rev and rev != entry.get("rev"):
-                    entry["rev"] = rev
-                    changed += 1
-            lines.append(json.dumps(entry, ensure_ascii=False))
+    for _, entry in manifest_entries(WATCHABLE):
+        meta = CACHE / "demos" / (entry.get("demo", "x")[:-len(".demo.gz")] + ".json")
+        if entry.get("status") == "ok" and meta.is_file():
+            try:
+                rev = json.loads(meta.read_text()).get("rev", "")
+            except ValueError:
+                rev = ""
+            if rev and rev != entry.get("rev"):
+                entry["rev"] = rev
+                changed += 1
+        lines.append(json.dumps(entry, ensure_ascii=False))
     if changed and not args.dry_run:
         temp = WATCHABLE.with_suffix(".jsonl.new")
         temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -282,11 +288,9 @@ def write_runs():
     runs = CACHE / "runs"
     runs.mkdir(exist_ok=True)
     lines = {}
-    with open(WATCHABLE, encoding="utf-8") as watchable:
-        for line in watchable:
-            entry = json.loads(line)
-            if entry.get("status") == "ok" and entry.get("demo"):
-                lines.setdefault(entry["uuid"], []).append(line)
+    for line, entry in manifest_entries(WATCHABLE):
+        if entry.get("status") == "ok" and entry.get("demo"):
+            lines.setdefault(entry["uuid"], []).append(line)
     for path in runs.glob("*.jsonl"):
         if path.stem not in lines:
             path.unlink()
@@ -299,8 +303,7 @@ def write_runs():
 
 
 def drop_from_manifest(demos):
-    lines = [line for line in open(WATCHABLE, encoding="utf-8")
-        if json.loads(line).get("demo") not in demos]
+    lines = [line for line, entry in manifest_entries(WATCHABLE) if entry.get("demo") not in demos]
     temp = WATCHABLE.with_suffix(".jsonl.new")
     temp.write_text("".join(lines), encoding="utf-8")
     temp.replace(WATCHABLE)

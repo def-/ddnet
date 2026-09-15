@@ -67,9 +67,9 @@ class Converter:
 
     def load_index(self, uuids):
         """Which location directory holds a game uuid, read from the archive
-        indexes. Proving a recording absent otherwise costs a stat in every
-        location directory, seconds each on the archive disk, and most ranks
-        old enough to be a record have no recording left.
+        indexes, which is one read for a whole run rather than a stat in every
+        location directory for every rank, and most ranks old enough to be a
+        record have no recording left.
 
         Both indexes are read, because each holds what the other does not:
         archive.sh appends to index.txt when it archives a recording, which is
@@ -219,13 +219,10 @@ class Converter:
         chain.reverse()
         return chain
 
-    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None,
-            anywhere=False):
+    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
         """Returns (demo_path, meta_dict), converting and caching on demand.
         aliases maps a rank name to the names the player had before, for a
-        rank that was moved to a new name after the run. anywhere looks past
-        the archive index, which a recording of the last twelve days is not in
-        yet, for a run named by hand rather than by the rank tables."""
+        rank that was moved to a new name after the run."""
         if not UUID_RE.match(uuid) or (recording_uuid is not None and not UUID_RE.match(recording_uuid)):
             raise RankDemoError(400, "Invalid game uuid")
         if not names or not all(names):
@@ -267,12 +264,12 @@ class Converter:
 
             # The run is normally in the recording of its own game id, a team
             # rank saved under a stale game id names the members' one
-            recording = self.find_recording(recording_uuid or uuid, anywhere)
-            if recording is None and not anywhere:
+            recording = self.find_recording(recording_uuid or uuid)
+            if recording is None:
                 # Neither index knows it, which is not the same as it not being
-                # there: archive.sh indexes a recording twelve days after it
-                # arrives and has missed some for good. A stat in every
-                # location is ~50 ms and only the ranks that would fail pay it.
+                # there: a recording damaged on arrival gets no index line at
+                # all. A stat in every location is ~50 ms and only the ranks
+                # that would fail anyway pay it.
                 recording = self.find_recording(recording_uuid or uuid, anywhere=True)
             if recording is None:
                 raise RankDemoError(404, "Recording not in the archive (yet)")

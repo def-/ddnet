@@ -822,11 +822,6 @@ private:
 	};
 	std::vector<CPendingEvent> m_vPendingEvents;
 	std::vector<vec2> m_vSpawnPoints;
-	// The entities of the world, per type in the order CGameWorld ticks and
-	// snaps them. New entities go to the back, and the tick walks the list
-	// backwards, which is the order the server's per-type lists have: it
-	// prepends, and an entity created during a tick is not ticked in it.
-	std::vector<std::unique_ptr<CReplayEntity>> m_avpEntities[CReplayEntity::NUM_TYPES];
 	// Snapshot ids for the entities, handed out like the server's id pool
 	// Freed ids and the tick they may be handed out again on. The server
 	// parks them for five seconds (CSnapIdPool), and an id that goes straight
@@ -930,6 +925,14 @@ private:
 	int m_MaxPlayersSeen = 0;
 	int m_NumPlayerHookTicks = 0;
 	int m_NumFrozenTicks = 0;
+	// The entities of the world, per type in the order CGameWorld ticks and
+	// snaps them. New entities go to the back, and the tick walks the list
+	// backwards, which is the order the server's per-type lists have: it
+	// prepends, and an entity created during a tick is not ticked in it.
+	// Last of the members on purpose: an entity hands its snapshot id back
+	// when it dies, so it has to go before the pool it hands it to, and
+	// members are destroyed in reverse.
+	std::vector<std::unique_ptr<CReplayEntity>> m_avpEntities[CReplayEntity::NUM_TYPES];
 
 public:
 	// The client ids the demo is written with. The half of a run that was
@@ -956,14 +959,6 @@ public:
 			m_aSourceCid[Cid] = Cid;
 			m_aTeamRaceStartTick[Cid] = -1;
 		}
-	}
-
-	~CConverter()
-	{
-		// Entities hand their snapshot id back when they die, so they have to
-		// go before the pool they hand it to
-		for(auto &vpEntities : m_avpEntities)
-			vpEntities.clear();
 	}
 
 	bool LoadMap(const char *pMapPath, const char *pExpectedSha256)
@@ -1698,9 +1693,9 @@ public:
 	// --- What the entities do to a character, mirroring CCharacter
 
 	// CCharacter::Freeze, the freeze timer is only refreshed once a second
-	bool Freeze(CPlayer *pChar) { return Freeze(pChar, m_Config.m_SvFreezeDelay); }
+	bool Freeze(CPlayer *pChar) const { return Freeze(pChar, m_Config.m_SvFreezeDelay); }
 
-	bool Freeze(CPlayer *pChar, int Seconds)
+	bool Freeze(CPlayer *pChar, int Seconds) const
 	{
 		if(Seconds <= 0 || m_TeamsCore.Team(pChar - m_aPlayers) == TEAM_SUPER || pChar->m_FreezeEndTick - m_Tick > Seconds * SERVER_TICK_SPEED)
 			return false;
@@ -1714,7 +1709,7 @@ public:
 	}
 
 	// CCharacter::Unfreeze
-	bool Unfreeze(CPlayer *pChar)
+	bool Unfreeze(CPlayer *pChar) const
 	{
 		if(pChar->m_FreezeEndTick <= m_Tick)
 			return false;
@@ -1830,11 +1825,11 @@ public:
 		if(!InRecordWindow() || (OwnerCid >= 0 && !IncludePlayer(OwnerCid)))
 			return;
 		const float a = 3 * pi / 2 + Angle;
-		const float s = a - pi / 3;
-		const float e = a + pi / 3;
+		const float Start = a - pi / 3;
+		const float End = a + pi / 3;
 		for(int i = 0; i < Amount; i++)
 		{
-			const float f = mix(s, e, (i + 1) / (float)(Amount + 1));
+			const float f = mix(Start, End, (i + 1) / (float)(Amount + 1));
 			m_vPendingEvents.push_back({NETEVENTTYPE_DAMAGEIND, round_to_int(Pos.x), round_to_int(Pos.y), (int)(f * 256.0f)});
 		}
 	}
@@ -2468,12 +2463,9 @@ private:
 		static const char *const s_apPublic[] = {"rank", "teamrank", "top5", "top5team", "times", "points", "mapinfo",
 			"map", "emote", "team", "invite", "spec", "pause", "swap", "showothers", "showall", "specvoted",
 			"practice", "lock", "unlock", "kill", "settings", "timecp", "list", "help", "dnd", "tc", "teamcp"};
-		for(const char *pPublic : s_apPublic)
-		{
-			if(str_comp_nocase(pCommand, pPublic) == 0)
-				return true;
-		}
-		return false;
+		return std::any_of(std::begin(s_apPublic), std::end(s_apPublic), [pCommand](const char *pPublic) {
+			return str_comp_nocase(pCommand, pPublic) == 0;
+		});
 	}
 
 	// Whether a recorded name is the rank's name, as the rank carries it or
@@ -2944,6 +2936,9 @@ private:
 	}
 
 	// CGameTeams::ResetSwitchers
+	// The switchers are a member of a member, which clang-tidy does not count
+	// as writing to this one
+	// NOLINTNEXTLINE(readability-make-member-function-const)
 	void ResetSwitchers(int Team)
 	{
 		if(Team < 0 || Team >= NUM_DDRACE_TEAMS)
@@ -4042,7 +4037,7 @@ private:
 			else
 			{
 				const vec2 TargetDirection = normalize(vec2(Core.m_Input.m_TargetX, Core.m_Input.m_TargetY));
-				From = Core.m_Pos + TargetDirection * Core.PhysicalSize() * 1.5f;
+				From = Core.m_Pos + TargetDirection * CCharacterCore::PhysicalSize() * 1.5f;
 				To = Core.m_Pos + TargetDirection * m_Tuning.m_HookLength;
 			}
 			int ClosestCid = -1;
@@ -4061,7 +4056,7 @@ private:
 				vec2 ClosestPoint;
 				if(!closest_point_on_line(From, To, Other.m_Core.m_Pos, ClosestPoint))
 					continue;
-				if(distance(Other.m_Core.m_Pos, ClosestPoint) < Core.PhysicalSize() * 1.5f && (ClosestCid == -1 || TargetDistance < ClosestDistance))
+				if(distance(Other.m_Core.m_Pos, ClosestPoint) < CCharacterCore::PhysicalSize() * 1.5f && (ClosestCid == -1 || TargetDistance < ClosestDistance))
 				{
 					ClosestCid = OtherCid;
 					ClosestDistance = TargetDistance;
@@ -5804,14 +5799,6 @@ static bool IsOneOfNames(const char *pName, const std::vector<const char *> &vNa
 	return false;
 }
 
-// A player name can carry a quote or a backslash, and the rank's roster below
-// is read as json
-static void JsonName(char *pBuf, int Size, const char *pName)
-{
-	char *pDst = pBuf;
-	str_escape(&pDst, pName, pBuf + Size);
-}
-
 int main(int argc, const char *argv[])
 {
 	std::unique_ptr<IStorage> pStorage = CreateLocalStorage();
@@ -6021,11 +6008,11 @@ int main(int argc, const char *argv[])
 		// First pass: find the rank's finish event. Without simulation and
 		// demo output this only parses the stream. Allow for the server tick
 		// falling behind wall-clock time during long sessions.
-		constexpr int SCAN_SLACK_TICKS = 30 * 60 * SERVER_TICK_SPEED;
+		constexpr int ScanSlackTicks = 30 * 60 * SERVER_TICK_SPEED;
 		CConverter Scanner(pStorage.get(), pSnapshotDelta.get());
 		NameScanner.CopyPlayerIdentitiesTo(&Scanner);
 		Scanner.ScanForRank(&vRankNames, &vAliases, RankTimeTicks, RankExpectedTick,
-			RankExpectedTick < 0 ? std::numeric_limits<int>::max() : RankExpectedTick + SCAN_SLACK_TICKS);
+			RankExpectedTick < 0 ? std::numeric_limits<int>::max() : RankExpectedTick + ScanSlackTicks);
 		CTeehistorianReader ScanReader;
 		json_value *pScanHeader = ScanReader.Open(argv[1]);
 		if(pScanHeader == nullptr)
@@ -6395,32 +6382,26 @@ int main(int argc, const char *argv[])
 		// game that save was made in, which the pipeline looks up to convert
 		// the part before the load and splice the two together
 		// Who the run's players are and under which client id, so the half
-		// before a /load can be written with the same slots. The server
-		// matched the save to them by name (CSaveTeam::MatchPlayers), so the
-		// names of the load are the ones the save carries, not the ones the
-		// players renamed to before they finished.
-		char aRoster[512] = "";
-		if(LoadTick >= 0)
-		{
-			for(const auto &[Cid, Name] : vLoadRoster)
-			{
-				char aName[MAX_NAME_LENGTH * 2];
-				JsonName(aName, sizeof(aName), Name.c_str());
-				char aOne[128];
-				str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aRoster[0] == '\0' ? "" : ",", Cid, aName);
-				str_append(aRoster, aOne);
-			}
-		}
-		else
+		// before a /load can be written with the same slots. A load matched
+		// the save to them by name (CSaveTeam::MatchPlayers), so its names are
+		// the ones the save carries, not the ones they renamed to before the
+		// finish.
+		std::vector<std::pair<int, std::string>> vRoster = vLoadRoster;
+		if(LoadTick < 0)
 		{
 			for(const int Cid : vRankNames.size() == 1 ? vSolo : Converter.FinishCids())
-			{
-				char aName[MAX_NAME_LENGTH * 2];
-				JsonName(aName, sizeof(aName), Converter.PlayerName(Cid));
-				char aOne[128];
-				str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aRoster[0] == '\0' ? "" : ",", Cid, aName);
-				str_append(aRoster, aOne);
-			}
+				vRoster.emplace_back(Cid, Converter.PlayerName(Cid));
+		}
+		char aRoster[512] = "";
+		for(const auto &[Cid, Name] : vRoster)
+		{
+			// A name can carry a quote or a backslash and this is read as json
+			char aName[MAX_NAME_LENGTH * 2];
+			char *pName = aName;
+			str_escape(&pName, Name.c_str(), aName + sizeof(aName));
+			char aOne[128];
+			str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aRoster[0] == '\0' ? "" : ",", Cid, aName);
+			str_append(aRoster, aOne);
 		}
 		char aLoad[192] = "";
 		if(LoadTick >= 0)

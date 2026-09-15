@@ -23,10 +23,10 @@ parser.add_argument("--gone", action="store_true",
 args = parser.parse_args()
 
 
-def rows(path, skip_kept=False):
-    """skip_kept leaves out the lines the pre-generation keeps for their links
-    alone, which are no longer among their map's candidates, and the runs a
-    report named: a deleted one of those is why its demo was made."""
+def rows(path, candidates_only=False):
+    """candidates_only leaves out the lines that are not among their map's
+    candidates: the ones the pre-generation keeps for their links alone, and
+    the runs a report named, where a deleted rank is the point."""
     for line in open(path, encoding="utf-8"):
         try:
             entry = json.loads(line)
@@ -34,7 +34,7 @@ def rows(path, skip_kept=False):
             continue
         if entry.get("status") != "ok" or "demo" not in entry:
             continue
-        if skip_kept and (entry.get("kept") or entry.get("extra")):
+        if candidates_only and (entry.get("kept") or entry.get("extra")):
             continue
         yield (entry["map"], entry["kind"], round(float(entry["time"]) * 1000), entry["uuid"])
 
@@ -79,21 +79,21 @@ def main():
     # Two ranks of the same map and kind can carry the same time, a tie that
     # the manifest keeps both of. The table has one row per time, and the
     # first of them is the one the page links.
+    # A rank that is gone and whose line is only kept for its link needs no
+    # refresh, its map has one already: asking for it again would name the same
+    # map on every tick for good.
     seen = set()
     watchable = []
-    for row in rows(args.manifest):
+    for row in rows(args.manifest, candidates_only=args.gone):
         if row[:3] not in seen:
             seen.add(row[:3])
             watchable.append(row)
     if not watchable:
-        sys.exit(f"no watchable rank in {args.manifest}, refusing to empty the table")
+        sys.exit(f"no watchable rank in {args.manifest}")
 
     con = mysqlConnect()
     if args.gone:
-        # A rank that is gone and whose line is only kept for its link needs no
-        # refresh, its map has one already: asking for it again would name the
-        # same map on every tick for good
-        for map_name in gone_maps(con, list(rows(args.manifest, skip_kept=True))):
+        for map_name in gone_maps(con, watchable):
             print(map_name)
         con.close()
         return

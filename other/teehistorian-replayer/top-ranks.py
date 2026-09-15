@@ -103,7 +103,10 @@ def named_runs(cur, wanted):
     its demo whatever rank the run holds."""
     for spec in wanted:
         game, _, time_str = spec.partition("=")
-        time = float(time_str)
+        try:
+            time = float(time_str)
+        except ValueError:
+            sys.exit(f"--runs takes <game uuid>=<time>, not {spec!r}")
         for kind, table in (("team", "record_teamrace"), ("solo", "record_race"),
                 ("team", "record_teamrace_deleted"), ("solo", "record_race_deleted")):
             cur.execute(f"SELECT Map, Name, Time, Timestamp FROM {table} "

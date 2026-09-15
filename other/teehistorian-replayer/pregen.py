@@ -39,8 +39,8 @@ parser.add_argument("--reconvert-before", metavar="DATE",
 parser.add_argument("--reconvert", action="store_true",
     help="convert every published rank again, to bring demos made by an older converter up to date")
 parser.add_argument("--partial", action="store_true",
-    help="the manifest is a slice of the whole one (sync-ranks.py --maps), so the cache keeps the demos "
-        "of every other map instead of being pruned to what this output names")
+    help="the manifest is a slice of the whole one (sync-ranks.py --maps and --runs), so the cache keeps "
+        "the demos of every other map instead of being pruned to what this output names")
 parser.add_argument("--retry-failed", action="store_true",
     help="retry ranks whose conversion failed in the previous output (by default only \"not in the archive\" failures are retried, e.g. after a tool fix)")
 args = parser.parse_args()
@@ -77,7 +77,7 @@ def ok_result(demo_path, meta):
 def generate(entry, reconvert=False):
     try:
         demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry.get("ts"), reconvert,
-            entry.get("recording"), entry.get("aliases"), entry.get("extra", False))
+            entry.get("recording"), entry.get("aliases"))
         return ok_result(demo_path, meta)
     except DiskFullError:
         raise  # not the rank's failure, the run stops
@@ -88,8 +88,7 @@ def generate(entry, reconvert=False):
         if error.status == 404 and entry.get("ts") and "No finish" in str(error):
             try:
                 demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
-                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"),
-                    anywhere=entry.get("extra", False))
+                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"))
                 return ok_result(demo_path, meta)
             except DiskFullError:
                 raise
@@ -142,7 +141,12 @@ def main():
     groups = {}
     with open(args.manifest) as manifest:
         for line in manifest:
-            entry = json.loads(line)
+            # The candidate list is written by an ssh that can die mid-line,
+            # and one torn line must not cost the whole run
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
             groups.setdefault((entry["map"], entry["kind"]), []).append(entry)
 
     # One pass over the archive indexes, so the candidates whose recording is

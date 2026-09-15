@@ -186,6 +186,16 @@ imported. Three minutes against the half hour a whole sync takes. li's
 `tick.sh` runs the two together every ten minutes as the `watch` lane, and a
 map that was refreshed drops off the list by itself.
 
+A moderation report links the run it is about, which is mostly a rank far down
+its map or one deleted since, and the top-rank pre-generation makes a demo of
+neither. `sync-ranks.py --runs <game uuid>=<time>...` converts those and merges
+them in by run: `watch-candidates.py --runs` looks in the deleted tables as
+well, the pre-generation publishes a run marked `extra` whatever rank it holds
+without taking a place from the map's own, and `--gone` passes over them. Once
+published a rank keeps its line for good, marked `kept` when it is there for
+the link alone, so a link that was shared goes on working after the rank is
+beaten or deleted.
+
 `--ranks N` publishes the N best ranks per map and kind instead of only the
 first one. It converts the candidates in rank order and stops after N of them
 worked, so a map whose #1 recording is gone still gets its best watchable

@@ -96,10 +96,6 @@
 			padding: 28px 32px;
 			box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
 		}
-		#panel h1 {
-			margin: 0 0 4px 0;
-			font-size: 22px;
-		}
 		#panel .subtitle {
 			color: #9aa4bf;
 			margin-bottom: 18px;
@@ -851,7 +847,6 @@
 		</div>
 		<div id="overlay">
 			<div id="panel">
-				<h1>DDNet Teehistorian Replayer</h1>
 				<div class="subtitle">Upload a teehistorian recording &mdash; the map is fetched automatically and the replay plays right here in your browser.</div>
 				<div id="dropzone">
 					Drop a <b>.teehistorian</b> file here or click to select
@@ -3142,8 +3137,7 @@
 				for (const id of ['dropzone', 'urlrow', 'rangerow']) {
 					document.getElementById(id).style.display = 'none';
 				}
-				// A rank link is the replay, so the page says nothing above it
-				document.querySelector('h1').hidden = true;
+				// A rank link is the replay, not a page about one
 				document.querySelector('.subtitle').hidden = true;
 				// Nothing awaits this, so a throw inside it would leave the
 				// page on its loading screen with nothing to say

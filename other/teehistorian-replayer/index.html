@@ -1198,7 +1198,103 @@
 			// a different fault from one that was made and never answered
 			let wasmAttempts = 0;
 			let wasmAskedAt = 0;
+			// The client reserves its wasm heap as a growable SHARED memory,
+			// and a shared memory cannot move when it grows, so the engine
+			// reserves the whole maximum as address space the moment it is
+			// created. The build asks for 2 GB (MAXIMUM_MEMORY in
+			// cmake/toolchains/Emscripten.toolchain), which a phone will not
+			// hand out over and over: every page the browser keeps in its back
+			// forward cache is still holding its own reservation, and the next
+			// one fails with "RangeError: Out of memory" before the runtime
+			// has even asked for its wasm.
+			//
+			// initMemory takes Module.wasmMemory when the page provides one,
+			// and an imported memory may cap itself below what the module
+			// declares, and what iOS refuses is the reservation rather than the
+			// use. Measured in the browser, not guessed: 104 MB for a small
+			// map, 149 for Heartcore II, 278 for 2025, 289 for Unbalanced 3,
+			// 312 for Springlobe 4, 347 for Until Dawn, and 703 for Abyss,
+			// which is the only map found so far that does not fit. Counting a
+			// map's tile layers and images predicted three of those within a
+			// few MB and overshot the rest by up to three times, so the
+			// numbers here are measurements. A map that wanted
+			// more does not report anything useful: growMemory swallows the
+			// failure and the allocation fails deep in the client, as a trap
+			// with nothing in it. So the heap is watched instead and the page
+			// starts over without a cap before that happens, which is the
+			// behaviour of every build until today. The cap is for phones, and
+			// a map that outgrows it is rarer than a phone.
+			// Two sizes and then an honest refusal. 512 MB fits every map
+			// measured except Abyss, which wants 703, and asking for more is
+			// not free: a phone that cannot manage the larger size kills the
+			// tab, and Safari answers a tab killed repeatedly with "A problem
+			// repeatedly occurred". Retrying the same size after that is how
+			// one unloadable map turns into a loop, so a load that did not
+			// live long enough to play is remembered and not repeated.
+			const HEAP_STEPS_MB = [512, 1024];
+			const HEAP_STEP_KEY = 'watch-heap-step';
+			const HEAP_TRYING_KEY = 'watch-heap-trying';
+			let heapStep = 0;
+			let heapExhausted = false;
+			try {
+				heapStep = Math.min(Number(sessionStorage.getItem(HEAP_STEP_KEY)) || 0, HEAP_STEPS_MB.length - 1);
+				if (sessionStorage.getItem(HEAP_TRYING_KEY) !== null) {
+					// The load before this one asked for that much and never
+					// got as far as playing, so asking again would only kill
+					// the tab again
+					heapExhausted = true;
+				} else {
+					sessionStorage.setItem(HEAP_TRYING_KEY, String(heapStep));
+				}
+			} catch (error) {
+				// Without session storage there is nothing to loop on either
+			}
+			// The client lived: the size it was given works on this device
+			function heapStepSurvived() {
+				try {
+					sessionStorage.removeItem(HEAP_TRYING_KEY);
+				} catch (error) {
+				}
+			}
+			// Started once the client is up, see onRuntimeInitialized
+			function watchHeapCeiling() {
+				if (heapStep + 1 >= HEAP_STEPS_MB.length) {
+					return;
+				}
+				const ceiling = HEAP_STEPS_MB[heapStep] * 1024 * 1024 * 0.9;
+				const poll = setInterval(() => {
+					let used = 0;
+					try {
+						used = wasmMemory.buffer.byteLength;
+					} catch (error) {
+						return;
+					}
+					if (used < ceiling) {
+						return;
+					}
+					clearInterval(poll);
+					try {
+						sessionStorage.setItem(HEAP_STEP_KEY, String(heapStep + 1));
+						sessionStorage.removeItem(HEAP_TRYING_KEY);
+					} catch (error) {
+						return;
+					}
+					location.reload();
+				}, 2000);
+			}
+			let Module_wasmMemory;
+			try {
+				Module_wasmMemory = new WebAssembly.Memory({
+					initial: 16777216 / 65536,
+					maximum: (HEAP_STEPS_MB[heapStep] * 1024 * 1024) / 65536,
+					shared: true,
+				});
+			} catch (error) {
+				// Without it the runtime makes its own, which is what used to happen
+				Module_wasmMemory = undefined;
+			}
 			var Module = {
+				wasmMemory: Module_wasmMemory,
 				setStatus: function(text) {
 					if (typeof text === 'string' && text !== '') {
 						lastRuntimeStatus = text.slice(0, 80);
@@ -1321,6 +1417,7 @@
 					setLoadProgress(downloadCeiling());
 					clientReady = true;
 					updateLoadStage();
+					watchHeapCeiling();
 					signalClientRuntimeReady();
 					// From here the client's own loading screen is the only
 					// thing that knows how far it is
@@ -1459,6 +1556,10 @@
 				} catch (error) {
 					// the runtime was never up, nothing to give back
 				}
+				// Leaving the page is not dying on it: whatever heap this load
+				// asked for, it got this far, and a tab the browser kills never
+				// reaches here at all, which is what tells the next load apart.
+				heapStepSurvived();
 			});
 			// A page restored from the browser's cache carries a client that
 			// was quit on the way out, so it has to start over
@@ -3046,7 +3147,7 @@
 				document.querySelector('.subtitle').textContent = 'Watching a rank replay, the demo contains only the finishing team.';
 				// Nothing awaits this, so a throw inside it would leave the
 				// page on its loading screen with nothing to say
-				watchRank(pageParams).catch(error => statusError(`Loading the run failed: ${error.message}`));
+				if (!heapExhausted) watchRank(pageParams).catch(error => statusError(`Loading the run failed: ${error.message}`));
 			} else if (!pageParams.has('upload')) {
 				// This page plays one rank. Without one there is nothing to
 				// show: the deployment carries no converter for recordings
@@ -3062,7 +3163,15 @@
 			// The converter is only needed to turn a recording into a demo in
 			// the browser, a rank is watched from a demo that already exists
 			// Nothing to load without a rank to play: the client is 63 MB
-			const engineScripts = pageParams.has('upload') ? ['teehistorian2demo.js', 'DDNet.js'] :
+			if (heapExhausted) {
+				// The load before this one asked for as much memory as this page
+				// knows how to ask for and did not live to play, so the client is
+				// not started again: the tab would go the same way, and enough of
+				// those and the browser stops opening the page at all. The message
+				// is the error and nothing else, because that is what happened.
+				statusError('Out of memory');
+			}
+			const engineScripts = heapExhausted ? [] : pageParams.has('upload') ? ['teehistorian2demo.js', 'DDNet.js'] :
 				pageParams.has('uuid') || pageParams.has('demo') ? ['DDNet.js'] : [];
 			for (const src of engineScripts) {
 				const script = document.createElement('script');

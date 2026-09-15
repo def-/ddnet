@@ -2098,8 +2098,6 @@
 						// have. There is nothing to play, so the page says
 						// that and nothing else: no title, no subtitle about
 						// a replay that is not there.
-						document.querySelector('h1').hidden = true;
-						document.querySelector('.subtitle').hidden = true;
 						document.body.classList.add('notfound');
 						statusError('Run not found');
 						busy = false;
@@ -3144,7 +3142,9 @@
 				for (const id of ['dropzone', 'urlrow', 'rangerow']) {
 					document.getElementById(id).style.display = 'none';
 				}
-				document.querySelector('.subtitle').textContent = 'Watching a rank replay, the demo contains only the finishing team.';
+				// A rank link is the replay, so the page says nothing above it
+				document.querySelector('h1').hidden = true;
+				document.querySelector('.subtitle').hidden = true;
 				// Nothing awaits this, so a throw inside it would leave the
 				// page on its loading screen with nothing to say
 				if (!heapExhausted) watchRank(pageParams).catch(error => statusError(`Loading the run failed: ${error.message}`));

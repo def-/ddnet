@@ -391,8 +391,10 @@ public:
 	};
 
 	// if a pointer is passed as moved pointer, it requires to be allocated with malloc()
+	// no data creates the buffer empty, to be filled by UpdateBufferObject
 	virtual int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) = 0;
 	virtual void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) = 0;
+	virtual void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) = 0;
 	virtual void DeleteBufferObject(int BufferIndex) = 0;
 
 	virtual int CreateBufferContainer(struct SBufferContainerInfo *pContainerInfo) = 0;

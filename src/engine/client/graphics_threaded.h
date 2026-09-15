@@ -769,6 +769,7 @@ class CGraphics_Threaded : public IEngineGraphics
 	CCommandBuffer *m_apCommandBuffers[2];
 	CCommandBuffer *m_pCommandBuffer;
 	unsigned m_CurrentCommandBuffer;
+	size_t m_QueuedUploadDataSize = 0;
 
 	//
 	class IStorage *m_pStorage;
@@ -890,6 +891,7 @@ class CGraphics_Threaded : public IEngineGraphics
 	}
 
 	void KickCommandBuffer();
+	void UploadDataQueued(size_t DataSize);
 
 	void AddBackEndWarningIfExists();
 
@@ -1192,7 +1194,7 @@ public:
 	// modern GL functions
 	int CreateBufferObject(size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
 	void RecreateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, int CreateFlags, bool IsMovedPointer = false) override;
-	void UpdateBufferObjectInternal(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false);
+	void UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer = false) override;
 	void CopyBufferObjectInternal(int WriteBufferIndex, int ReadBufferIndex, size_t WriteOffset, size_t ReadOffset, size_t CopyDataSize);
 	void DeleteBufferObject(int BufferIndex) override;
 

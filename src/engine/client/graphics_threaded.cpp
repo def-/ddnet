@@ -427,6 +427,7 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRaw(const CImageInfo &I
 	Cmd.m_pData = pTmpData;
 
 	AddCmd(Cmd);
+	UploadDataQueued(Image.m_Width * Image.m_Height * CImageInfo::PixelSize(CImageInfo::FORMAT_RGBA));
 
 	return TextureHandle;
 }
@@ -448,10 +449,12 @@ IGraphics::CTextureHandle CGraphics_Threaded::LoadTextureRawMove(CImageInfo &Ima
 
 	IGraphics::CTextureHandle TextureHandle = FindFreeTextureIndex();
 	CCommandBuffer::SCommand_Texture_Create Cmd = LoadTextureCreateCommand(TextureHandle.Id(), Image.m_Width, Image.m_Height, Flags);
+	const size_t DataSize = Image.DataSize();
 	Cmd.m_pData = Image.m_pData;
 	Image.m_pData = nullptr;
 	Image.Free();
 	AddCmd(Cmd);
+	UploadDataQueued(DataSize);
 
 	return TextureHandle;
 }
@@ -662,6 +665,20 @@ void CGraphics_Threaded::KickCommandBuffer()
 	m_CurrentCommandBuffer ^= 1;
 	m_pCommandBuffer = m_apCommandBuffers[m_CurrentCommandBuffer];
 	m_pCommandBuffer->Reset();
+	m_QueuedUploadDataSize = 0;
+}
+
+// The backend frees an upload's memory when it runs the command, and it runs
+// nothing until the buffer is kicked. A map load queues every texture and every
+// tile layer between two frames, so a map's whole upload is in memory at once:
+// Abyss held 357 MB of images alone. Kick as soon as enough has piled up
+// instead, a map load has no frames to lose.
+void CGraphics_Threaded::UploadDataQueued(size_t DataSize)
+{
+	static constexpr size_t MAX_QUEUED_UPLOAD_DATA_SIZE = 32 * 1024 * 1024;
+	m_QueuedUploadDataSize += DataSize;
+	if(m_QueuedUploadDataSize >= MAX_QUEUED_UPLOAD_DATA_SIZE)
+		KickCommandBuffer();
 }
 
 class CScreenshotSaveJob : public IJob
@@ -1954,10 +1971,17 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 	Cmd.m_DeletePointer = IsMovedPointer;
 	Cmd.m_Flags = CreateFlags;
 
-	if(IsMovedPointer)
+	if(pUploadData == nullptr)
+	{
+		Cmd.m_pUploadData = nullptr;
+		Cmd.m_DeletePointer = false;
+		AddCmd(Cmd);
+	}
+	else if(IsMovedPointer)
 	{
 		Cmd.m_pUploadData = pUploadData;
 		AddCmd(Cmd);
+		UploadDataQueued(UploadDataSize);
 	}
 	else
 	{
@@ -1982,7 +2006,7 @@ int CGraphics_Threaded::CreateBufferObject(size_t UploadDataSize, void *pUploadD
 			{
 				size_t UpdateSize = (UploadDataSize > CMD_BUFFER_DATA_BUFFER_SIZE ? CMD_BUFFER_DATA_BUFFER_SIZE : UploadDataSize);
 
-				UpdateBufferObjectInternal(Index, UpdateSize, (((char *)pUploadData) + UploadDataOffset), (void *)UploadDataOffset);
+				UpdateBufferObject(Index, UpdateSize, (((char *)pUploadData) + UploadDataOffset), (void *)UploadDataOffset);
 
 				UploadDataOffset += UpdateSize;
 				UploadDataSize -= UpdateSize;
@@ -2033,7 +2057,7 @@ void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadData
 			{
 				size_t UpdateSize = (UploadDataSize > CMD_BUFFER_DATA_BUFFER_SIZE ? CMD_BUFFER_DATA_BUFFER_SIZE : UploadDataSize);
 
-				UpdateBufferObjectInternal(BufferIndex, UpdateSize, (((char *)pUploadData) + UploadDataOffset), (void *)UploadDataOffset);
+				UpdateBufferObject(BufferIndex, UpdateSize, (((char *)pUploadData) + UploadDataOffset), (void *)UploadDataOffset);
 
 				UploadDataOffset += UpdateSize;
 				UploadDataSize -= UpdateSize;
@@ -2042,7 +2066,7 @@ void CGraphics_Threaded::RecreateBufferObject(int BufferIndex, size_t UploadData
 	}
 }
 
-void CGraphics_Threaded::UpdateBufferObjectInternal(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer)
+void CGraphics_Threaded::UpdateBufferObject(int BufferIndex, size_t UploadDataSize, void *pUploadData, void *pOffset, bool IsMovedPointer)
 {
 	CCommandBuffer::SCommand_UpdateBufferObject Cmd;
 	Cmd.m_BufferIndex = BufferIndex;

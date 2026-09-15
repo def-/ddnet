@@ -702,13 +702,26 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	{
 		return;
 	}
-	void *pUploadData = malloc(UploadDataSize);
+	// The tiles go to the GPU a chunk at a time. A dense full-size layer of a
+	// large map is 200 MB of vertices, twenty times the map file, and holding
+	// one of those was the memory peak of loading it.
+	const size_t TilesPerChunk = std::max<size_t>(1, (1024 * 1024) / TileSize);
+	const int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, nullptr, 0);
+	std::vector<char> vChunk(std::min(NumTiles + NumBorderTiles, TilesPerChunk) * TileSize);
 	size_t NumWritten = 0;
+	size_t NumUploaded = 0;
+	auto UploadChunk = [&]() {
+		if(NumWritten == NumUploaded)
+			return;
+		Graphics()->UpdateBufferObject(BufferObjectIndex, (NumWritten - NumUploaded) * TileSize, vChunk.data(), (void *)(NumUploaded * TileSize));
+		NumUploaded = NumWritten;
+	};
 	auto WriteTile = [&](const CGraphicTile &Tile, const CGraphicTileTextureCoords &TexCoords) {
 		dbg_assert(NumWritten < NumTiles + NumBorderTiles, "more tiles than counted");
+		char *pTile = vChunk.data() + (NumWritten - NumUploaded) * TileSize;
 		if(DoTextureCoords)
 		{
-			CTileVertex *pDst = static_cast<CTileVertex *>(pUploadData) + NumWritten * 4;
+			CTileVertex *pDst = reinterpret_cast<CTileVertex *>(pTile);
 			pDst[0] = {Tile.m_TopLeft, TexCoords.m_TexCoordTopLeft};
 			pDst[1] = {Tile.m_TopRight, TexCoords.m_TexCoordTopRight};
 			pDst[2] = {Tile.m_BottomRight, TexCoords.m_TexCoordBottomRight};
@@ -716,9 +729,11 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 		}
 		else
 		{
-			static_cast<CGraphicTile *>(pUploadData)[NumWritten] = Tile;
+			*reinterpret_cast<CGraphicTile *>(pTile) = Tile;
 		}
 		NumWritten++;
+		if(NumWritten - NumUploaded == TilesPerChunk)
+			UploadChunk();
 	};
 
 	int DrawLeft = m_pLayerTilemap->m_Width;
@@ -883,12 +898,10 @@ void CRenderLayerTile::UploadTileData(std::optional<CTileLayerVisuals> &VisualsO
 	InsertTiles(vTmpBorderRightTiles, vTmpBorderRightTilesTexCoords);
 
 	dbg_assert(NumWritten == NumTiles + NumBorderTiles, "fewer tiles than counted");
+	UploadChunk();
 	Visuals.m_BufferContainerIndex = -1;
 
-	// first create the buffer object
-	int BufferObjectIndex = Graphics()->CreateBufferObject(UploadDataSize, pUploadData, 0, true);
-
-	// then create the buffer container
+	// the buffer object is filled, create the buffer container for it
 	SBufferContainerInfo ContainerInfo;
 	ContainerInfo.m_Stride = (DoTextureCoords ? (sizeof(float) * 2 + sizeof(ubvec4)) : 0);
 	ContainerInfo.m_VertBufferBindingIndex = BufferObjectIndex;

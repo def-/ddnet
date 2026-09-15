@@ -1082,7 +1082,10 @@
 				const waiting = CLIENT_FILES.filter(name => !done.has(name));
 				const arrived = [...done].map(([name, size]) => `${name} ${(size / 1048576).toFixed(1)} MB`);
 				return (arrived.length > 0 ? `${arrived.join(', ')} arrived. ` : '') +
-					(waiting.length > 0 ? `Still waiting for ${waiting.join(' and ')}. ` :
+					(waiting.length > 0 ? `Still waiting for ${waiting.join(' and ')}` +
+						(waiting.includes('DDNet.wasm') ? (wasmAskedAt === 0 ?
+							', which the client has not asked for yet. ' :
+							`, asked for ${((performance.now() - wasmAskedAt) / 1000).toFixed(0)}s ago. `) : '. ') :
 						'All three arrived, the client is starting. ') +
 					(lastRuntimeStatus !== '' ? `Last: ${lastRuntimeStatus}. ` : '') +
 					(wasmAttempts > 0 ? `Retried the client ${wasmAttempts}x. ` : '') +
@@ -1092,6 +1095,19 @@
 			setTimeout(() => {
 				clientSlow = true;
 				updateLoadStage();
+				// Stuck before the runtime even asked for its wasm, which is
+				// the worker pool failing to come up rather than anything this
+				// page can retry. A fresh page gets a fresh pool, and the one
+				// that hung has given its workers back by then. Once only, so
+				// a load that is merely slow is not reloaded out of existence.
+				if (!clientReady && wasmAskedAt === 0 && sessionStorage.getItem('watch-retried') === null) {
+					try {
+						sessionStorage.setItem('watch-retried', '1');
+					} catch (error) {
+						return; // no session storage, no way to stop a loop
+					}
+					location.reload();
+				}
 			}, 30000);
 			function updateLoadStage() {
 				document.getElementById('loadingtext').textContent =
@@ -1138,8 +1154,11 @@
 			// What the runtime last said it was doing, which is how far a
 			// transfer got: its own timing entry only appears once it finishes
 			let lastRuntimeStatus = '';
-			// How many times the wasm had to be fetched again, see instantiateWasm
+			// How many times the wasm had to be fetched again, and when the
+			// runtime first asked for it: a request that has not been made is
+			// a different fault from one that was made and never answered
 			let wasmAttempts = 0;
+			let wasmAskedAt = 0;
 			var Module = {
 				setStatus: function(text) {
 					if (typeof text === 'string' && text !== '') {
@@ -1170,6 +1189,7 @@
 					// off, while a request that stops arriving is the fault
 					// this is here for.
 					const QUIET_MS = 15000;
+					wasmAskedAt = performance.now();
 					(async () => {
 						for (let attempt = 1; attempt <= 3; attempt++) {
 							const control = new AbortController();
@@ -1386,6 +1406,27 @@
 			Module['canvas'].addEventListener('webglcontextlost', e => {
 				appendOutput(`The WebGL context was lost: ${e.statusMessage || "Unknown error"}`, true, "red");
 				Module.ccall('EmscriptenCallbackQuit', null, [], []);
+			});
+			// The client runs on ten worker threads, each its own javascript
+			// context, and nothing gave them back on the way out: they were
+			// still up while the next load was spawning its own ten, and on a
+			// phone the second load is the one that hangs, before the runtime
+			// even asks for its wasm. Terminating them is synchronous and asks
+			// nothing of the wasm, which a forced exit would. pagehide, not
+			// beforeunload: iOS does not reliably fire that one.
+			window.addEventListener('pagehide', () => {
+				try {
+					PThread.terminateAllThreads();
+				} catch (error) {
+					// the runtime was never up, nothing to give back
+				}
+			});
+			// A page restored from the browser's cache carries a client that
+			// was quit on the way out, so it has to start over
+			window.addEventListener('pageshow', event => {
+				if (event.persisted) {
+					location.reload();
+				}
 			});
 
 			// ------------------------------------------------------------------

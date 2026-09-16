@@ -772,6 +772,8 @@ private:
 	std::vector<int> m_vFinishCids;
 	bool m_aFinisher[MAX_CLIENTS] = {false};
 	int m_TeamsStateTick = std::numeric_limits<int>::min() / 2;
+	bool m_SawFilterTeam = false;
+	bool m_aRunPlayer[MAX_CLIENTS] = {false};
 	bool m_FinishLatched = false;
 	bool m_TeamsDirty = true;
 	std::vector<int> m_vTeamCids;
@@ -1490,6 +1492,27 @@ public:
 
 	// Hide all players outside the given team, including their messages.
 	void SetTeamFilter(int Team) { m_FilterTeam = Team; }
+
+	// Who the rank belongs to, for a team that was formed before this
+	// recording started: no chunk of it says who is in the team, see
+	// IncludePlayer
+	void SetRankNames(const std::vector<const char *> *pvNames, const std::vector<std::pair<const char *, const char *>> *pvAliases)
+	{
+		m_pvRankNames = pvNames;
+		m_pvRankAliases = pvAliases;
+	}
+
+	// Who the run is, for the half of a loaded run that the save's recording
+	// holds: the save names its team, the recording it was made in does not
+	// have to, see IncludePlayer
+	void SetRunPlayers(const std::vector<int> &vCids)
+	{
+		for(const int Cid : vCids)
+		{
+			if(Cid >= 0 && Cid < MAX_CLIENTS)
+				m_aRunPlayer[Cid] = true;
+		}
+	}
 
 	// Recordings without team chunks: the run is the players holding the
 	// rank's names, published as a team of their own so the client frames them
@@ -2391,7 +2414,17 @@ private:
 		// a few seconds past the finish, so the run keeps the players it had
 		if(m_FinishLatched)
 			return m_aFinisher[Cid];
-		return m_TeamsCore.Team(Cid) == m_FilterTeam;
+		if(m_TeamsCore.Team(Cid) == m_FilterTeam)
+			return true;
+		// The players the run is known to be made of, whatever the recording
+		// says about their team
+		if(m_aRunPlayer[Cid])
+			return true;
+		// A team formed before the recording started is in no chunk of it, so
+		// the team holds nobody and every player would be hidden until the
+		// finish, which is a demo of an empty map. The rank's own names are
+		// what is left to go by, until a chunk says who is in the team.
+		return !m_SawFilterTeam && m_aPlayers[Cid].m_Connected && IsAnyRankName(m_aPlayers[Cid].m_aName);
 	}
 
 	// The team a player is published with. Once the run's team is dissolved
@@ -2399,9 +2432,11 @@ private:
 	// multi-view for the last seconds of the demo.
 	int PublishedTeam(int Cid) const
 	{
-		if(!IncludePlayer(Cid))
-			return TEAM_FLOCK;
-		return m_FinishLatched ? m_FilterTeam : m_TeamsCore.Team(Cid);
+		if(m_FilterTeam < 0)
+			return m_TeamsCore.Team(Cid);
+		// Everyone the demo shows is the run, whether the recording put them
+		// in its team or the rank's names did
+		return IncludePlayer(Cid) ? m_FilterTeam : TEAM_FLOCK;
 	}
 
 	// Whether the team the run belongs to still has a member. The server
@@ -2493,6 +2528,19 @@ private:
 				return Cid;
 		}
 		return -1;
+	}
+
+	// Whether a recorded name is one of the rank's
+	bool IsAnyRankName(const char *pRecorded) const
+	{
+		if(m_pvRankNames == nullptr)
+			return false;
+		for(const char *pName : *m_pvRankNames)
+		{
+			if(IsRankName(pRecorded, pName))
+				return true;
+		}
+		return false;
 	}
 
 	// Whether any of the rank's names is on the server right now
@@ -2978,6 +3026,8 @@ private:
 			ResetSwitchers(OldTeam);
 		}
 		m_TeamsCore.Team(Cid, Team);
+		if(Team == m_FilterTeam)
+			m_SawFilterTeam = true;
 		if(Team != TEAM_SUPER && (!m_aTeamHasMembers[Team] || m_aTeamLocked[Team]))
 		{
 			m_aTeamHasMembers[Team] = true;
@@ -6323,6 +6373,7 @@ int main(int argc, const char *argv[])
 			Converter.SetRunCids(vRunCids);
 		else
 			Converter.SetTeamFilter(RankTarget.m_Team);
+		Converter.SetRankNames(&vRankNames, &vAliases);
 		Converter.SetSnapCid(RankTarget.m_Cid);
 		Converter.SetRankMarkers(RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick);
 	}
@@ -6340,6 +6391,7 @@ int main(int argc, const char *argv[])
 			Converter.SetRunCids(vSaveCids);
 		else
 			Converter.SetTeamFilter(SaveTeam);
+		Converter.SetRunPlayers(vSaveCids);
 		Converter.SetSnapCid(vSaveCids.empty() ? -1 : vSaveCids[0]);
 		Converter.SetRankMarkers(SaveTick - SaveTimeTicks, SaveTick);
 	}

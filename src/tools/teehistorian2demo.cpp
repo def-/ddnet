@@ -771,6 +771,7 @@ private:
 	// ones the rank belongs to
 	std::vector<int> m_vFinishCids;
 	bool m_aFinisher[MAX_CLIENTS] = {false};
+	int m_TeamsStateTick = std::numeric_limits<int>::min() / 2;
 	bool m_FinishLatched = false;
 	bool m_TeamsDirty = true;
 	std::vector<int> m_vTeamCids;
@@ -2550,6 +2551,7 @@ private:
 	// player it follows, falls back to whoever happens to be on screen.
 	void SendTeamsState()
 	{
+		m_TeamsStateTick = m_Tick;
 		CPacker Packer;
 		Packer.Reset();
 		// An extended message is a zero, its uuid and then the payload
@@ -4292,6 +4294,14 @@ private:
 				if(!m_FinishLatched)
 					LatchRun();
 			}
+			// The client keeps the teams state it was last told and a demo
+			// seek replays no message it jumped over, so a rank opened at its
+			// finish would show whatever the last one before it happened to
+			// say: a player who joined the team after it is drawn without the
+			// team's colour. The demo writes a keyframe every five seconds and
+			// a seek starts at one, so the state is repeated at that rate.
+			if(m_Tick - m_TeamsStateTick >= SERVER_TICK_SPEED * 5)
+				m_TeamsDirty = true;
 			if(m_TeamsDirty)
 			{
 				SendTeamsState();

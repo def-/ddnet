@@ -302,6 +302,7 @@ class Converter:
             try:
                 meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
                 self.stitch_save(workdir, map_path, meta)
+                self.check_shown(meta, names)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:
@@ -316,6 +317,22 @@ class Converter:
                 shutil.rmtree(workdir, ignore_errors=True)
             self.prune()
             return demo_path, meta
+
+    def check_shown(self, meta, names):
+        """A demo is only this rank's if it shows the players who ran it. The
+        converter reports the ticks it drew each of them for, per half of a
+        loaded run, and a player who is in none of it means the recording does
+        not hold the run the rank names: publishing it anyway is how a rank
+        ends up linking somebody else's game."""
+        roster = meta.get("roster") or {}
+        shown = meta.get("shown_ticks") or {}
+        missing = [name for cid, name in roster.items() if not shown.get(cid)]
+        stitch = meta.get("stitch") or {}
+        if stitch.get("shown_ticks") is not None:
+            before = stitch["shown_ticks"]
+            missing += [f"{name} before the save" for cid, name in roster.items() if not before.get(cid)]
+        if missing:
+            raise RankDemoError(422, "The recording does not show " + ", ".join(missing))
 
     def stitch_save(self, workdir, map_path, meta):
         """A run that was finished after a /load only played its last part in
@@ -371,7 +388,8 @@ class Converter:
             return
         (workdir / "joined.demo").replace(workdir / "out.demo")
         meta["stitch"] = {"source": load["source"], "save_tick": part["save_tick"],
-            "part_ticks": part["save_tick"] - part["demo_start_tick"]}
+            "part_ticks": part["save_tick"] - part["demo_start_tick"],
+            "shown_ticks": part.get("shown_ticks") or {}}
 
     def run_tool(self, workdir, input_path, map_path, options, time_str, offset, names):
         result = subprocess.run(

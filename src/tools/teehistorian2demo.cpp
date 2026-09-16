@@ -774,6 +774,7 @@ private:
 	int m_TeamsStateTick = std::numeric_limits<int>::min() / 2;
 	bool m_SawFilterTeam = false;
 	bool m_aRunPlayer[MAX_CLIENTS] = {false};
+	int m_aSnappedTicks[MAX_CLIENTS] = {0};
 	bool m_FinishLatched = false;
 	bool m_TeamsDirty = true;
 	std::vector<int> m_vTeamCids;
@@ -907,6 +908,77 @@ private:
 			pLine = pEnd;
 		}
 	}
+	// The save string carries every tee's name, the recording does not have
+	// to: a player who joined before it started is nameless in it, and then
+	// the half of the run the save holds cannot be matched to the rank by
+	// name. The names in the save are the same ones the load matches against
+	// (CSaveTeam::MatchPlayers), so they are taken from there: by name where
+	// the recording has one, in order for what is left.
+	void NameRosterFromSave(CSaveEvent &Event) const
+	{
+		if(Event.m_vTees.size() != Event.m_vRoster.size())
+			return;
+		std::vector<bool> vTeeTaken(Event.m_vTees.size(), false);
+		std::vector<size_t> vUnmatched;
+		for(size_t Index = 0; Index < Event.m_vRoster.size(); Index++)
+		{
+			size_t Tee = Event.m_vTees.size();
+			for(size_t Candidate = 0; Candidate < Event.m_vTees.size(); Candidate++)
+			{
+				if(!vTeeTaken[Candidate] && Event.m_vRoster[Index].second == Event.m_vTees[Candidate].m_aName)
+				{
+					Tee = Candidate;
+					break;
+				}
+			}
+			if(Tee == Event.m_vTees.size())
+				vUnmatched.push_back(Index);
+			else
+				vTeeTaken[Tee] = true;
+		}
+		size_t Next = 0;
+		for(const size_t Index : vUnmatched)
+		{
+			while(Next < vTeeTaken.size() && vTeeTaken[Next])
+				Next++;
+			if(Next >= vTeeTaken.size())
+				break;
+			vTeeTaken[Next] = true;
+			Event.m_vRoster[Index].second = Event.m_vTees[Next].m_aName;
+		}
+	}
+
+	// Whoever carries a saved tee's name is in the run, whether or not the
+	// recording ever put them in the team: a team formed before the recording
+	// started is in no chunk of it, and the half of the run this save holds
+	// would be a demo of the one member that joined the team inside it.
+	void RosterFromSaveNames(CSaveEvent &Event) const
+	{
+		for(const CSavedTee &Tee : Event.m_vTees)
+		{
+			if(Tee.m_aName[0] == '\0')
+				continue;
+			bool Known = false;
+			for(const auto &[Cid, Name] : Event.m_vRoster)
+				Known = Known || Name == Tee.m_aName;
+			if(Known)
+				continue;
+			for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+			{
+				if(!m_aPlayers[Cid].m_Connected || str_comp(m_aPlayers[Cid].m_aName, Tee.m_aName) != 0)
+					continue;
+				bool Taken = false;
+				for(const int Member : Event.m_vCids)
+					Taken = Taken || Member == Cid;
+				if(Taken)
+					continue;
+				Event.m_vCids.push_back(Cid);
+				Event.m_vRoster.emplace_back(Cid, Tee.m_aName);
+				break;
+			}
+		}
+	}
+
 	int m_MarkerFinishTick = -1;
 	bool m_InputAppliedNextTick = true;
 	double m_ErrSum = 0.0;
@@ -1489,6 +1561,9 @@ public:
 	const std::vector<int> &ApproxRunCids() const { return m_vApproxCids; }
 	size_t ApproxMatchedNames() const { return m_ApproxMatchedNames; }
 	const char *PlayerName(int Cid) const { return m_aPlayers[Cid].m_aName; }
+
+	// The ticks a published client id was drawn in
+	int SnappedTicks(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aSnappedTicks[Cid] : 0; }
 
 	// Hide all players outside the given team, including their messages.
 	void SetTeamFilter(int Team) { m_FilterTeam = Team; }
@@ -2707,6 +2782,8 @@ private:
 					Event.m_vRoster.emplace_back(Cid, m_aPlayers[Cid].m_aName);
 				}
 			}
+			NameRosterFromSave(Event);
+			RosterFromSaveNames(Event);
 			if(getenv("T2D_SAVETRACE"))
 			{
 				char aSaveId[UUID_MAXSTRSIZE];
@@ -4480,6 +4557,9 @@ private:
 				CNetObj_Character *pCharacter = (CNetObj_Character *)Builder.NewItemRaw(NETOBJTYPE_CHARACTER, PublishCid(Cid), sizeof(CNetObj_Character));
 				if(pCharacter)
 				{
+					// What the demo ends up showing of a player, which is what
+					// says whether it is a demo of the run it claims to be
+					m_aSnappedTicks[PublishCid(Cid)]++;
 					mem_zero(pCharacter, sizeof(*pCharacter));
 					pPlayer->m_Core.Write(pCharacter);
 					pCharacter->m_HookedPlayer = PublishCid(pCharacter->m_HookedPlayer);
@@ -6471,8 +6551,18 @@ int main(int argc, const char *argv[])
 			str_format(aLoad, sizeof(aLoad), ",\"load\":{\"save\":\"%s\",\"source\":\"%s\",\"tick\":%d}",
 				aLoadSave, aLoadSource, LoadTick);
 		}
-		printf("{\"cid\":%d,\"team\":%d,\"finish_cids\":[%s],\"roster\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"finish_tick\":%d,\"dataset_rows\":%d%s}\n",
-			RankTarget.m_Cid, RankTarget.m_Team, aFinishCids, aRoster, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
+		// How much of each of the run's players the demo ended up showing: a
+		// demo that does not show them is not a demo of this rank, and the
+		// pipeline drops it instead of publishing it as one
+		char aShown[256] = "";
+		for(const auto &[Cid, Name] : vRoster)
+		{
+			char aOne[32];
+			str_format(aOne, sizeof(aOne), "%s\"%d\":%d", aShown[0] == '\0' ? "" : ",", Cid, Converter.SnappedTicks(Cid));
+			str_append(aShown, aOne);
+		}
+		printf("{\"cid\":%d,\"team\":%d,\"finish_cids\":[%s],\"roster\":{%s},\"shown_ticks\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"finish_tick\":%d,\"dataset_rows\":%d%s}\n",
+			RankTarget.m_Cid, RankTarget.m_Team, aFinishCids, aRoster, aShown, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
 			RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick, Converter.NumDatasetRows(), aLoad);
 	}
 	if(Success && FromSaveMode)
@@ -6484,8 +6574,15 @@ int main(int argc, const char *argv[])
 			str_format(aOne, sizeof(aOne), "%s%d", aCids[0] == '\0' ? "" : ",", Cid);
 			str_append(aCids, aOne);
 		}
-		printf("{\"team\":%d,\"cids\":[%s],\"demo_start_tick\":%d,\"run_start_tick\":%d,\"save_tick\":%d,\"time_ticks\":%d}\n",
-			SaveTeam, aCids, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
+		char aShown[256] = "";
+		for(const auto &[pName, PublishAs] : vPublishNames)
+		{
+			char aOne[32];
+			str_format(aOne, sizeof(aOne), "%s\"%d\":%d", aShown[0] == '\0' ? "" : ",", PublishAs, Converter.SnappedTicks(PublishAs));
+			str_append(aShown, aOne);
+		}
+		printf("{\"team\":%d,\"cids\":[%s],\"shown_ticks\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"save_tick\":%d,\"time_ticks\":%d}\n",
+			SaveTeam, aCids, aShown, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
 			SaveTick - SaveTimeTicks, SaveTick, SaveTimeTicks);
 	}
 	return Success ? 0 : -1;

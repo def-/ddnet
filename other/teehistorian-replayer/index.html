@@ -2244,9 +2244,13 @@
 				const names = params.getAll('name');
 				const time = params.get('time') || meta.time;
 				const seconds = Number(time);
-				// The time is written the way a rank is, minutes:seconds.hundredths
-				const shown = rawTime !== null ? rawTime : (time && !isNaN(seconds) ?
-					`${String(Math.floor(seconds / 60)).padStart(2, '0')}:${(seconds % 60).toFixed(2).padStart(5, '0')}` : time);
+				// The time is written the way a rank is (ddnet.py formatTimeExact):
+				// minutes:seconds.hundredths, with hours in front of a long run
+				const pad = (value, width = 2) => String(value).padStart(width, '0');
+				const rankTime = value => value > 3600 ?
+					`${pad(Math.floor(value / 3600))}:${pad(Math.floor(value % 3600 / 60))}:${(value % 60).toFixed(2).padStart(5, '0')}` :
+					`${pad(Math.floor(value / 60))}:${(value % 60).toFixed(2).padStart(5, '0')}`;
+				const shown = rawTime !== null ? rawTime : (time && !isNaN(seconds) ? rankTime(seconds) : time);
 				// When the run was finished, the way the rank pages show it
 				const ts = Number(params.get('ts'));
 				const when = ts > 0 ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Berlin', dateStyle: 'short', timeStyle: 'short' })
@@ -2781,7 +2785,13 @@
 			const seek = document.getElementById('seek');
 			const timeNow = document.getElementById('timenow');
 			const timeEnd = document.getElementById('timeend');
-			const formatTime = seconds => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+			// Both ends of the seek bar keep the shape the demo needs, so the
+			// clock does not grow an hour field halfway through a long run
+			const formatTime = seconds => {
+				const whole = Math.floor(seconds);
+				const rest = `${String(Math.floor(whole % 3600 / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
+				return demoLength > 3600 ? `${String(Math.floor(whole / 3600)).padStart(2, '0')}:${rest}` : `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+			};
 			let demoLength = 0; // seconds
 			let seeking = false;
 			let pendingSeek = null; // slider value the client still has to reach

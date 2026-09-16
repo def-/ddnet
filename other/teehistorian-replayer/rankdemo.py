@@ -288,23 +288,19 @@ class Converter:
             free = shutil.disk_usage(self.tmp).free
             if free < MIN_FREE_BYTES:
                 raise DiskFullError(free)
+            # Who the players are is only in the recording they last said it
+            # in: a player that was already on the server when this one began
+            # has neither their name nor their skin in it, and would be a
+            # nameless tee in the default skin. The previous recordings of the
+            # same server carry both, so they are always read first. They cost
+            # one parse each and are only there while they are in the archive.
+            chain = self.prev_chain(recording, header)
+            prev_args = []
+            for prev in chain:
+                prev_args += ["--prev", str(prev)]
             workdir = Path(tempfile.mkdtemp(dir=self.tmp))
             try:
-                try:
-                    meta = self.run_tool(workdir, recording, map_path, alias_args, time_str, offset, names)
-                except RankDemoError as error:
-                    # The names of players that joined before the recording
-                    # started are only in the previous recordings, retry with
-                    # them seeded. Only helps recordings between 2023-08
-                    # (prev_game_uuid added) and 2024-04 (player-name chunks
-                    # added); older recordings have no chain pointer at all.
-                    chain = self.prev_chain(recording, header) if error.status == 404 else []
-                    if not chain:
-                        raise
-                    prev_args = []
-                    for index, prev in enumerate(chain):
-                        prev_args += ["--prev", str(prev)]
-                    meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
+                meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
                 self.stitch_save(workdir, map_path, meta)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
                 for name in ("out.demo", "watch.demo"):
@@ -342,8 +338,16 @@ class Converter:
         publish = []
         for cid, name in (meta.get("roster") or {}).items():
             publish += ["--publish-name", name, str(cid)]
+        # The half before the save is a recording of its own, with its own
+        # players carried over from before it started
+        try:
+            prev_args = []
+            for prev in self.prev_chain(source, self.read_header(source)):
+                prev_args += ["--prev", str(prev)]
+        except RankDemoError:
+            prev_args = []
         result = subprocess.run(
-            [str(self.tool), str(source), str(map_path), "before.demo"] + publish +
+            [str(self.tool), str(source), str(map_path), "before.demo"] + prev_args + publish +
             ["--from-save", load["save"]],
             cwd=workdir, capture_output=True, text=True)
         if result.returncode != 0 or not (workdir / "before.demo").is_file():

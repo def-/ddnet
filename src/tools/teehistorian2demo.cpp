@@ -6454,6 +6454,13 @@ int main(int argc, const char *argv[])
 		else
 			Converter.SetTeamFilter(RankTarget.m_Team);
 		Converter.SetRankNames(&vRankNames, &vAliases);
+		// A run that loaded a save knows exactly who it is: the load matched
+		// the save's tees to the players and named the slots. The recording
+		// only has to say who is in the team for the members that joined it
+		// inside it, so without this the rest of the team is hidden for as
+		// long as the recording says nothing about them.
+		for(const auto &[Cid, Name] : vLoadRoster)
+			Converter.SetRunPlayers({Cid});
 		Converter.SetSnapCid(RankTarget.m_Cid);
 		Converter.SetRankMarkers(RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick);
 	}

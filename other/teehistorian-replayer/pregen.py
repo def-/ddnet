@@ -93,7 +93,9 @@ def generate(entry, reconvert=False):
             except DiskFullError:
                 raise
             except RankDemoError as retry_error:
-                error = retry_error
+                # The first attempt knew the rank's timestamp and says more
+                if "No finish" not in str(retry_error):
+                    error = retry_error
         return {"status": "error", "code": error.status, "message": str(error)}
     except Exception as error:  # one corrupt recording must not end the run
         return {"status": "error", "code": 500, "message": f"{type(error).__name__}: {error}"}

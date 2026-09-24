@@ -6185,7 +6185,15 @@ int main(int argc, const char *argv[])
 		// would hand it to whoever else carries the name at that moment.
 		if(pBest == nullptr && Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0)
 			log_warn(TOOL_NAME, "The recording has finish events and none of them is this rank, not guessing by timestamp");
-		if(pBest == nullptr && !Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0)
+		// Who held the names when a recording ended is no run at a timestamp
+		// it never reaches, the map's tiles below are what is left to go by
+		const bool ReachedRankTimestamp = Scanner.ServerTick() >= RankExpectedTick;
+		if(pBest == nullptr && !Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0 && !ReachedRankTimestamp)
+		{
+			const int LastSeconds = Scanner.ServerTick() / SERVER_TICK_SPEED;
+			log_warn(TOOL_NAME, "The recording ends at %d:%02d:%02d, before the rank's timestamp", LastSeconds / 3600, LastSeconds / 60 % 60, LastSeconds % 60);
+		}
+		if(pBest == nullptr && !Scanner.SawFinishEvent() && Scanner.ApproxRankCandidate().m_Cid >= 0 && ReachedRankTimestamp)
 		{
 			vRunCids = Scanner.ApproxRunCids();
 			// Recordings older than April 2024 have no finish events, position
@@ -6311,7 +6319,18 @@ int main(int argc, const char *argv[])
 		}
 		if(pBest == nullptr)
 		{
-			log_error(TOOL_NAME, "No finish in %.2f seconds by '%s' found", RankTimeTicks / (float)SERVER_TICK_SPEED, vRankNames[0]);
+			// A recording that was cut short or lost ticks ends before the
+			// rank's timestamp, and the run is simply not in it
+			if(Scanner.ServerTick() < RankExpectedTick)
+			{
+				const int LastSeconds = Scanner.ServerTick() / SERVER_TICK_SPEED;
+				const int MissingSeconds = RankExpectedTick / SERVER_TICK_SPEED - LastSeconds;
+				log_error(TOOL_NAME, "No finish in %.2f seconds by '%s' found, the recording ends at %d:%02d:%02d, %d:%02d:%02d before the rank's timestamp",
+					RankTimeTicks / (float)SERVER_TICK_SPEED, vRankNames[0], LastSeconds / 3600, LastSeconds / 60 % 60, LastSeconds % 60,
+					MissingSeconds / 3600, MissingSeconds / 60 % 60, MissingSeconds % 60);
+			}
+			else
+				log_error(TOOL_NAME, "No finish in %.2f seconds by '%s' found", RankTimeTicks / (float)SERVER_TICK_SPEED, vRankNames[0]);
 			return -1;
 		}
 		RankTarget = *pBest;

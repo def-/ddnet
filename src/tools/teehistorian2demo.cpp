@@ -2299,8 +2299,11 @@ public:
 			// CGameTeams::OnPlayerDisconnect, the team chunk of the next tick
 			// repeats this
 			ChangeTeam(Cid, m_Config.m_SvTeam == SV_TEAM_FORCED_SOLO ? Cid : TEAM_FLOCK);
-			// The next client in the slot is not part of the run
-			m_aFinisher[Cid] = false;
+			// The next client in the slot is not part of the run. A run placed
+			// by its timestamp is latched on the slots it held then, and who
+			// left one of them before the demo starts is an earlier player.
+			if(m_Tick >= m_StartTick)
+				m_aFinisher[Cid] = false;
 			break;
 		}
 		case TEEHISTORIAN_CONSOLE_COMMAND:

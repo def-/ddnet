@@ -36,6 +36,10 @@ class RankDemoError(Exception):
 MIN_FREE_BYTES = 1024**3
 
 
+class MapMissingError(RankDemoError):
+    pass
+
+
 class DiskFullError(RankDemoError):
     def __init__(self, free):
         super().__init__(507, f"{free / 1024**3:.1f} GiB free on the cache disk, a conversion needs {MIN_FREE_BYTES >> 30} GiB")
@@ -64,6 +68,7 @@ class Converter:
         self.locks_mutex = threading.Lock()
         self.index = None
         self.unindexed = []
+        self.map_listing = None
 
     def load_index(self, uuids):
         """Which location directory holds a game uuid, read from the archive
@@ -170,7 +175,7 @@ class Converter:
             except OSError as error:
                 raise RankDemoError(500, f"Failed to download map: {error}") from error
         if data is None:
-            raise RankDemoError(500, f"The map server has none of {', '.join(names)}")
+            raise MapMissingError(500, f"The map server has none of {', '.join(names)}")
         if map_sha256 and hashlib.sha256(data).hexdigest() != map_sha256:
             raise RankDemoError(500, f"The map {map_name} does not hash to what the recording says")
         if not map_sha256 and f"{zlib.crc32(data) & 0xffffffff:08x}" != map_crc:
@@ -182,6 +187,27 @@ class Converter:
         temp.write_bytes(data)
         temp.replace(path)
         return path
+
+    def fetch_latest_map(self, map_name):
+        """The newest version of a map on the map server, for a recording
+        whose own version is gone or no longer loads. The server's listing is
+        the only place that says which one that is."""
+        if self.map_listing is None:
+            try:
+                with urllib.request.urlopen(f"{MAP_DOWNLOAD_URL}/", timeout=60) as response:
+                    self.map_listing = response.read().decode(errors="replace")
+            except OSError as error:
+                raise RankDemoError(500, f"Failed to list the map server: {error}") from error
+        file_pattern = re.compile(rf"{re.escape(map_name)}_(?:([0-9a-f]{{8}})_)?([0-9a-f]{{64}})\.map")
+        versions = []
+        for href, date in re.findall(r'<a href="([^"]*)">[^<]*</a>\s+(\d\d-\w{3}-\d{4} \d\d:\d\d)', self.map_listing):
+            match = file_pattern.fullmatch(urllib.parse.unquote(href))
+            if match:
+                versions.append((datetime.strptime(date, "%d-%b-%Y %H:%M"), match[2], match[1] or ""))
+        if not versions:
+            raise RankDemoError(500, f"The map server has no version of {map_name}")
+        _, sha256, crc = max(versions)
+        return sha256, self.fetch_map(map_name, sha256, crc)
 
     def demo_paths(self, uuid, time_str, names):
         """The published demo, the converter output it was scrambled from, and
@@ -276,7 +302,11 @@ class Converter:
             header = self.read_header(recording)
             map_name = header.get("map_name", "unknown")
             map_sha256 = header.get("map_sha256", "")
-            map_path = self.fetch_map(map_name, map_sha256, header.get("map_crc", ""))
+            substitute = None
+            try:
+                map_path = self.fetch_map(map_name, map_sha256, header.get("map_crc", ""))
+            except MapMissingError:
+                substitute, map_path = self.fetch_latest_map(map_name)
 
             offset = "-"
             if ts_epoch is not None and "start_time" in header:
@@ -300,7 +330,19 @@ class Converter:
                 prev_args += ["--prev", str(prev)]
             workdir = Path(tempfile.mkdtemp(dir=self.tmp))
             try:
-                meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
+                try:
+                    meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
+                except RankDemoError as error:
+                    # The map loader got stricter than the servers that ran
+                    # old maps, and their runs are replayed on the map's newest
+                    # version instead. The recording holds every position, the
+                    # map only decides what is drawn around them.
+                    if substitute is not None or "Failed to load map" not in str(error):
+                        raise
+                    substitute, map_path = self.fetch_latest_map(map_name)
+                    if substitute == map_sha256:
+                        raise
+                    meta = self.run_tool(workdir, recording, map_path, prev_args + alias_args, time_str, offset, names)
                 self.stitch_save(workdir, map_path, meta)
                 self.check_shown(meta, names)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
@@ -310,6 +352,8 @@ class Converter:
                             stdout=compressed, check=True)
                 meta.update(uuid=uuid, time=time_str, names=names, map_name=map_name, map_sha256=map_sha256,
                     rev=self.revision(workdir / "watch.demo.gz"))
+                if substitute is not None:
+                    meta["map_substitute"] = substitute
                 self.write_meta(meta_path, meta)
                 shutil.move(workdir / "out.demo.gz", raw_path)
                 shutil.move(workdir / "watch.demo.gz", demo_path)

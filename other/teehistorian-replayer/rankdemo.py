@@ -300,6 +300,10 @@ class Converter:
             if recording is None:
                 raise RankDemoError(404, "Recording not in the archive (yet)")
             header = self.read_header(recording)
+            # A file can hold another game than its name says, and no run of
+            # this rank is in that one
+            if header.get("game_uuid", recording.name[:36]) != recording.name[:36]:
+                raise RankDemoError(422, f"The archive file {recording.name} holds the recording {header['game_uuid']}")
             map_name = header.get("map_name", "unknown")
             map_sha256 = header.get("map_sha256", "")
             substitute = None

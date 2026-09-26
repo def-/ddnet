@@ -1,3 +1,4 @@
+#include <base/dbg.h>
 #include <base/logger.h>
 #include <base/mem.h>
 #include <base/os.h>
@@ -10,10 +11,93 @@
 
 #include <generated/protocol.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
 static const char *TOOL_NAME = "demo_splice";
+
+// Moves the absolute ticks inside a snapshot along with the snapshot itself.
+// A part is written under new tick numbers, and an item that kept the numbers
+// of its own recording is read as something that is happening now: a
+// character drawn firing for the rest of the demo, a projectile that starts
+// over every tick, a freeze that never ends.
+static void ShiftTicks(CSnapshot *pSnapshot, int Delta)
+{
+	if(Delta == 0)
+		return;
+	for(int Index = 0; Index < pSnapshot->NumItems(); Index++)
+	{
+		// The listener shifts its own copy of the snapshot
+		int *pItemData = const_cast<int *>(pSnapshot->GetItem(Index)->Data());
+		const size_t Size = pSnapshot->GetItemSize(Index);
+		switch(pSnapshot->GetItemType(Index))
+		{
+		case NETOBJTYPE_CHARACTER:
+		{
+			if(Size < sizeof(CNetObj_Character))
+				break;
+			CNetObj_Character *pCharacter = (CNetObj_Character *)pItemData;
+			pCharacter->m_Tick += Delta;
+			pCharacter->m_AttackTick += Delta;
+			break;
+		}
+		case NETOBJTYPE_PROJECTILE:
+		{
+			if(Size < sizeof(CNetObj_Projectile))
+				break;
+			((CNetObj_Projectile *)pItemData)->m_StartTick += Delta;
+			break;
+		}
+		case NETOBJTYPE_LASER:
+		{
+			if(Size < sizeof(CNetObj_Laser))
+				break;
+			((CNetObj_Laser *)pItemData)->m_StartTick += Delta;
+			break;
+		}
+		case NETOBJTYPE_DDNETPROJECTILE:
+		{
+			if(Size < sizeof(CNetObj_DDNetProjectile))
+				break;
+			((CNetObj_DDNetProjectile *)pItemData)->m_StartTick += Delta;
+			break;
+		}
+		case NETOBJTYPE_DDNETLASER:
+		{
+			if(Size < sizeof(CNetObj_DDNetLaser))
+				break;
+			((CNetObj_DDNetLaser *)pItemData)->m_StartTick += Delta;
+			break;
+		}
+		case NETOBJTYPE_DDNETCHARACTER:
+		{
+			if(Size < sizeof(CNetObj_DDNetCharacter))
+				break;
+			CNetObj_DDNetCharacter *pCharacter = (CNetObj_DDNetCharacter *)pItemData;
+			// Not every value in these is a tick: no freeze is 0, a deep
+			// freeze is -1 and no ninja is -1, and a tick that would land on
+			// one of those after the shift is kept off it
+			if(pCharacter->m_FreezeEnd > 0)
+				pCharacter->m_FreezeEnd = std::max(pCharacter->m_FreezeEnd + Delta, 1);
+			if(pCharacter->m_FreezeStart > 0)
+				pCharacter->m_FreezeStart = std::max(pCharacter->m_FreezeStart + Delta, 1);
+			if(pCharacter->m_NinjaActivationTick >= 0)
+				pCharacter->m_NinjaActivationTick = std::max(pCharacter->m_NinjaActivationTick + Delta, 0);
+			break;
+		}
+		case NETOBJTYPE_GAMEINFO:
+		{
+			if(Size < sizeof(CNetObj_GameInfo))
+				break;
+			((CNetObj_GameInfo *)pItemData)->m_RoundStartTick += Delta;
+			break;
+		}
+		default:
+			break;
+		}
+	}
+}
 
 // Writes what it is given into the output demo, shifting the ticks so this
 // part continues where the last one ended.
@@ -25,6 +109,7 @@ class CSpliceListener : public CDemoPlayer::IListener
 	int m_Offset;
 	int m_LastTick = -1;
 	int m_NumSnapshots = 0;
+	CSnapshotBuffer m_Snapshot;
 
 public:
 	CSpliceListener(CDemoPlayer *pDemoPlayer, CDemoRecorder *pDemoRecorder, int Offset) :
@@ -40,7 +125,12 @@ public:
 		// A demo the recorder accepts has strictly rising ticks, a part that
 		// starts where the last one ended keeps that
 		m_LastTick = Tick - m_FirstTick + m_Offset;
-		m_pDemoRecorder->RecordSnapshot(m_LastTick, pData, Size);
+		// The player reads the next snapshot as a delta against this one, so
+		// the shifted ticks go into a copy of it
+		dbg_assert(Size >= 0 && (size_t)Size <= sizeof(m_Snapshot.m_aData), "snapshot does not fit");
+		mem_copy(m_Snapshot.m_aData, pData, Size);
+		ShiftTicks(m_Snapshot.AsSnapshot(), m_LastTick - Tick);
+		m_pDemoRecorder->RecordSnapshot(m_LastTick, m_Snapshot.m_aData, Size);
 		m_NumSnapshots++;
 	}
 

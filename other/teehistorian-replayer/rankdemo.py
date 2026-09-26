@@ -5,6 +5,7 @@ archive-server.py (on-demand) and pregen.py (nightly pre-generation)."""
 import gzip
 import hashlib
 import hmac
+import fcntl
 import json
 import os
 import re
@@ -64,7 +65,8 @@ class Converter:
         self.demos = self.cache / "demos"
         self.maps = self.cache / "maps"
         self.tmp = self.cache / "tmp"
-        for directory in (self.demos, self.maps, self.tmp):
+        self.locks_dir = self.cache / "locks"
+        for directory in (self.demos, self.maps, self.tmp, self.locks_dir):
             directory.mkdir(parents=True, exist_ok=True)
         self.cache_limit_bytes = cache_limit_bytes
         self.locks = {}
@@ -271,7 +273,12 @@ class Converter:
         demo_path, raw_path, meta_path = self.demo_paths(uuid, time_str, names)
         with self.locks_mutex:
             lock = self.locks.setdefault(demo_path.name, threading.Lock())
-        with lock:
+        # The pre-generation and the moderators' page convert into the same
+        # cache, and two of them on one rank leave the demo of the one and the
+        # metadata of the other behind, which is a demo that says it holds
+        # things it does not
+        with lock, open(self.locks_dir / (demo_path.name + ".lock"), "w", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
             # reconvert reads the recording again, for a demo that was made by
             # an older converter. Everything is written to a work directory and
             # moved into place, so a conversion that fails leaves the demo that

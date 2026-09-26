@@ -22,6 +22,9 @@ from pathlib import Path
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 MAP_DOWNLOAD_URL = "https://maps.ddnet.org"
 HEADER_MAX_SIZE = 1024 * 1024
+# How many parts of a run before its last save the demo holds. Every one of
+# them is another recording to parse, and a run of hours has dozens.
+MAX_LEGS = 4
 
 
 class RankDemoError(Exception):
@@ -368,42 +371,63 @@ class Converter:
 
     def check_shown(self, meta, names):
         """A demo is only this rank's if it shows the players who ran it. The
-        converter reports the ticks it drew each of them for, per half of a
-        loaded run, and a player who is in none of it means the recording does
-        not hold the run the rank names: publishing it anyway is how a rank
-        ends up linking somebody else's game."""
+        converter reports the ticks it drew each of them for, and a player who
+        is in none of it means the recording does not hold the run the rank
+        names: publishing it anyway is how a rank ends up linking somebody
+        else's game. The parts before a /save answer for themselves, see
+        stitch_save."""
         roster = meta.get("roster") or {}
         shown = meta.get("shown_ticks") or {}
         missing = [name for cid, name in roster.items() if not shown.get(cid)]
-        stitch = meta.get("stitch") or {}
-        if stitch.get("shown_ticks") is not None:
-            before = stitch["shown_ticks"]
-            missing += [f"{name} before the save" for cid, name in roster.items() if not before.get(cid)]
         if missing:
             raise RankDemoError(422, "The recording does not show " + ", ".join(missing))
 
     def stitch_save(self, workdir, map_path, meta):
         """A run that was finished after a /load only played its last part in
-        this recording. The rest is in the recording the save was made in,
-        which the load names: it is converted the same way, with the client
-        ids of this half so the demo does not switch slots halfway, and the
-        two are put together into one demo."""
+        this recording. The parts before it are in the recordings their saves
+        were made in, which every load names: they are converted the same way,
+        with the client ids of this half so the demo does not switch slots
+        halfway, and put in front of it one by one.
+
+        A run of hours is saved and loaded over and over, so this follows the
+        saves back until the run starts or MAX_LEGS of them are in the demo:
+        every leg is another recording to parse, and the near end of a run is
+        what a rank is watched for.
+
+        A part that shows none of the run is not the run: the chain ends
+        there rather than putting somebody else's game in front of the rank."""
+        legs = []
         load = meta.get("load")
-        if not load or not load.get("source") or not UUID_RE.match(load["source"]):
-            return
+        roster = meta.get("roster") or {}
+        while load and load.get("source") and UUID_RE.match(load["source"]) and len(legs) < MAX_LEGS:
+            # The names of a part are the ones its own save carries: players
+            # rename between the parts of a long run, and the load of the
+            # part after it is what says who they were before
+            publish = []
+            for cid, name in roster.items():
+                publish += ["--publish-name", name, str(cid)]
+            leg = self.stitch_leg(workdir, map_path, load, publish, len(legs))
+            load = leg.pop("load", None)
+            roster = (load or {}).get("roster") or roster
+            legs.append(leg)
+            if "shown_ticks" not in leg:
+                break
+        if legs:
+            meta["stitch"] = legs
+
+    def stitch_leg(self, workdir, map_path, load, publish, index):
+        """One part of the run before a save, put in front of the demo"""
         if not self.splice_tool.is_file():
-            meta["stitch"] = {"source": load["source"], "failed": "demo_splice is not built"}
-            return
+            # Only a run that was saved and loaded needs it, so a missing
+            # splicer is not fatal: those runs keep the half that is in their
+            # own recording
+            return {"source": load["source"], "failed": "demo_splice is not built"}
         # The index was loaded for the manifest's recordings, and the game a
         # save came from is not one of them
         source = self.find_recording(load["source"], anywhere=True)
         if source is None:
-            meta["stitch"] = {"source": load["source"], "missing": True}
-            return
-        publish = []
-        for cid, name in (meta.get("roster") or {}).items():
-            publish += ["--publish-name", name, str(cid)]
-        # The half before the save is a recording of its own, with its own
+            return {"source": load["source"], "missing": True}
+        # The part before the save is a recording of its own, with its own
         # players carried over from before it started
         try:
             prev_args = []
@@ -411,33 +435,34 @@ class Converter:
                 prev_args += ["--prev", str(prev)]
         except RankDemoError:
             prev_args = []
+        part_demo = f"before{index}.demo"
         result = subprocess.run(
-            [str(self.tool), str(source), str(map_path), "before.demo"] + prev_args + publish +
+            [str(self.tool), str(source), str(map_path), part_demo] + prev_args + publish +
             ["--from-save", load["save"]],
             cwd=workdir, capture_output=True, text=True)
-        if result.returncode != 0 or not (workdir / "before.demo").is_file():
+        if result.returncode != 0 or not (workdir / part_demo).is_file():
             output = (result.stdout + result.stderr).strip().splitlines()
-            meta["stitch"] = {"source": load["source"], "failed": output[-1] if output else "conversion failed"}
-            return
+            return {"source": load["source"], "failed": output[-1] if output else "conversion failed"}
         # The log goes to stdout as well, the result is the line of json
         part = {}
         for line in result.stdout.splitlines():
             if line.startswith("{"):
                 part = json.loads(line)
         if not part:
-            meta["stitch"] = {"source": load["source"], "failed": "the half before the save said nothing"}
-            return
+            return {"source": load["source"], "failed": "the part before the save said nothing"}
+        if not any((part.get("shown_ticks") or {}).values()):
+            return {"source": load["source"], "empty": True}
         spliced = subprocess.run(
-            [str(self.splice_tool), "before.demo", "out.demo", "joined.demo"],
+            [str(self.splice_tool), part_demo, "out.demo", "joined.demo"],
             cwd=workdir, capture_output=True, text=True)
         if spliced.returncode != 0 or not (workdir / "joined.demo").is_file():
             output = (spliced.stdout + spliced.stderr).strip().splitlines()
-            meta["stitch"] = {"source": load["source"], "failed": output[-1] if output else "splicing failed"}
-            return
+            return {"source": load["source"], "failed": output[-1] if output else "splicing failed"}
         (workdir / "joined.demo").replace(workdir / "out.demo")
-        meta["stitch"] = {"source": load["source"], "save_tick": part["save_tick"],
+        return {"source": load["source"], "save_tick": part["save_tick"],
             "part_ticks": part["save_tick"] - part["demo_start_tick"],
-            "shown_ticks": part.get("shown_ticks") or {}}
+            "shown_ticks": part.get("shown_ticks") or {},
+            "load": part.get("load")}
 
     def run_tool(self, workdir, input_path, map_path, options, time_str, offset, names):
         result = subprocess.run(

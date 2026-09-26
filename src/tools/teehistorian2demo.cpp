@@ -6736,6 +6736,32 @@ int main(int argc, const char *argv[])
 			SaveSeconds / 3600, SaveSeconds / 60 % 60, SaveSeconds % 60, SaveTeam,
 			SaveTimeTicks / (float)SERVER_TICK_SPEED);
 		DemoStartTick = std::max(0, SaveTick - SaveTimeTicks - RUN_PRE_SECONDS * SERVER_TICK_SPEED);
+		// Runs of hours are saved and loaded over and over, so the part of
+		// the run this recording holds usually begins at a load of its own:
+		// everything before that is another recording's or another part of
+		// this one, and showing it would be minutes of the players idling
+		// somewhere else
+		for(const CSaveEvent &Event : Scanner.SaveEvents())
+		{
+			if(!Event.m_Load || Event.m_Team != SaveTeam ||
+				Event.m_Tick > SaveTick || Event.m_Tick < DemoStartTick)
+				continue;
+			LoadTick = Event.m_Tick;
+			FormatUuid(Event.m_SaveId, aLoadSave, sizeof(aLoadSave));
+			aLoadSource[0] = '\0';
+			for(const CSavedTee &Tee : Event.m_vTees)
+			{
+				if(Tee.m_GameUuid != UUID_ZEROED)
+					FormatUuid(Tee.m_GameUuid, aLoadSource, sizeof(aLoadSource));
+			}
+		}
+		if(LoadTick >= 0)
+		{
+			DemoStartTick = std::max(DemoStartTick, LoadTick - RUN_PRE_SECONDS * SERVER_TICK_SPEED);
+			const int LoadSeconds = LoadTick / SERVER_TICK_SPEED;
+			log_info(TOOL_NAME, "this part of the run loaded a save at %d:%02d:%02d, the demo starts there",
+				LoadSeconds / 3600, LoadSeconds / 60 % 60, LoadSeconds % 60);
+		}
 		// A second past the save, the part after it is the other recording's
 		DemoEndTick = SaveTick + SERVER_TICK_SPEED;
 	}
@@ -6927,6 +6953,27 @@ int main(int argc, const char *argv[])
 	}
 	if(Success && FromSaveMode)
 	{
+		// Who the load that began this part matched the save to, in the
+		// client ids this demo publishes them as: the part before it is
+		// written with those, whatever the players were called by then
+		char aLoadRoster[512] = "";
+		for(const CSaveEvent &Event : Converter.SaveEvents())
+		{
+			if(!Event.m_Load || Event.m_Tick != LoadTick)
+				continue;
+			aLoadRoster[0] = '\0';
+			for(size_t Index = 0; Index < Event.m_vRoster.size(); Index++)
+			{
+				// A name can carry a quote or a backslash and this is read as json
+				char aName[MAX_NAME_LENGTH * 2];
+				char *pName = aName;
+				str_escape(&pName, Event.m_vRoster[Index].second.c_str(), aName + sizeof(aName));
+				char aOne[128];
+				str_format(aOne, sizeof(aOne), "%s\"%d\":\"%s\"", aLoadRoster[0] == '\0' ? "" : ",",
+					Converter.PublishedEver(Event.m_vRoster[Index].first), aName);
+				str_append(aLoadRoster, aOne);
+			}
+		}
 		char aCids[256] = "";
 		for(const int Cid : vSaveCids)
 		{
@@ -6941,9 +6988,15 @@ int main(int argc, const char *argv[])
 			str_format(aOne, sizeof(aOne), "%s\"%d\":%d", aShown[0] == '\0' ? "" : ",", PublishAs, Converter.SnappedTicks(PublishAs));
 			str_append(aShown, aOne);
 		}
-		printf("{\"team\":%d,\"cids\":[%s],\"shown_ticks\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"save_tick\":%d,\"time_ticks\":%d}\n",
+		char aLoad[768] = "";
+		if(LoadTick >= 0)
+		{
+			str_format(aLoad, sizeof(aLoad), ",\"load\":{\"save\":\"%s\",\"source\":\"%s\",\"tick\":%d,\"roster\":{%s}}",
+				aLoadSave, aLoadSource, LoadTick, aLoadRoster);
+		}
+		printf("{\"team\":%d,\"cids\":[%s],\"shown_ticks\":{%s},\"demo_start_tick\":%d,\"run_start_tick\":%d,\"save_tick\":%d,\"time_ticks\":%d%s}\n",
 			SaveTeam, aCids, aShown, Converter.FirstTick() >= 0 ? Converter.FirstTick() : DemoStartTick,
-			SaveTick - SaveTimeTicks, SaveTick, SaveTimeTicks);
+			SaveTick - SaveTimeTicks, SaveTick, SaveTimeTicks, aLoad);
 	}
 	return Success ? 0 : -1;
 }

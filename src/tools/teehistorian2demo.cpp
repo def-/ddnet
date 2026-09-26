@@ -1689,7 +1689,7 @@ public:
 	{
 		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
 		{
-			if(m_TeamsCore.Team(Cid) == Team && m_aTeeRaceStarted[Cid] && !m_aTeeRaceFinished[Cid])
+			if(TeamBeforeTick(Cid) == Team && m_aTeeRaceStarted[Cid] && !m_aTeeRaceFinished[Cid])
 				return false;
 		}
 		return true;
@@ -3421,16 +3421,41 @@ private:
 		const int RaceStartFirstBefore = Player.m_RaceStartFirstTick;
 		const bool OnStart = RaceTile(TILE_START);
 		const bool OnFinish = RaceTile(TILE_FINISH);
+		// A start belongs to the team the tee is in. A finish belongs to the
+		// team the tick began with: sv_rejoin_team_0 puts a team back into
+		// the flock in the same tick its last member crosses, which is the
+		// reading TEEHISTORIAN_TEAM_FINISH takes too.
+		const int FinishTeam = TeamBeforeTick(Cid);
+		const bool StartInTeam = Team != TEAM_FLOCK && Team != TEAM_SUPER;
+		const bool FinishInTeam = FinishTeam != TEAM_FLOCK && FinishTeam != TEAM_SUPER;
+		// A tee of the flock starts its own race on every touch of the band.
+		// A team's race starts once and the server hands that one time to
+		// every member, never setting it again while the team runs
+		// (CGameTeams::OnCharacterStart), so a member that walks through the
+		// band later keeps the time the team started with.
 		if(OnStart)
 		{
-			if(Player.m_LastStartTouchTick < m_Tick - 1)
-				Player.m_RaceStartFirstTick = m_Tick;
+			if(!StartInTeam)
+			{
+				if(Player.m_LastStartTouchTick < m_Tick - 1)
+					Player.m_RaceStartFirstTick = m_Tick;
+				Player.m_RaceStartTick = m_Tick;
+			}
+			else if(m_aTeamRaceStartTick[Team] < 0)
+			{
+				for(int Other = 0; Other < MAX_CLIENTS; Other++)
+				{
+					if(!m_aPlayers[Other].m_Connected || m_TeamsCore.Team(Other) != Team)
+						continue;
+					m_aPlayers[Other].m_RaceStartTick = m_Tick;
+					m_aPlayers[Other].m_RaceStartFirstTick = m_Tick;
+				}
+			}
 			Player.m_LastStartTouchTick = m_Tick;
-			Player.m_RaceStartTick = m_Tick;
 		}
 		if(OnFinish && RaceStartBefore >= 0)
 		{
-			CTileFinish Finish = {m_Tick, Cid, Team, m_Tick - RaceStartBefore,
+			CTileFinish Finish = {m_Tick, Cid, FinishTeam, m_Tick - RaceStartBefore,
 				m_Tick - RaceStartFirstBefore, ""};
 			str_copy(Finish.m_aName, Player.m_aName);
 			m_vTileFinishes.push_back(Finish);
@@ -3440,32 +3465,29 @@ private:
 		// The same race read as the team's: it starts when the first member
 		// touches the start band, which the server hands to every member,
 		// and it ends when the last of them that started has crossed.
-		if(Team != TEAM_FLOCK && Team != TEAM_SUPER)
+		if(OnStart && StartInTeam)
 		{
-			if(OnStart)
+			m_aTeeRaceStarted[Cid] = true;
+			m_aTeeRaceFinished[Cid] = false;
+			if(m_aTeamRaceStartTick[Team] < 0)
+				m_aTeamRaceStartTick[Team] = m_Tick;
+		}
+		if(OnFinish && FinishInTeam && m_aTeeRaceStarted[Cid] && m_aTeamRaceStartTick[FinishTeam] >= 0)
+		{
+			m_aTeeRaceFinished[Cid] = true;
+			if(TeamRaceFinished(FinishTeam))
 			{
-				m_aTeeRaceStarted[Cid] = true;
-				m_aTeeRaceFinished[Cid] = false;
-				if(m_aTeamRaceStartTick[Team] < 0)
-					m_aTeamRaceStartTick[Team] = m_Tick;
-			}
-			if(OnFinish && m_aTeeRaceStarted[Cid] && m_aTeamRaceStartTick[Team] >= 0)
-			{
-				m_aTeeRaceFinished[Cid] = true;
-				if(TeamRaceFinished(Team))
+				const int TeamTicks = m_Tick - m_aTeamRaceStartTick[FinishTeam];
+				CTileFinish Finish = {m_Tick, Cid, FinishTeam, TeamTicks, TeamTicks, ""};
+				str_copy(Finish.m_aName, Player.m_aName);
+				m_vTileFinishes.push_back(Finish);
+				m_aTeamRaceStartTick[FinishTeam] = -1;
+				for(int Other = 0; Other < MAX_CLIENTS; Other++)
 				{
-					const int TeamTicks = m_Tick - m_aTeamRaceStartTick[Team];
-					CTileFinish Finish = {m_Tick, Cid, Team, TeamTicks, TeamTicks, ""};
-					str_copy(Finish.m_aName, Player.m_aName);
-					m_vTileFinishes.push_back(Finish);
-					m_aTeamRaceStartTick[Team] = -1;
-					for(int Other = 0; Other < MAX_CLIENTS; Other++)
+					if(TeamBeforeTick(Other) == FinishTeam)
 					{
-						if(m_TeamsCore.Team(Other) == Team)
-						{
-							m_aTeeRaceStarted[Other] = false;
-							m_aTeeRaceFinished[Other] = false;
-						}
+						m_aTeeRaceStarted[Other] = false;
+						m_aTeeRaceFinished[Other] = false;
 					}
 				}
 			}

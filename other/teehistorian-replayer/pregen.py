@@ -87,8 +87,8 @@ def generate(entry, reconvert=False):
         # retry with a full scan of the recording.
         if error.status == 404 and entry.get("ts") and "No finish" in str(error):
             try:
-                demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], None,
-                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"))
+                demo_path, meta = converter.convert(entry["uuid"], entry["time"], entry["names"], entry["ts"],
+                    recording_uuid=entry.get("recording"), aliases=entry.get("aliases"), full_scan=True)
                 return ok_result(demo_path, meta)
             except DiskFullError:
                 raise

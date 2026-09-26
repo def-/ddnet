@@ -23,6 +23,9 @@ from pathlib import Path
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 MAP_DOWNLOAD_URL = "https://maps.ddnet.org"
 HEADER_MAX_SIZE = 1024 * 1024
+SERVER_TICK_SPEED = 50
+# teehistorian2demo's RANK_TIMESTAMP_SLACK_TICKS
+RANK_TIMESTAMP_SLACK_SECONDS = 5 * 60
 # How many parts of a run before its last save the demo holds. Every one of
 # them is another recording to parse, and a run of hours has dozens.
 MAX_LEGS = 4
@@ -214,7 +217,7 @@ class Converter:
         _, sha256, crc = max(versions)
         return sha256, self.fetch_map(map_name, sha256, crc)
 
-    def demo_paths(self, uuid, time_str, names):
+    def demo_paths(self, uuid, time_str, names, ts_epoch=None):
         """The published demo, the converter output it was scrambled from, and
         the metadata. Demos are kept gzipped, which is a third off the disk
         here, off the upload and off every download: nginx serves the file as
@@ -223,9 +226,40 @@ class Converter:
         The converter output stays beside the published demo and is never
         uploaded. It is what makes a change to the scrambler a re-scramble of
         minutes (rescramble.py) instead of converting every recording again."""
-        key = hashlib.sha1("|".join([uuid, time_str] + names).encode()).hexdigest()[:16]
+        parts = [uuid, time_str] + names
+        if ts_epoch is not None:
+            parts.append(str(int(ts_epoch)))
+        key = hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
         base = self.demos / f"{uuid}-{key}"
         return base.with_suffix(".demo.gz"), base.with_suffix(".raw.demo.gz"), base.with_suffix(".json")
+
+    def cached_paths(self, uuid, time_str, names, ts_epoch, recording_uuid):
+        """The demo of this very run. A player can finish one time twice in a
+        recording, a replay bot does it over and over, and the rank's
+        timestamp is what tells those runs apart. Demos made before it was
+        part of the name keep theirs while they hold this run: a new name is
+        a new noise, and two noises of one run average out to the run."""
+        legacy = self.demo_paths(uuid, time_str, names)
+        if ts_epoch is None:
+            return legacy
+        if legacy[2].is_file() and self.holds_run(json.loads(legacy[2].read_text()), ts_epoch, recording_uuid or uuid):
+            return legacy
+        return self.demo_paths(uuid, time_str, names, ts_epoch)
+
+    def holds_run(self, meta, ts_epoch, recording_uuid):
+        """Whether a demo is of the run that finished at this timestamp, by the
+        recording's clock, with the slack the converter places a run with"""
+        if "ts" in meta:
+            return meta["ts"] is None or abs(meta["ts"] - ts_epoch) <= RANK_TIMESTAMP_SLACK_SECONDS
+        recording = self.find_recording(recording_uuid, anywhere=True)
+        if recording is None or meta.get("finish_tick") is None:
+            return True
+        try:
+            header = self.read_header(recording)
+            start = datetime.strptime(header["start_time"], "%Y-%m-%dT%H:%M:%S%z").timestamp()
+        except (RankDemoError, KeyError, ValueError):
+            return True
+        return abs(meta["finish_tick"] / SERVER_TICK_SPEED - (ts_epoch - start)) <= RANK_TIMESTAMP_SLACK_SECONDS
 
     def prev_chain(self, recording, header, depth=3):
         """Previous recordings of the same server (oldest first), needed to
@@ -250,10 +284,12 @@ class Converter:
         chain.reverse()
         return chain
 
-    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None):
+    def convert(self, uuid, time_str, names, ts_epoch=None, reconvert=False, recording_uuid=None, aliases=None,
+            full_scan=False):
         """Returns (demo_path, meta_dict), converting and caching on demand.
         aliases maps a rank name to the names the player had before, for a
-        rank that was moved to a new name after the run."""
+        rank that was moved to a new name after the run. full_scan looks for
+        the run in the whole recording instead of around ts_epoch."""
         if not UUID_RE.match(uuid) or (recording_uuid is not None and not UUID_RE.match(recording_uuid)):
             raise RankDemoError(400, "Invalid game uuid")
         if not names or not all(names):
@@ -270,7 +306,7 @@ class Converter:
         except ValueError:
             raise RankDemoError(400, "Invalid rank time") from None
 
-        demo_path, raw_path, meta_path = self.demo_paths(uuid, time_str, names)
+        demo_path, raw_path, meta_path = self.cached_paths(uuid, time_str, names, ts_epoch, recording_uuid)
         with self.locks_mutex:
             lock = self.locks.setdefault(demo_path.name, threading.Lock())
         # The pre-generation and the moderators' page convert into the same
@@ -323,7 +359,7 @@ class Converter:
                 substitute, map_path = self.fetch_latest_map(map_name)
 
             offset = "-"
-            if ts_epoch is not None and "start_time" in header:
+            if ts_epoch is not None and not full_scan and "start_time" in header:
                 start = datetime.strptime(header["start_time"], "%Y-%m-%dT%H:%M:%S%z")
                 seconds = int(ts_epoch - start.timestamp())
                 if seconds >= 0:
@@ -364,7 +400,7 @@ class Converter:
                     with open(workdir / (name + ".gz"), "wb") as compressed:
                         subprocess.run(["gzip", "-9", "-c", name], cwd=workdir,
                             stdout=compressed, check=True)
-                meta.update(uuid=uuid, time=time_str, names=names, map_name=map_name, map_sha256=map_sha256,
+                meta.update(uuid=uuid, time=time_str, names=names, ts=ts_epoch, map_name=map_name, map_sha256=map_sha256,
                     rev=self.revision(workdir / "watch.demo.gz"))
                 if substitute is not None:
                     meta["map_substitute"] = substitute

@@ -3053,10 +3053,13 @@ private:
 		{
 			if(!Player.m_Alive || Player.m_PrevTick != m_Tick - 1)
 				continue;
+			const vec2 Prev(Player.m_PrevX, Player.m_PrevY);
 			const vec2 Pos(Player.m_X, Player.m_Y);
-			// Further than a tee can move in one tick means it was placed
-			// there: a teleporter, a rescue or a respawn
-			if(distance(vec2(Player.m_PrevX, Player.m_PrevY), Pos) < 6 * 32)
+			// Far from where the last tick's motion was taking the tee means
+			// it was placed there: a teleporter, a rescue or a respawn. The
+			// distance alone says nothing, speedups push a tee across many
+			// tiles in one tick, and that tee keeps its hook.
+			if(distance(Prev, Pos) < 6 * 32 || distance(Prev + Player.m_Core.m_Vel, Pos) < 6 * 32)
 				continue;
 			// The server keeps scanning the tiles a tee walks over from where
 			// it now is (m_PrevPos is assigned after the teleport), so the

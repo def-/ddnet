@@ -1359,6 +1359,13 @@
 				canvas: document.getElementById('canvas')
 			};
 			window.onerror = function(message, url, line, column, error) {
+				// An error from a script the page did not load arrives without
+				// a source, as "Script error.": a browser extension, or on iOS an
+				// action extension of the share sheet, which runs its script in
+				// the page. That is not the client's error, it plays on.
+				if (!url && !error) {
+					return;
+				}
 				appendOutput(message, true, "red");
 				if (error && error.stack) {
 					for (const line of error.stack.split("\n")) {

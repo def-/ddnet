@@ -805,6 +805,12 @@ private:
 	int m_TeamsStateTick = std::numeric_limits<int>::min() / 2;
 	bool m_SawFilterTeam = false;
 	bool m_aRunPlayer[MAX_CLIENTS] = {false};
+	// The slots the save or the load named, which hold the run whatever they
+	// are called, until the player in them leaves
+	bool m_aRunCid[MAX_CLIENTS] = {false};
+	std::vector<std::string> m_vRunNames;
+	std::vector<std::pair<std::string, int>> m_vPublishNames;
+	char m_aPubTrace[512] = "";
 	int m_aSnappedTicks[MAX_CLIENTS] = {0};
 	bool m_FinishLatched = false;
 	// Whether the run's team has held a member yet, the state the latch waits
@@ -835,6 +841,7 @@ private:
 	bool m_aTeeRaceStarted[MAX_CLIENTS] = {};
 	bool m_aTeeRaceFinished[MAX_CLIENTS] = {};
 	int m_aPublishCid[MAX_CLIENTS];
+	int m_aPublishedEver[MAX_CLIENTS];
 	int m_aSourceCid[MAX_CLIENTS];
 	// The names the rank's players had before their ranks were moved to a
 	// new name, as (rank name, old name) pairs
@@ -1162,10 +1169,47 @@ public:
 	{
 		if(From < 0 || From >= MAX_CLIENTS || To < 0 || To >= MAX_CLIENTS)
 			return;
+		// One client id holds one player: the slot that had it gives it up,
+		// or the demo writes two tees under it and the teams belong to
+		// whichever of them was written last
+		const int Previous = m_aSourceCid[To];
+		if(Previous != To && Previous != From)
+			ClearPublishCid(Previous);
+		ClearPublishCid(From);
 		m_aPublishCid[From] = To;
 		m_aSourceCid[To] = From;
+		// The teams are written per published client id, so a slot that
+		// changes hands changes the message
+		m_TeamsDirty = true;
+	}
+
+	// The slot publishes itself again. Only the client id it held is given
+	// up: the one it is named after belongs to whoever publishes as it now,
+	// and taking that as well is how a player loses the team of the run
+	// halfway through, see SourceCid.
+	void ClearPublishCid(int Cid)
+	{
+		if(Cid < 0 || Cid >= MAX_CLIENTS)
+			return;
+		const int Published = m_aPublishCid[Cid];
+		if(m_aSourceCid[Published] == Cid)
+			m_aSourceCid[Published] = Published;
+		m_aPublishCid[Cid] = Cid;
+		m_TeamsDirty = true;
+	}
+
+	// Who is published under which client id, by name, for the players that
+	// hold another slot than the one the run is written with
+	void SetPublishName(const char *pName, int Cid)
+	{
+		m_vPublishNames.emplace_back(pName, Cid);
+		for(int Slot = 0; Slot < MAX_CLIENTS; Slot++)
+			RefreshRunPlayer(Slot);
 	}
 	int PublishCid(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aPublishCid[Cid] : Cid; }
+	// The client id a slot's player was published as at any point of the
+	// recording, which a slot they left no longer says
+	int PublishedEver(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aPublishedEver[Cid] : Cid; }
 	int SourceCid(int Cid) const { return Cid >= 0 && Cid < MAX_CLIENTS ? m_aSourceCid[Cid] : Cid; }
 
 	CConverter(IStorage *pStorage, CSnapshotDelta *pSnapshotDelta) :
@@ -1175,6 +1219,7 @@ public:
 		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
 		{
 			m_aPublishCid[Cid] = Cid;
+			m_aPublishedEver[Cid] = Cid;
 			m_aSourceCid[Cid] = Cid;
 			m_aTeamRaceStartTick[Cid] = -1;
 		}
@@ -1729,8 +1774,21 @@ public:
 		for(const int Cid : vCids)
 		{
 			if(Cid >= 0 && Cid < MAX_CLIENTS)
+			{
+				m_aRunCid[Cid] = true;
 				m_aRunPlayer[Cid] = true;
+			}
 		}
+	}
+
+	// The names the save or the load matched the run's players to. A run of
+	// hours is rarely one connection: a player who times out and comes back
+	// holds another slot afterwards, and only the name says it is still them.
+	void SetRunNames(std::vector<std::string> vNames)
+	{
+		m_vRunNames = std::move(vNames);
+		for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+			RefreshRunPlayer(Cid);
 	}
 
 	// Recordings without team chunks: the run is the players holding the
@@ -2448,6 +2506,9 @@ public:
 			// left one of them before the demo starts is an earlier player.
 			if(m_Tick >= m_StartTick)
 				m_aFinisher[Cid] = false;
+			m_aRunCid[Cid] = false;
+			m_aRunPlayer[Cid] = false;
+			ClearPublishCid(Cid);
 			break;
 		}
 		case TEEHISTORIAN_CONSOLE_COMMAND:
@@ -2580,6 +2641,7 @@ private:
 			// Cl_StartInfo and Cl_ChangeInfo have identical layouts
 			const CNetMsg_Cl_StartInfo *pInfo = (const CNetMsg_Cl_StartInfo *)pRawMsg;
 			str_copy(pPlayer->m_aName, pInfo->m_pName);
+			RefreshRunPlayer(Cid);
 			str_copy(pPlayer->m_aClan, pInfo->m_pClan);
 			pPlayer->m_Country = pInfo->m_Country;
 			str_copy(pPlayer->m_aSkin, pInfo->m_pSkin);
@@ -2632,15 +2694,15 @@ private:
 	{
 		if(m_FilterTeam < 0)
 			return true;
+		// The players the run is known to be made of, whatever the recording
+		// says about their team and whether the team has been latched since
+		if(m_aRunPlayer[Cid])
+			return true;
 		// The team is dissolved in the tick it finishes in, but the demo runs
 		// a few seconds past the finish, so the run keeps the players it had
 		if(m_FinishLatched)
 			return m_aFinisher[Cid];
 		if(m_TeamsCore.Team(Cid) == m_FilterTeam)
-			return true;
-		// The players the run is known to be made of, whatever the recording
-		// says about their team
-		if(m_aRunPlayer[Cid])
 			return true;
 		// A team formed before the recording started is in no chunk of it, so
 		// the team holds nobody and every player would be hidden until the
@@ -2753,6 +2815,49 @@ private:
 	}
 
 	// Whether a recorded name is one of the rank's
+	// A slot holds the run again once it carries one of the run's names, and
+	// holds it no longer once the player leaves it
+	void RefreshRunPlayer(int Cid)
+	{
+		// A name the run was saved under says which slot holds the run, and
+		// it says it no longer once that slot renames away from it: a pair
+		// that swaps names between their two connections would otherwise
+		// leave both of them in the demo, standing around beside the run
+		m_aRunPlayer[Cid] = m_aRunCid[Cid];
+		for(const std::string &Name : m_vRunNames)
+		{
+			if(SameName(m_aPlayers[Cid].m_aName, Name.c_str()))
+			{
+				m_aRunPlayer[Cid] = true;
+				break;
+			}
+		}
+		// The published slot follows the player rather than the slot they
+		// happen to hold, or a run that was played over two connections would
+		// be two tees in the demo, one of them standing still forever
+		for(const auto &[Name, PublishAs] : m_vPublishNames)
+		{
+			if(!SameName(m_aPlayers[Cid].m_aName, Name.c_str()))
+				continue;
+			// Which slot held the player at all, for the parts of the run
+			// before this one: they are written with the slots of this one,
+			// and the load that began it says who was in which slot then
+			m_aPublishedEver[Cid] = PublishAs;
+			if(m_aPublishCid[Cid] == PublishAs)
+				break;
+			// Only a player the demo writes can hold a client id: every other
+			// slot is connected on a server the demo never shows, and letting
+			// one of those keep the id costs the run a player
+			bool Taken = false;
+			for(int Other = 0; Other < MAX_CLIENTS; Other++)
+				Taken = Taken || (Other != Cid && m_aPlayers[Other].m_Connected &&
+							 m_aPublishCid[Other] == PublishAs && IncludePlayer(Other));
+			if(!Taken)
+				SetPublishCid(Cid, PublishAs);
+			break;
+		}
+	}
+
 	bool IsAnyRankName(const char *pRecorded) const
 	{
 		if(m_pvRankNames == nullptr)
@@ -2822,6 +2927,21 @@ private:
 	void SendTeamsState()
 	{
 		m_TeamsStateTick = m_Tick;
+		if(getenv("T2D_PUBTRACE"))
+		{
+			char aLine[512] = "";
+			for(int Cid = 0; Cid < 8; Cid++)
+			{
+				char aOne[64];
+				str_format(aOne, sizeof(aOne), "%d<-%d:%d ", Cid, SourceCid(Cid), PublishedTeam(SourceCid(Cid)));
+				str_append(aLine, aOne);
+			}
+			if(str_comp(aLine, m_aPubTrace) != 0)
+			{
+				str_copy(m_aPubTrace, aLine);
+				log_info(TOOL_NAME, "PUBTRACE tick=%d %s", m_Tick, aLine);
+			}
+		}
 		CPacker Packer;
 		Packer.Reset();
 		// An extended message is a zero, its uuid and then the payload
@@ -2883,7 +3003,10 @@ private:
 			const int Cid = Unpacker.GetInt();
 			const char *pName = Unpacker.GetString();
 			if(!Unpacker.Error() && Cid >= 0 && Cid < MAX_CLIENTS)
+			{
 				str_copy(m_aPlayers[Cid].m_aName, pName);
+				RefreshRunPlayer(Cid);
+			}
 			break;
 		}
 		case TEEHISTORIAN_PLAYER_FINISH:
@@ -6674,26 +6797,41 @@ int main(int argc, const char *argv[])
 		// only has to say who is in the team for the members that joined it
 		// inside it, so without this the rest of the team is hidden for as
 		// long as the recording says nothing about them.
+		std::vector<std::string> vRunNames;
 		for(const auto &[Cid, Name] : vLoadRoster)
+		{
 			Converter.SetRunPlayers({Cid});
+			vRunNames.push_back(Name);
+		}
+		Converter.SetRunNames(vRunNames);
 		Converter.SetSnapCid(RankTarget.m_Cid);
 		Converter.SetRankMarkers(RankTarget.m_FinishTick - RankTimeTicks, RankTarget.m_FinishTick);
 	}
 	if(FromSaveMode)
 	{
-		for(const auto &[Cid, Name] : vSaveRoster)
+		// The names come from the load that follows this save, which carries
+		// this very save string, so they are the names of its tees: the slots
+		// holding them at the save are what the demo publishes. The names are
+		// handed over as well, for a player who reconnects inside this part
+		// and holds another slot for some of it.
+		for(const auto &[pName, PublishAs] : vPublishNames)
 		{
-			for(const auto &[pName, PublishAs] : vPublishNames)
+			for(const auto &[Cid, Name] : vSaveRoster)
 			{
 				if(Name == pName)
 					Converter.SetPublishCid(Cid, PublishAs);
 			}
+			Converter.SetPublishName(pName, PublishAs);
 		}
 		if(SaveTeam == TEAM_FLOCK && vSaveCids.size() >= 2)
 			Converter.SetRunCids(vSaveCids);
 		else
 			Converter.SetTeamFilter(SaveTeam);
 		Converter.SetRunPlayers(vSaveCids);
+		std::vector<std::string> vRunNames;
+		for(const auto &[Cid, Name] : vSaveRoster)
+			vRunNames.push_back(Name);
+		Converter.SetRunNames(vRunNames);
 		Converter.SetSnapCid(vSaveCids.empty() ? -1 : vSaveCids[0]);
 		Converter.SetRankMarkers(SaveTick - SaveTimeTicks, SaveTick);
 	}

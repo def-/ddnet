@@ -76,17 +76,14 @@ def gone_maps(con, watchable):
 
 
 def main():
-    # Two ranks of the same map and kind can carry the same time, a tie that
-    # the manifest keeps both of. The table has one row per time, and the
-    # first of them is the one the page links.
     # A rank that is gone and whose line is only kept for its link needs no
     # refresh, its map has one already: asking for it again would name the same
     # map on every tick for good.
     seen = set()
     watchable = []
     for row in rows(args.manifest, candidates_only=args.gone):
-        if row[:3] not in seen:
-            seen.add(row[:3])
+        if row not in seen:
+            seen.add(row)
             watchable.append(row)
     if not watchable:
         sys.exit(f"no watchable rank in {args.manifest}")

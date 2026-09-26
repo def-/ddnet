@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS record_watch (
   -- of the same run reaches the page through several conversions
   TimeMilli INT NOT NULL,
   -- The whole link: everything else about the run is in watchable.jsonl,
-  -- which the watch page reads
+  -- which the watch page reads. Part of the key: two runs of a map can tie
+  -- to the hundredth, and each of them has its own demo
   GameID VARCHAR(36) NOT NULL,
-  PRIMARY KEY (Map, Kind, TimeMilli)
+  PRIMARY KEY (Map, Kind, TimeMilli, GameID)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

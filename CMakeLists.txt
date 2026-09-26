@@ -3322,12 +3322,14 @@ if(TOOLS)
     config_store.cpp
     crapnet.cpp
     demo_extract_chat.cpp
+    demo_inspect.cpp
     demo_scramble.cpp
     demo_scramble_noise.h
     demo_splice.cpp
     dilate.cpp
     dummy_map.cpp
     map_convert_07.cpp
+    map_tileat.cpp
     map_diff.cpp
     map_extract.cpp
     map_find_env.cpp
@@ -3778,7 +3780,9 @@ if(TOOLS)
     config_retrieve
     config_store
     demo_extract_chat
+    demo_inspect
     dilate
+    map_tileat
     map_convert_07
     map_diff
     map_extract

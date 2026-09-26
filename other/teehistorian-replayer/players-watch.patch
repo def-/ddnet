@@ -1,0 +1,44 @@
+--- players.py.bak-2026-09-19-watch	2026-09-19 09:40:03
++++ players.py	2026-09-19 10:09:25
+@@ -2,6 +2,7 @@
+ # -*- coding: utf-8 -*-
+ 
+ from ddnet import *
++from watchlinks import playerLinks
+ import sys
+ from html import escape
+ from datetime import datetime, timedelta, date
+@@ -143,6 +144,15 @@
+ def hoverTime(seconds):
+   full = escape(formatTime(seconds))
+   return 'title="%s" data-text="%s"' % (full, full)
++
++# A rank whose run has a pre-generated demo shows its time as a link to the
++# replayer, like on the map pages. The solo demo, or the team demo when only
++# that one exists
++def watchTime(watch, map, text):
++  url = watch.get((map, 'solo')) or watch.get((map, 'team'))
++  if url is None:
++    return text
++  return '<a href="%s">%s</a>' % (escape(url), text)
+ 
+ def getPlayerTimes(name, days=366):
+   endDate = date.today()
+@@ -695,6 +705,8 @@
+   print(favoritePartners(name), file=out)
+   print('<br/>', file=out)
+   print('</div>', file=out)
++
++  watch = playerLinks(name)
+ 
+   for type in data['types']:
+     maps2 = data['maps'][type]
+@@ -724,7 +736,7 @@
+         if isinstance(timestamp, str):
+             timestamp = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+         dateWithTz = escape(formatDateTimeTz(timestamp))
+-        tblString += '<tr><td><a href="%s">%s</a></td><td class="smallpoints">%d</td><td class="rank">%s</td><td class="rank">%s</td><td class="rank" %s>%s</td><td class="rank">%d</td><td class="rank"><span data-type="date" data-date="%s" data-datefmt="datetime">%s</span></td></tr>\n' % (mapWebsite(map), escape(map), points, formatRank(player[0][map][0]), formatRank(player[0][map][1]), hoverTime(player[0][map][4]), escape(formatTimeShort(player[0][map][4])), player[0][map][2], dateWithTz, escape(formatDate(timestamp)))
++        tblString += '<tr><td><a href="%s">%s</a></td><td class="smallpoints">%d</td><td class="rank">%s</td><td class="rank">%s</td><td class="rank" %s>%s</td><td class="rank">%d</td><td class="rank"><span data-type="date" data-date="%s" data-datefmt="datetime">%s</span></td></tr>\n' % (mapWebsite(map), escape(map), points, formatRank(player[0][map][0]), formatRank(player[0][map][1]), hoverTime(player[0][map][4]), watchTime(watch, map, escape(formatTimeShort(player[0][map][4]))), player[0][map][2], dateWithTz, escape(formatDate(timestamp)))
+       else:
+         allFinished = False
+         unfinishedString += '<tr><td><a href="%s">%s</a></td><td class="rank">%d</td><td class="rank">%d</td></tr>' % (mapWebsite(map), escape(map), points, finishes)

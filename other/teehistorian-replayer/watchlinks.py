@@ -110,3 +110,37 @@ def watchLinks(mapName=None):
             # unaffected by a lookup that failed here
             connection = None
     return links
+
+
+def playerLinks(name):
+    """{(map, kind): url} of the player's ranks that can be watched, for the
+    player page. It shows one run a map, the best solo and the best team run,
+    so a demo of a run the player has since beaten gets no link there. A join
+    per kind through the (Map, Name) index of the rank table, one row per
+    published rank the player is part of, then the best times of those maps."""
+    global connection
+    links = watchLinks()
+    if not links:
+        return {}
+    found = {}
+    try:
+        cur = connection.cursor()
+        for kind, table in (("solo", "record_race"), ("team", "record_teamrace")):
+            cur.execute(f"SELECT w.Map, w.TimeMilli, w.GameID FROM record_watch w JOIN {table} r ON r.Map = w.Map AND r.Name = %s AND r.GameID = w.GameID AND r.Time BETWEEN w.TimeMilli / 1000 - 0.05 AND w.TimeMilli / 1000 + 0.05 WHERE w.Kind = %s",
+                (name, kind))
+            rows = cur.fetchall()
+            if not rows:
+                continue
+            maps = sorted({map for map, _, _ in rows})
+            cur.execute(f"SELECT Map, MIN(Time) FROM {table} WHERE Name = %s AND Map IN ({', '.join(['%s'] * len(maps))}) GROUP BY Map",
+                (name, *maps))
+            best = {map: round(time * 100) for map, time in cur.fetchall()}
+            for map, milli, gameId in rows:
+                url = links.get((map, kind), {}).get((gameId, centi(milli)))
+                if url is not None and centi(milli) == best.get(map):
+                    found[(map, kind)] = url
+        cur.close()
+    except Exception:
+        connection = None
+        return {}
+    return found

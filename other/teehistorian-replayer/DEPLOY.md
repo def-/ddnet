@@ -133,7 +133,8 @@ filled from the uploaded manifest by `import-watchable.py`, which
 connection and swallows its errors: a page that cannot reach the index shows
 the times it always showed.
 
-Clickable times, all four patches against the versions of 2026-09-09:
+Clickable times, four patches against the versions of 2026-09-09 and one
+against the players page of 2026-09-19:
 
 | patch | file | page |
 | --- | --- | --- |
@@ -141,6 +142,7 @@ Clickable times, all four patches against the versions of 2026-09-09:
 | `maps-mz-watch.patch` | `maps_mz.py` | ddnet.org/maps (Materialize, uwsgi 9033) |
 | `maps-watch.patch` | `maps.py` | ddnet.org/maps2 (MariaDB, uwsgi 9003) |
 | `ranks-watch.patch` | `ranks.py` | ddnet.org/ranks (static, regenerated) |
+| `players-watch.patch` | `players.py` | ddnet.org/players (uwsgi 9001) |
 
 `ddnet-watch.patch` gives `printExactSoloRecords`, `printSoloRecords` and
 `printTeamRecords` an optional `watch` argument, `{time in milliseconds:
@@ -148,6 +150,11 @@ url}`, and prints the times it holds as links. The pages look their map up in
 `record_watch` and pass it on, `ranks.py` loads the whole index once because
 it writes every map in one run. Roll the maps uwsgi apps after patching, the
 rank pages pick it up with their next regeneration.
+
+The players page shows one run a map, so `players-watch.patch` asks
+`watchlinks.playerLinks` for the player's published runs that are still their
+best solo and team time on the map, and links the time to the solo demo, or
+to the team demo when only that one exists.
 
 ## Archive host (li)
 

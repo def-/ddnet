@@ -308,11 +308,42 @@ enum class ERankMatch
 
 // One tee of a team save, CSaveTee::GetString: the game it was saved in and
 // how long its run had been going by then.
+// A tee in a save string, as CSaveTee::GetString wrote it. A /load restores
+// the state of every tee from these (CSaveTee::Load), so the replay has to do
+// the same or the tees keep whatever they had before the load: the solo of
+// the lobby they saved from, weapons they no longer have, a freeze that ended.
 struct CSavedTee
 {
 	char m_aName[MAX_NAME_LENGTH];
 	int m_TimeTicks;
 	CUuid m_GameUuid;
+	// How many fields the tee's line held: the format grew over the years,
+	// and teehistorian truncates the string of a large team, so the last tee
+	// of a save can end anywhere
+	int m_Fields = 0;
+	bool m_Solo = false;
+	bool m_aWeaponGot[NUM_WEAPONS] = {false};
+	int m_aWeaponAmmoCost[NUM_WEAPONS] = {0};
+	int m_LastWeapon = 0;
+	int m_QueuedWeapon = -1;
+	int m_ActiveWeapon = 0;
+	bool m_EndlessJump = false;
+	bool m_Jetpack = false;
+	int m_FreezeTime = 0;
+	int m_FreezeStart = 0;
+	bool m_DeepFrozen = false;
+	bool m_LiveFrozen = false;
+	bool m_EndlessHook = false;
+	int m_HitDisabledFlags = 0;
+	bool m_CollisionEnabled = true;
+	bool m_HookHitEnabled = true;
+	int m_TuneZone = 0;
+	int m_Jumped = 0;
+	int m_JumpedTotal = 0;
+	int m_Jumps = 2;
+	bool m_HasTelegunGun = false;
+	bool m_HasTelegunLaser = false;
+	bool m_HasTelegunGrenade = false;
 };
 
 // A /save or /load of a team, see CConverter::SaveEvents.
@@ -871,6 +902,8 @@ private:
 	// a save id links a load to the recording the run was saved in: each
 	// saved tee names the game it was saved in and its race time then
 	std::vector<CSaveEvent> m_vSaveEvents;
+	// The loads of the tick being read, see the save event chunk
+	std::vector<CSaveEvent> m_vPendingLoads;
 
 	// The team save string, CSaveTeam::GetString: a header line, one line
 	// per tee (CSaveTee::GetString, tab separated, the game uuid is the one
@@ -896,8 +929,41 @@ private:
 				pField = pStop == pTab && pTab != nullptr ? pTab + 1 : nullptr;
 			}
 			CSavedTee Tee;
+			Tee.m_Fields = (int)vFields.size();
 			str_copy(Tee.m_aName, vFields.empty() ? "" : vFields[0].c_str());
 			Tee.m_TimeTicks = vFields.size() > 100 ? str_toint(vFields[45].c_str()) : -1;
+			// Every field that is there is read on its own: a save string of
+			// an old server is shorter than today's, and teehistorian cuts a
+			// long one off wherever it runs out of room
+			const auto Saved = [&vFields](size_t Index, int Default) {
+				return Index < vFields.size() ? str_toint(vFields[Index].c_str()) : Default;
+			};
+			Tee.m_Solo = Saved(5, 0) != 0;
+			for(int Weapon = 0; Weapon < NUM_WEAPONS; Weapon++)
+			{
+				Tee.m_aWeaponAmmoCost[Weapon] = Saved(6 + Weapon * 4 + 2, 0);
+				Tee.m_aWeaponGot[Weapon] = Saved(6 + Weapon * 4 + 3, 0) != 0;
+			}
+			Tee.m_LastWeapon = Saved(30, WEAPON_HAMMER);
+			Tee.m_QueuedWeapon = Saved(31, -1);
+			Tee.m_EndlessJump = Saved(32, 0) != 0;
+			Tee.m_Jetpack = Saved(33, 0) != 0;
+			Tee.m_FreezeTime = Saved(35, 0);
+			Tee.m_FreezeStart = Saved(36, 0);
+			Tee.m_DeepFrozen = Saved(37, 0) != 0;
+			Tee.m_EndlessHook = Saved(38, 0) != 0;
+			Tee.m_HitDisabledFlags = Saved(40, 0);
+			Tee.m_CollisionEnabled = Saved(41, 1) != 0;
+			Tee.m_TuneZone = Saved(42, 0);
+			Tee.m_HookHitEnabled = Saved(44, 1) != 0;
+			Tee.m_ActiveWeapon = Saved(56, WEAPON_GUN);
+			Tee.m_Jumped = Saved(57, 0);
+			Tee.m_JumpedTotal = Saved(58, 0);
+			Tee.m_Jumps = Saved(59, 2);
+			Tee.m_HasTelegunGun = Saved(97, 0) != 0;
+			Tee.m_HasTelegunLaser = Saved(98, 0) != 0;
+			Tee.m_HasTelegunGrenade = Saved(99, 0) != 0;
+			Tee.m_LiveFrozen = Saved(109, 0) != 0;
 			Tee.m_GameUuid = CalculateUuid("game-uuid-nonexistent@ddnet.tw");
 			for(const std::string &Field : vFields)
 			{
@@ -908,6 +974,81 @@ private:
 			pLine = pEnd;
 		}
 	}
+	// CSaveTee::Load: a /load puts the state the save holds back on the tees.
+	// Without this a replayed load keeps whatever the players had before it,
+	// which is how a team that saved in a solo part stays solo for the rest of
+	// the run: their hammers hit nobody and nobody is ever unfrozen again.
+	void ApplyLoadedTees(const CSaveEvent &Event)
+	{
+		std::vector<bool> vTeeTaken(Event.m_vTees.size(), false);
+		for(const auto &[Cid, Name] : Event.m_vRoster)
+		{
+			for(size_t Index = 0; Index < Event.m_vTees.size(); Index++)
+			{
+				const CSavedTee &Tee = Event.m_vTees[Index];
+				if(vTeeTaken[Index] || Name != Tee.m_aName)
+					continue;
+				vTeeTaken[Index] = true;
+				ApplyLoadedTee(Cid, Tee);
+				break;
+			}
+		}
+	}
+
+	void ApplyLoadedTee(int Cid, const CSavedTee &Tee)
+	{
+		CPlayer &Player = m_aPlayers[Cid];
+		CCharacterCore &Core = Player.m_Core;
+		// A truncated line ends somewhere: what it still holds is restored,
+		// the rest is left as it is rather than restored as a zero
+		if(Tee.m_Fields <= 5)
+			return;
+		SetSolo(Cid, Tee.m_Solo);
+		if(Tee.m_Fields < 30)
+			return;
+		for(int Weapon = 0; Weapon < NUM_WEAPONS; Weapon++)
+		{
+			Core.m_aWeapons[Weapon].m_Got = Tee.m_aWeaponGot[Weapon];
+			// Ammo stopped tracking the freeze in ddnet#2086, a weapon that
+			// is there has no ammo limit
+			Core.m_aWeapons[Weapon].m_Ammo = -1;
+			Core.m_aWeapons[Weapon].m_Ammocost = Tee.m_aWeaponAmmoCost[Weapon];
+		}
+		Player.m_LastWeapon = Tee.m_LastWeapon;
+		Player.m_QueuedWeapon = Tee.m_QueuedWeapon;
+		if(Tee.m_Fields < 45)
+			return;
+		Core.m_EndlessJump = Tee.m_EndlessJump;
+		Core.m_Jetpack = Tee.m_Jetpack;
+		Player.m_FreezeEndTick = Tee.m_FreezeTime > 0 ? m_Tick + Tee.m_FreezeTime : 0;
+		Player.m_FreezeStartTick = Tee.m_FreezeTime > 0 ? m_Tick - Tee.m_FreezeStart : 0;
+		Player.m_DeepFrozen = Tee.m_DeepFrozen;
+		Core.m_DeepFrozen = Tee.m_DeepFrozen;
+		Core.m_EndlessHook = Tee.m_EndlessHook;
+		// CSaveTee's HAMMER_HIT_DISABLED and the three after it
+		Core.m_HammerHitDisabled = (Tee.m_HitDisabledFlags & 1) != 0;
+		Core.m_ShotgunHitDisabled = (Tee.m_HitDisabledFlags & 2) != 0;
+		Core.m_GrenadeHitDisabled = (Tee.m_HitDisabledFlags & 4) != 0;
+		Core.m_LaserHitDisabled = (Tee.m_HitDisabledFlags & 8) != 0;
+		Core.m_CollisionDisabled = !Tee.m_CollisionEnabled;
+		Core.m_HookHitDisabled = !Tee.m_HookHitEnabled;
+		Player.m_TuneZone = Tee.m_TuneZone;
+		if(Tee.m_Fields < 60)
+			return;
+		Core.m_ActiveWeapon = Tee.m_ActiveWeapon;
+		Core.m_Jumped = Tee.m_Jumped;
+		Core.m_JumpedTotal = Tee.m_JumpedTotal;
+		Core.m_Jumps = Tee.m_Jumps;
+		if(Tee.m_Fields < 100)
+			return;
+		Core.m_HasTelegunGun = Tee.m_HasTelegunGun;
+		Core.m_HasTelegunLaser = Tee.m_HasTelegunLaser;
+		Core.m_HasTelegunGrenade = Tee.m_HasTelegunGrenade;
+		if(Tee.m_Fields < 110)
+			return;
+		Core.m_LiveFrozen = Tee.m_LiveFrozen;
+	}
+
 	// The save string carries every tee's name, the recording does not have
 	// to: a player who joined before it started is nameless in it, and then
 	// the half of the run the save holds cannot be matched to the rank by
@@ -2787,6 +2928,13 @@ private:
 			}
 			NameRosterFromSave(Event);
 			RosterFromSaveNames(Event);
+			// The tiles of a tick are handled when the tick is flushed, which
+			// is after its chunks are read, and those are still the tiles of
+			// where the tees stood before the load put them somewhere else.
+			// The load has to come after them, the way the server's database
+			// answer comes after the tick that asked for it.
+			if(Event.m_Load)
+				m_vPendingLoads.push_back(Event);
 			if(getenv("T2D_SAVETRACE"))
 			{
 				char aSaveId[UUID_MAXSTRSIZE];
@@ -2796,7 +2944,15 @@ private:
 				{
 					char aGame[UUID_MAXSTRSIZE];
 					FormatUuid(Tee.m_GameUuid, aGame, sizeof(aGame));
-					log_info(TOOL_NAME, "SAVETRACE   tee '%s' time=%d game=%s", Tee.m_aName, Tee.m_TimeTicks, aGame);
+					log_info(TOOL_NAME, "SAVETRACE   tee '%s' time=%d game=%s fields=%d solo=%d freeze=%d deep=%d", Tee.m_aName, Tee.m_TimeTicks, aGame,
+						Tee.m_Fields, Tee.m_Solo, Tee.m_FreezeTime, Tee.m_DeepFrozen);
+				}
+				for(const auto &[Cid, Name] : Event.m_vRoster)
+					log_info(TOOL_NAME, "SAVETRACE   roster %d '%s'", Cid, Name.c_str());
+				for(int Cid = 0; Cid < MAX_CLIENTS; Cid++)
+				{
+					if(m_aPlayers[Cid].m_Connected)
+						log_info(TOOL_NAME, "SAVETRACE   player %d '%s' team=%d alive=%d", Cid, m_aPlayers[Cid].m_aName, m_TeamsCore.Team(Cid), m_aPlayers[Cid].m_Alive);
 				}
 			}
 			m_vSaveEvents.push_back(std::move(Event));
@@ -4296,7 +4452,6 @@ private:
 	{
 		if(!m_TickDirty)
 			return;
-
 		// Recordings from before September 2021 have no team chunks either,
 		// there the run is whoever holds the rank's names. Whoever holds them
 		// AT the rank's timestamp: a player of that name who only joins later
@@ -4401,6 +4556,9 @@ private:
 		// tick, with the tee already standing where this tick recorded it
 		if(HasWorld)
 			HandleWeapons();
+		for(const CSaveEvent &Load : m_vPendingLoads)
+			ApplyLoadedTees(Load);
+		m_vPendingLoads.clear();
 		if(Record)
 		{
 			WriteDatasetTick();

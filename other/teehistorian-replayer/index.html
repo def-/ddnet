@@ -2114,15 +2114,19 @@
 				// team's: the rank's own player is the finisher carrying its
 				// name, which is known once the demo names its tees.
 				soloCidPending = soloRun && rankedIds.length > 1;
-				if (soloRun && !soloCidPending) {
+				// A demo served as a plain file comes with no client id, there
+				// the tee the link names is looked up once the demo names its
+				// players (reconcileCamera)
+				watchCidPending = meta.cid === undefined && rankedNames.length > 0;
+				if (soloRun && !soloCidPending && !watchCidPending) {
 					rankedIds = [String(watchCid)];
 				}
-				if (meta.cid !== undefined) {
+				if (meta.cid !== undefined || watchCidPending) {
 					// A team run frames the whole team through multi-view, a solo
 					// run stays on its one finisher. The client drops a spectate
 					// command until the demo actually plays, so selectCamera keeps
 					// asking until it reports the camera we want.
-					cameraSelection = soloRun ? String(meta.cid) : 'team';
+					cameraSelection = soloRun ? String(watchCid) : 'team';
 					selectCamera(cameraSelection);
 					setTimeout(() => showCameraTee(cameraSelection, null), 4200);
 				}
@@ -2498,6 +2502,7 @@
 			let cameraDeadline = 0;
 			let soloRun = false;
 			let soloCidPending = false;
+			let watchCidPending = false;
 			let rankedNames = [];
 			let rankedAliases = [];
 			let rankedIds = [];
@@ -2508,11 +2513,43 @@
 				const wanted = new Set([...rankedNames, ...rankedAliases].map(name => name.trimEnd()));
 				for (const line of Module.ccall('EmscriptenCallbackPlayerInfo', 'string', [], []).split('\n')) {
 					const [id, name] = line.split('\t');
-					if (name !== undefined && rankedIds.includes(id) && wanted.has(name.trimEnd())) {
+					if (name !== undefined && (rankedIds.length === 0 || rankedIds.includes(id)) && wanted.has(name.trimEnd())) {
 						return id;
 					}
 				}
 				return null;
+			}
+			// The name a link carries is the one the player had at the finish,
+			// and a player who renamed during the run is not called that at
+			// its start. The demo is looked at a second before its finish (it
+			// ends RUN_POST_SECONDS after it) and then goes back to where the
+			// link opened it. undefined while under way, null when nobody at
+			// the finish has the name either.
+			let finishLookup = null;
+			function lookupAtFinish() {
+				const info = Module.ccall('EmscriptenCallbackDemoInfo', 'string', [], []);
+				if (info === '') {
+					return undefined;
+				}
+				const [current, first, last] = info.split(' ').map(Number);
+				const length = Math.max(1, last - first) / 50;
+				const finish = Math.max(0, length - RUN_POST_SECONDS - 1);
+				if (finishLookup === null) {
+					finishLookup = { back: startTime !== null ? startTime : (current - first) / 50, since: performance.now() };
+					startTime = null;
+					execute(`demo_seek ${(finish / length * 100).toFixed(3)}`);
+					return undefined;
+				}
+				if ((current - first) / 50 < finish - 0.5 && performance.now() - finishLookup.since < 3000) {
+					return undefined;
+				}
+				const id = soloCidByName();
+				const fraction = Math.min(1, Math.max(0, finishLookup.back / length));
+				finishLookup = null;
+				execute(`demo_seek ${(fraction * 100).toFixed(3)}`);
+				pendingSeek = Math.round(fraction * 1000);
+				pendingSince = performance.now();
+				return id;
 			}
 			// The wanted camera, written to the client until it sticks: a
 			// spectate command is refused while the demo has not started
@@ -2564,11 +2601,31 @@
 				}
 				if (performance.now() > cameraDeadline) {
 					cameraWanted = false;
+					watchCidPending = false;
 					if (soloCidPending) {
 						soloCidPending = false;
 						rankedIds = [String(watchCid)];
 					}
 					return;
+				}
+				if (watchCidPending) {
+					let id = finishLookup === null ? soloCidByName() : null;
+					if (id === null) {
+						id = lookupAtFinish();
+						if (id === undefined) {
+							return;
+						}
+					}
+					watchCidPending = false;
+					if (id !== null) {
+						watchCid = Number(id);
+						cameraAsked = 0;
+						if (soloRun) {
+							rankedIds = [id];
+							cameraSelection = id;
+							showCameraTee(id, null);
+						}
+					}
 				}
 				if (soloCidPending) {
 					const id = soloCidByName();

@@ -371,6 +371,21 @@
 			border-radius: 2px;
 			background: #fff;
 		}
+		/* Where the run starts and finishes, the rest of a demo is the seconds
+		   before the start line and after the finish */
+		.slider .marker {
+			position: absolute;
+			top: 5px;
+			width: 3px;
+			height: 10px;
+			margin-left: -1px;
+			border-radius: 1px;
+			background: #57d16e;
+			pointer-events: none;
+		}
+		.slider .marker.finish {
+			background: #ffd24a;
+		}
 		.slider .knob {
 			position: absolute;
 			top: 3px;
@@ -823,7 +838,7 @@
 			</div>
 			<div id="seekrow">
 				<span id="timenow">0:00</span>
-				<div id="seek" class="slider" title="Jump to a position (0-9: 0 % to 90 %, Home / End)"><div class="fill"></div><div class="knob"></div></div>
+				<div id="seek" class="slider" title="Jump to a position (0-9: 0 % to 90 %, Home / End)"><div class="fill"></div><div id="startmarker" class="marker" title="The run starts here" hidden></div><div id="finishmarker" class="marker finish" title="The run finishes here" hidden></div><div class="knob"></div></div>
 				<span id="timeend">0:00</span>
 			</div>
 		</div>
@@ -2065,6 +2080,10 @@
 				// demo that never starts still shows whatever the client did.
 				waitingForPlayback = true;
 				watchCid = meta.cid || 0;
+				// The rank's time, which is where its start line is before the
+				// finish, see paintRunMarkers
+				const timeSeconds = parseFloat(params.get('time') || meta.time);
+				runTime = isNaN(timeSeconds) || timeSeconds <= 0 ? null : timeSeconds;
 				rankedNames = params.getAll('name');
 				rankedAliases = params.getAll('alias');
 				// Whose rank it is: the players of the team that were there at
@@ -2812,6 +2831,7 @@
 				return demoLength > 3600 ? `${String(Math.floor(whole / 3600)).padStart(2, '0')}:${rest}` : `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 			};
 			let demoLength = 0; // seconds
+			let runTime = null; // the rank's time in seconds, for the markers
 			let seeking = false;
 			let pendingSeek = null; // slider value the client still has to reach
 			let pendingSince = 0;
@@ -2899,6 +2919,7 @@
 				}
 				demoLength = Math.max(1, last - first) / 50;
 				timeEnd.textContent = formatTime(demoLength);
+				paintRunMarkers();
 				if (pendingSeek !== null) {
 					const reached = Math.round(Math.min(1, Math.max(0, (current - first) / 50 / demoLength)) * 1000);
 					if (Math.abs(reached - pendingSeek) <= 5 || performance.now() - pendingSince > 3000) {
@@ -2930,6 +2951,29 @@
 					execute(`demo_seek ${(fraction * 100).toFixed(3)}`);
 					pendingSeek = Math.round(fraction * 1000);
 					pendingSince = performance.now();
+				}
+			}
+			// Where the run starts and finishes on the seek bar. A rank demo
+			// ends RUN_POST_SECONDS after the finish (teehistorian2demo.cpp),
+			// and the finish is the rank's time after the start line, so both
+			// are known from the length and the rank's time. A run that was
+			// saved and loaded has its earlier parts in the demo as well, and
+			// its start line is in one of those rather than this far back, so
+			// only the finish is marked there.
+			const RUN_POST_SECONDS = 3;
+			function paintRunMarkers() {
+				const startMarker = document.getElementById('startmarker');
+				const finishMarker = document.getElementById('finishmarker');
+				if (demoLength <= 0) {
+					return;
+				}
+				const finish = demoLength - RUN_POST_SECONDS;
+				const start = runTime === null ? null : finish - runTime;
+				finishMarker.hidden = finish <= 0;
+				finishMarker.style.left = `${Math.min(100, Math.max(0, finish / demoLength * 100))}%`;
+				startMarker.hidden = start === null || start <= 0;
+				if (start !== null) {
+					startMarker.style.left = `${Math.min(100, Math.max(0, start / demoLength * 100))}%`;
 				}
 			}
 			// One driver for both sliders: pointer capture means the drag keeps

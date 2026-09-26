@@ -1036,6 +1036,18 @@
 			// changed name costs every viewer the whole download again
 			const BUILD_TAG = '2026-09-18a';
 			const DATA_TAG = '2026-09-12g';
+			// DDNet.js is asked for at the end of the body, a round trip after
+			// the page itself: ask for it now. Only the script: WebKit never
+			// hands a preloaded fetch to the fetch() the runtime makes later
+			// and downloads the wasm and the 35 MB data a second time, at the
+			// same time as the first.
+			if (['uuid', 'demo', 'upload'].some(key => new URLSearchParams(location.search).has(key))) {
+				const link = document.createElement('link');
+				link.rel = 'preload';
+				link.as = 'script';
+				link.href = `DDNet.js?v=${BUILD_TAG}`;
+				document.head.appendChild(link);
+			}
 			// The list of pre-generated ranks, next to the demos it names
 			const MANIFEST_URL = 'watchable.jsonl';
 			// The asset package drives the bar while it downloads, but only as

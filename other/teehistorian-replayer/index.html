@@ -386,6 +386,12 @@
 		.slider .marker.finish {
 			background: #ffd24a;
 		}
+		/* The step the seek buttons take, for the modes that are not the
+		   default ten seconds */
+		#demobar .playback .steplabel {
+			font-size: 10px;
+			margin-left: 2px;
+		}
 		.slider .knob {
 			position: absolute;
 			top: 3px;
@@ -685,7 +691,7 @@
 			}
 		}
 		/* The menus a button in the bar opens, in the same panel as the bar */
-		#cameramenu, #sharemenu, #skinmenu {
+		#cameramenu, #sharemenu, #skinmenu, #stepmenu {
 			display: none;
 			position: absolute;
 			bottom: calc(100% + 6px);
@@ -703,7 +709,7 @@
 			backdrop-filter: blur(8px);
 			-webkit-backdrop-filter: blur(8px);
 		}
-		#cameramenu button, #sharemenu button, #skinmenu button {
+		#cameramenu button, #sharemenu button, #skinmenu button, #stepmenu button {
 			justify-content: flex-start;
 			gap: 10px;
 			height: 38px;
@@ -726,6 +732,7 @@
 			margin-left: auto;
 			padding-left: 10px;
 		}
+		#stepmenu button.selected,
 		#skinmenu button.selected,
 		#cameramenu button.selected {
 			background: rgba(255, 255, 255, 0.15);
@@ -797,6 +804,7 @@
 			<div id="cameramenu"></div>
 			<div id="sharemenu"></div>
 			<div id="skinmenu"></div>
+			<div id="stepmenu"></div>
 			<div id="demotitle"></div>
 			<div class="buttons">
 				<span class="rowbreak"></span>
@@ -814,9 +822,9 @@
 					</span>
 				</div>
 				<div class="group playback">
-						<button data-cmd="demo_skip -5" title="Back 5 seconds (←)"><span class="icon">&#xf04a;</span></button>
+						<button id="skipback" data-step="-1"><span class="icon">&#xf04a;</span><span class="steplabel"></span></button>
 					<button id="playbutton" data-cmd="demo_play" title="Pause / resume (Space)"><span class="icon">&#xf04c;</span></button>
-						<button data-cmd="demo_skip 5" title="Forward 5 seconds (→)"><span class="icon">&#xf04e;</span></button>
+						<button id="skipforward" data-step="1"><span class="icon">&#xf04e;</span><span class="steplabel"></span></button>
 				</div>
 				<div class="group view">
 					<span class="viewcontrols">
@@ -847,8 +855,8 @@
 			<h2>Keyboard shortcuts</h2>
 			<table>
 				<tr><td><kbd>Space</kbd></td><td>Pause / resume</td></tr>
-				<tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>5 seconds back / forward</td></tr>
-				<tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Faster / slower</td></tr>
+				<tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>10 seconds back / forward</td></tr>
+				<tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>1 minute forward / back</td></tr>
 				<tr><td><kbd>0</kbd> … <kbd>9</kbd></td><td>Jump to 0 % … 90 %</td></tr>
 				<tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Jump to the start / end</td></tr>
 				<tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>Previous / next tick</td></tr>
@@ -1431,6 +1439,7 @@
 					cameraMenu.style.display = 'none';
 					shareMenu.style.display = 'none';
 					skinMenu.style.display = 'none';
+					stepMenu.style.display = 'none';
 				} else if (e.key === 'F1') {
 					toggleHelp();
 				} else if (e.key === 'v' || e.key === 'V') {
@@ -1448,6 +1457,13 @@
 					}
 				} else if (e.key === '#') {
 					execute('zoom');
+				} else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+					// The client's own demo player seeks five seconds and
+					// changes the speed on up and down, these are the steps
+					// this page wants instead
+					seekBy(e.key === 'ArrowRight' ? 1 : -1, STEP_MODES.find(mode => mode.id === '10s'));
+				} else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+					seekBy(e.key === 'ArrowUp' ? 1 : -1, STEP_MODES.find(mode => mode.id === '60s'));
 				} else {
 					return;
 				}
@@ -2179,11 +2195,97 @@
 			let lastZoomKey = 0;
 			// Font Awesome codepoints of the embedded icon subset
 			const ICONS = { play: '\uf04b', pause: '\uf04c', users: '\uf0c0', volumeHigh: '\uf028', volumeXmark: '\uf6a9', trophy: '\uf091', freeview: '\uf002' };
+			// What the two seek buttons move by, switched by holding one of
+			// them. The keys keep one step each: the arrows ten seconds, up
+			// and down a minute, comma and dot a single tick.
+			const STEP_MODES = [
+				{ id: 'tick', label: '1 tick', short: '1t', keys: [',', '.'], tick: true },
+				{ id: '10s', label: '10 seconds', short: '', keys: ['←', '→'], seconds: 10 },
+				{ id: '60s', label: '1 minute', short: '1m', keys: ['↓', '↑'], seconds: 60 },
+			];
+			// Kept by name: the order of the steps is what the menu shows, and
+			// a stored number would mean another step once that changes
+			let stepMode = Math.max(0, STEP_MODES.findIndex(mode => mode.id === (viewSettings.step ?? '10s')));
+			// A tick is not a time the client can seek to: its demo player
+			// steps one on the comma and dot keys, which is what those are
+			// sent for
+			function stepTick(direction) {
+				for (const type of ['keydown', 'keyup']) {
+					const key = direction > 0 ? { key: '.', code: 'Period', code2: 190 } : { key: ',', code: 'Comma', code2: 188 };
+					(Module['canvas'] || document).dispatchEvent(new KeyboardEvent(type, {
+						key: key.key, code: key.code, keyCode: key.code2, which: key.code2, bubbles: true, cancelable: true }));
+				}
+			}
+			function seekBy(direction, mode = STEP_MODES[stepMode]) {
+				if (mode.tick) {
+					stepTick(direction);
+				} else {
+					execute(`demo_skip ${direction * mode.seconds}`);
+				}
+			}
+			function paintStepButtons() {
+				const mode = STEP_MODES[stepMode];
+				for (const button of [document.getElementById('skipback'), document.getElementById('skipforward')]) {
+					const forward = button.dataset.step === '1';
+					button.title = `${forward ? 'Forward' : 'Back'} ${mode.label} (${mode.keys[forward ? 1 : 0]}), hold for another step`;
+					button.querySelector('.steplabel').textContent = mode.short;
+				}
+			}
 			const setIcon = (button, icon) => { button.querySelector('.icon').textContent = ICONS[icon]; };
 			const help = document.getElementById('help');
 			const toggleHelp = () => { help.style.display = help.style.display === 'block' ? 'none' : 'block'; };
 			help.addEventListener('click', () => { help.style.display = 'none'; });
-			for (const button of document.querySelectorAll('#demobar button')) {
+			const stepMenu = document.getElementById('stepmenu');
+			function toggleStepMenu(button) {
+				if (stepMenu.style.display === 'flex') {
+					stepMenu.style.display = 'none';
+					return;
+				}
+				stepMenu.replaceChildren();
+				STEP_MODES.forEach((mode, index) => {
+					const entry = document.createElement('button');
+					entry.textContent = mode.label;
+					entry.classList.toggle('selected', index === stepMode);
+					entry.addEventListener('click', () => {
+						stepMode = index;
+						setSetting('step', mode.id);
+						paintStepButtons();
+						stepMenu.style.display = 'none';
+					});
+					stepMenu.appendChild(entry);
+				});
+				stepMenu.style.display = 'flex';
+				placeMenu(stepMenu, button);
+			}
+			for (const button of document.querySelectorAll('#demobar button[data-step]')) {
+				let holdTimer = null;
+				let held = false;
+				button.addEventListener('pointerdown', () => {
+					held = false;
+					holdTimer = setTimeout(() => {
+						held = true;
+						holdTimer = null;
+						toggleStepMenu(button);
+					}, 500);
+				});
+				for (const eventName of ['pointerup', 'pointerleave', 'pointercancel']) {
+					button.addEventListener(eventName, () => {
+						if (holdTimer !== null) {
+							clearTimeout(holdTimer);
+							holdTimer = null;
+						}
+					});
+				}
+				button.addEventListener('click', () => {
+					if (!held) {
+						seekBy(Number(button.dataset.step));
+					}
+					held = false;
+					button.blur();
+				});
+			}
+			paintStepButtons();
+			for (const button of document.querySelectorAll('#demobar button:not([data-step])')) {
 				button.addEventListener('click', () => {
 					let cmd = button.dataset.cmd;
 					if (button.id === 'helpbutton') {
@@ -2644,6 +2746,9 @@
 				}
 				if (!skinMenu.contains(e.target) && !skinButton.contains(e.target)) {
 					skinMenu.style.display = 'none';
+				}
+				if (!stepMenu.contains(e.target) && e.target.closest('#demobar button[data-step]') === null) {
+					stepMenu.style.display = 'none';
 				}
 			});
 			// Skin menu: which skins the tees wear, applied to the client at

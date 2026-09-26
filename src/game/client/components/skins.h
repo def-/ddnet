@@ -296,6 +296,10 @@ private:
 	std::unordered_map<std::string_view, std::unique_ptr<CSkinContainer>> m_Skins;
 	std::optional<std::chrono::nanoseconds> m_ContainerUpdateTime;
 	/**
+	 * The last time a skin that is not loaded was requested.
+	 */
+	std::optional<std::chrono::nanoseconds> m_LastUnloadedRequest;
+	/**
 	 * Sorted from most recently to least recently used. Must be kept synchronized with the skin containers.
 	 * Only contains pending and loaded skins as only these are unloaded.
 	 */

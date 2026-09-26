@@ -79,11 +79,20 @@ void CSkins::CSkinContainer::RequestLoad()
 		return;
 	}
 
+	const std::chrono::nanoseconds Now = time_get_nanoseconds();
+	// A skin that is wanted and not loaded yet keeps the update pass going
+	// every frame, see CSkins::OnUpdate
+	if(m_State == EState::UNLOADED ||
+		m_State == EState::PENDING ||
+		m_State == EState::LOADING)
+	{
+		m_pSkins->m_LastUnloadedRequest = Now;
+	}
+
 	// Delay loading skins a bit after the load has been requested to avoid loading a lot of skins
 	// when quickly scrolling through lists or if a player with a new skin quickly joins and leaves.
 	if(m_State == EState::UNLOADED)
 	{
-		const std::chrono::nanoseconds Now = time_get_nanoseconds();
 		if(!m_FirstLoadRequest.has_value() ||
 			!m_LastLoadRequest.has_value() ||
 			Now - m_LastLoadRequest.value() > MAX_REQUESTED_TIME_FOR_PENDING)
@@ -100,18 +109,23 @@ void CSkins::CSkinContainer::RequestLoad()
 		m_State == EState::LOADING ||
 		m_State == EState::LOADED)
 	{
-		m_LastLoadRequest = time_get_nanoseconds();
+		m_LastLoadRequest = Now;
 	}
 
 	if(m_State == EState::PENDING ||
 		m_State == EState::LOADED)
 	{
+		// The tees on screen request their skins every frame, so an entry
+		// that exists is moved to the front rather than made anew
 		if(m_UsageEntryIterator.has_value())
 		{
-			m_pSkins->m_SkinsUsageList.erase(m_UsageEntryIterator.value());
+			m_pSkins->m_SkinsUsageList.splice(m_pSkins->m_SkinsUsageList.begin(), m_pSkins->m_SkinsUsageList, m_UsageEntryIterator.value());
 		}
-		m_pSkins->m_SkinsUsageList.emplace_front(Name());
-		m_UsageEntryIterator = m_pSkins->m_SkinsUsageList.begin();
+		else
+		{
+			m_pSkins->m_SkinsUsageList.emplace_front(Name());
+			m_UsageEntryIterator = m_pSkins->m_SkinsUsageList.begin();
+		}
 	}
 }
 
@@ -520,16 +534,9 @@ void CSkins::OnShutdown()
 
 void CSkins::OnUpdate()
 {
-	// Only update skins periodically to reduce FPS impact
-	const std::chrono::nanoseconds StartTime = time_get_nanoseconds();
-	const std::chrono::nanoseconds MaxTime = std::chrono::milliseconds(std::clamp(round_to_int(Client()->RenderFrameTime() * 50000.0f), 25, 500));
-	if(m_ContainerUpdateTime.has_value() && StartTime - m_ContainerUpdateTime.value() < MaxTime)
-	{
-		return;
-	}
-	m_ContainerUpdateTime = StartTime;
-
-	// Update loaded state of managed skins which are not retrieved with the FindOrNullptr function
+	// Update loaded state of managed skins which are not retrieved with the FindOrNullptr function.
+	// Every frame: a skin becomes pending once it has been requested for a while (RequestLoad),
+	// and that while must not wait for the next periodic pass below.
 	GameClient()->CollectManagedTeeRenderInfos([&](const char *pSkinName) {
 		// This will update the loaded state of the container
 		dbg_assert(FindContainerOrNullptr(pSkinName) != nullptr, "No skin container found for managed tee render info: %s", pSkinName);
@@ -537,6 +544,18 @@ void CSkins::OnUpdate()
 	// Keep player and dummy skin loaded
 	FindContainerOrNullptr(g_Config.m_ClPlayerSkin);
 	FindContainerOrNullptr(g_Config.m_ClDummySkin);
+
+	// The pass scans every container, so it only runs periodically to reduce FPS impact,
+	// unless a skin that is wanted is not loaded yet: a load takes one pass to start its
+	// job and another to finish it, which added up to a second before a tee wore its skin.
+	const std::chrono::nanoseconds StartTime = time_get_nanoseconds();
+	const std::chrono::nanoseconds MaxTime = std::chrono::milliseconds(std::clamp(round_to_int(Client()->RenderFrameTime() * 50000.0f), 25, 500));
+	const bool Wanted = m_LastUnloadedRequest.has_value() && StartTime - m_LastUnloadedRequest.value() < MAX_REQUESTED_TIME_FOR_PENDING;
+	if(!Wanted && m_ContainerUpdateTime.has_value() && StartTime - m_ContainerUpdateTime.value() < MaxTime)
+	{
+		return;
+	}
+	m_ContainerUpdateTime = StartTime;
 
 	CSkinLoadingStats Stats = LoadingStats();
 	UpdateUnloadSkins(Stats);

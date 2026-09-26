@@ -807,6 +807,9 @@ private:
 	bool m_aRunPlayer[MAX_CLIENTS] = {false};
 	int m_aSnappedTicks[MAX_CLIENTS] = {0};
 	bool m_FinishLatched = false;
+	// Whether the run's team has held a member yet, the state the latch waits
+	// for the team to leave again
+	bool m_TeamSeenAlive = false;
 	bool m_TeamsDirty = true;
 	std::vector<int> m_vTeamCids;
 	// The teams as they were before this tick's chunks, see TEAM_FINISH
@@ -4592,7 +4595,14 @@ private:
 			// before the snapshot of the tick is built, or that snapshot
 			// holds nobody at all, and it cannot wait for the finish marker:
 			// a rank placed by its timestamp only reaches it seconds later.
-			if(m_FilterTeam > 0 && !m_FinishLatched && m_MarkerStartTick < 0 && !m_vTeamCids.empty() && !TeamAlive())
+			// Only a team that has been seen alive can be dissolved: a demo
+			// that begins before its team is formed would otherwise latch on
+			// the empty team of its first ticks, and every member that
+			// joined it after that would be missing for the whole run.
+			const bool Alive = m_FilterTeam > 0 && TeamAlive();
+			m_TeamSeenAlive = m_TeamSeenAlive || Alive;
+			if(m_FilterTeam > 0 && m_TeamSeenAlive && !Alive && !m_FinishLatched &&
+				m_MarkerStartTick < 0 && !m_vTeamCids.empty())
 				LatchRun();
 			RecordSnapshot();
 			if(m_MarkerStartTick >= 0 && m_Tick >= m_MarkerStartTick)

@@ -328,7 +328,16 @@ class Converter:
                     reconvert = False
             if not reconvert:
                 if demo_path.is_file() and meta_path.is_file():
-                    return demo_path, json.loads(meta_path.read_text())
+                    meta = json.loads(meta_path.read_text())
+                    if ts_epoch is not None and "ts" not in meta:
+                        # cached_paths read the recording to tell that this
+                        # older demo holds the run, once is enough. The mtime
+                        # stays, reconvert goes by it
+                        made = meta_path.stat().st_mtime
+                        meta["ts"] = ts_epoch
+                        self.write_meta(meta_path, meta)
+                        os.utime(meta_path, (made, made))
+                    return demo_path, meta
                 if raw_path.is_file() and meta_path.is_file():
                     # Converted before, only the scrambling is missing
                     self.scramble_cached(raw_path, demo_path)

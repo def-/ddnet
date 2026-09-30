@@ -702,6 +702,8 @@ public:
 		int m_QueuedWeapon = -1;
 		int m_ReloadTimer = 0;
 		int m_PainSoundTimer = 0;
+		// Its hammer press of this tick's arrivals found it frozen
+		bool m_ArrivalFrozen = false;
 		// The hook assist below Simulate: the tick it attached this tee's hook
 		// to a player, -1 when the core did it itself, and whether the assist
 		// is barred until the hook key is let go
@@ -889,6 +891,23 @@ private:
 		int m_Cid;
 	};
 	std::vector<CCharacterRef> m_vAliveChars;
+	// A hammer press that found its tee frozen, in the arrivals that also
+	// unfroze it. The server takes arrivals in the order their packets came,
+	// which the recording does not keep, so whether it swung is read from the
+	// push its targets show in the next tick.
+	struct CPendingHammer
+	{
+		int m_Cid;
+		int m_TargetCid;
+		vec2 m_Push;
+		vec2 m_SwingPos;
+		vec2 m_HitPos;
+		bool m_Judged = false;
+		float m_ErrWithout = 0.0f;
+		float m_ErrWith = 0.0f;
+	};
+	std::vector<CPendingHammer> m_vPendingHammers;
+	int m_NumLateHammers = 0;
 	int m_NextSpawnOrder = 0;
 	vec2 m_CharacterBoxMin = vec2(0.0f, 0.0f);
 	vec2 m_CharacterBoxMax = vec2(0.0f, 0.0f);
@@ -2596,6 +2615,8 @@ public:
 			m_NumSnapshots, m_NumTicks,
 			m_NumTicks / SERVER_TICK_SPEED / 60, m_NumTicks / SERVER_TICK_SPEED % 60,
 			m_NumChatMessages, m_MaxPlayersSeen, m_NumPlayerHookTicks, m_NumFrozenTicks);
+		if(m_NumLateHammers > 0)
+			log_info(TOOL_NAME, "%d hammers swung by tees that the same tick's arrivals unfroze", m_NumLateHammers);
 		return true;
 	}
 
@@ -4032,6 +4053,37 @@ private:
 		}
 	}
 
+	// The tees a hammer swung from ProjStartPos hits
+	int HammerTargets(int Cid, vec2 ProjStartPos, CPlayer **ppTargets)
+	{
+		CPlayer *apChars[MAX_CLIENTS];
+		const int Num = FindCharacters(ProjStartPos, CCharacterCore::PhysicalSize() * 0.5f, apChars, MAX_CLIENTS);
+		int Hits = 0;
+		for(int i = 0; i < Num; i++)
+		{
+			if(apChars[i] != &m_aPlayers[Cid] && CanCollide(Cid, ClientId(apChars[i])))
+				ppTargets[Hits++] = apChars[i];
+		}
+		return Hits;
+	}
+
+	vec2 HammerHitPos(vec2 ProjStartPos, const CPlayer *pTarget) const
+	{
+		const vec2 TargetPos = CharPos(pTarget);
+		return length(TargetPos - ProjStartPos) > 0.0f ? TargetPos - normalize(TargetPos - ProjStartPos) * CCharacterCore::PhysicalSize() * 0.5f : ProjStartPos;
+	}
+
+	vec2 HammerPush(const CPlayer &Player, vec2 Pos, const CPlayer *pTarget) const
+	{
+		const vec2 TargetPos = CharPos(pTarget);
+		const vec2 Dir = length(TargetPos - Pos) > 0.0f ? normalize(TargetPos - Pos) : vec2(0.0f, -1.0f);
+		const float Strength = Tuning(Player.m_TuneZone).m_HammerStrength;
+		vec2 Temp = pTarget->m_Core.m_Vel + normalize(Dir + vec2(0.0f, -1.1f)) * 10.0f;
+		Temp = ClampVel(pTarget->m_MoveRestrictions, Temp);
+		Temp -= pTarget->m_Core.m_Vel;
+		return (vec2(0.0f, -1.0f) + Temp) * Strength;
+	}
+
 	// CCharacter::FireWeapon. Everything a shot creates is an entity that is
 	// ticked and snapped like the map's own. The server runs this in the
 	// character's tick with the input the core ticked with, where only a held
@@ -4076,6 +4128,7 @@ private:
 		const vec2 Pos = CharPos(&Player);
 		if(WeaponsFrozen(Player))
 		{
+			Player.m_ArrivalFrozen = Arrival && ActiveWeapon == WEAPON_HAMMER;
 			// Firing in freeze screams instead, at most once a second
 			if(Player.m_PainSoundTimer <= 0 && !(Player.m_LastFire & 1))
 			{
@@ -4098,30 +4151,14 @@ private:
 			if(Player.m_Core.m_HammerHitDisabled)
 				break;
 
-			CPlayer *apChars[MAX_CLIENTS];
-			int Hits = 0;
-			const int Num = FindCharacters(ProjStartPos, CCharacterCore::PhysicalSize() * 0.5f, apChars, MAX_CLIENTS);
-			for(int i = 0; i < Num; i++)
+			CPlayer *apTargets[MAX_CLIENTS];
+			const int Hits = HammerTargets(Cid, ProjStartPos, apTargets);
+			for(int i = 0; i < Hits; i++)
 			{
-				CPlayer *pTarget = apChars[i];
-				const int TargetCid = ClientId(pTarget);
-				if(pTarget == &Player || !CanCollide(Cid, TargetCid))
-					continue;
-
-				const vec2 TargetPos = CharPos(pTarget);
-				if(length(TargetPos - ProjStartPos) > 0.0f)
-					CreateHammerHit(TargetPos - normalize(TargetPos - ProjStartPos) * CCharacterCore::PhysicalSize() * 0.5f, Cid);
-				else
-					CreateHammerHit(ProjStartPos, Cid);
-
-				const vec2 Dir = length(TargetPos - Pos) > 0.0f ? normalize(TargetPos - Pos) : vec2(0.0f, -1.0f);
-				const float Strength = Tuning(Player.m_TuneZone).m_HammerStrength;
-				vec2 Temp = pTarget->m_Core.m_Vel + normalize(Dir + vec2(0.0f, -1.1f)) * 10.0f;
-				Temp = ClampVel(pTarget->m_MoveRestrictions, Temp);
-				Temp -= pTarget->m_Core.m_Vel;
-				AddVelocity(pTarget, (vec2(0.0f, -1.0f) + Temp) * Strength);
+				CPlayer *pTarget = apTargets[i];
+				CreateHammerHit(HammerHitPos(ProjStartPos, pTarget), Cid);
+				AddVelocity(pTarget, HammerPush(Player, Pos, pTarget));
 				Unfreeze(pTarget);
-				Hits++;
 			}
 
 			// If we hit anything, we have to wait for the reload
@@ -4179,6 +4216,43 @@ private:
 			Player.m_ReloadTimer = Tuning(Player.m_TuneZone).GetWeaponFireDelay(ActiveWeapon) * TICK_SPEED;
 	}
 
+	// The pending hammers whose targets moved the way their push says, which
+	// the server swung before this tick: it unfroze them and started the
+	// reload that this tick runs down. The previous snapshot is written, so
+	// the swing's sound and hits come a tick late.
+	void SwingPendingHammers()
+	{
+		for(const CPendingHammer &Hammer : m_vPendingHammers)
+		{
+			float ErrWithout = 0.0f;
+			float ErrWith = 0.0f;
+			bool Judged = true;
+			for(const CPendingHammer &Hit : m_vPendingHammers)
+			{
+				if(Hit.m_Cid != Hammer.m_Cid)
+					continue;
+				Judged = Judged && Hit.m_Judged;
+				ErrWithout += Hit.m_ErrWithout;
+				ErrWith += Hit.m_ErrWith;
+			}
+			CPlayer &Player = m_aPlayers[Hammer.m_Cid];
+			if(!Judged || ErrWith >= ErrWithout)
+				continue;
+			if(m_Tick >= m_DebugStartTick && m_Tick <= m_DebugEndTick)
+				log_info(TOOL_NAME, "tick=%d cid=%d hammered cid=%d in the arrivals that unfroze it, off by %.1f px without the push and %.1f px with it", m_Tick, Hammer.m_Cid, Hammer.m_TargetCid, Hammer.m_ErrWithout, Hammer.m_ErrWith);
+			Unfreeze(&m_aPlayers[Hammer.m_TargetCid]);
+			CreateHammerHit(Hammer.m_HitPos, Hammer.m_Cid);
+			// A hammer that hit several tees swings once
+			if(Player.m_ReloadTimer != 0)
+				continue;
+			m_NumLateHammers++;
+			CreateSound(Hammer.m_SwingPos, SOUND_HAMMER_FIRE, Hammer.m_Cid);
+			Player.m_AttackTick = m_Tick - 1;
+			Player.m_ReloadTimer = Tuning(Player.m_TuneZone).m_HammerHitFireDelay * TICK_SPEED / 1000;
+		}
+		m_vPendingHammers.clear();
+	}
+
 	// The weapons and tiles of the tick, on the positions the tick recorded.
 	// First what CCharacter::Tick does for each character in the order of the
 	// entity list: its reload runs down, a held button fires (a full auto
@@ -4213,9 +4287,23 @@ private:
 			if(!Player.m_Alive)
 				continue;
 			HandleWeaponSwitch(Char.m_Cid);
+			Player.m_ArrivalFrozen = false;
 			if(Player.m_ReloadTimer == 0)
 				FireWeapon(Char.m_Cid, true);
 			Player.m_LastFire = Player.m_Input.m_Fire;
+		}
+		m_vPendingHammers.clear();
+		for(const CCharacterRef &Char : m_vAliveChars)
+		{
+			CPlayer &Player = m_aPlayers[Char.m_Cid];
+			if(!Player.m_Alive || !Player.m_ArrivalFrozen || WeaponsFrozen(Player) || Player.m_Core.m_HammerHitDisabled)
+				continue;
+			const vec2 Pos = CharPos(&Player);
+			const vec2 ProjStartPos = Pos + normalize(vec2(Player.m_Input.m_TargetX, Player.m_Input.m_TargetY)) * CCharacterCore::PhysicalSize() * 0.75f;
+			CPlayer *apTargets[MAX_CLIENTS];
+			const int Hits = HammerTargets(Char.m_Cid, ProjStartPos, apTargets);
+			for(int i = 0; i < Hits; i++)
+				m_vPendingHammers.push_back({Char.m_Cid, ClientId(apTargets[i]), HammerPush(Player, Pos, apTargets[i]), Pos, HammerHitPos(ProjStartPos, apTargets[i])});
 		}
 		m_TickEndPositions = false;
 	}
@@ -4422,6 +4510,15 @@ private:
 			// simulation matches the server
 			const bool Simulated = SimTicks == 1 && Player.m_PrevTick == m_Tick - 1 && Player.m_PlacedTick != m_Tick;
 			Player.m_SimError = Simulated ? distance(Player.m_Core.m_Pos, RecordedPos) : 0.0f;
+			for(CPendingHammer &Hammer : m_vPendingHammers)
+			{
+				if(Simulated && Hammer.m_TargetCid == ClientId(&Player))
+				{
+					Hammer.m_Judged = true;
+					Hammer.m_ErrWithout = Player.m_SimError;
+					Hammer.m_ErrWith = distance(Player.m_Core.m_Pos + Hammer.m_Push, RecordedPos);
+				}
+			}
 			if(Simulated)
 			{
 				const float Err = Player.m_SimError;
@@ -4702,6 +4799,8 @@ private:
 			}
 			Simulate();
 		}
+		if(HasWorld)
+			SwingPendingHammers();
 		// The weapons and tiles run after the core has ticked, the same way
 		// the server fires them from the inputs that arrived during the
 		// tick, with the tee already standing where this tick recorded it

@@ -26,10 +26,12 @@
 #include <game/gamecore.h>
 #include <game/layers.h>
 #include <game/mapitems.h>
+#include <game/prng.h>
 #include <game/teamscore.h>
 #include <game/version.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -738,6 +740,9 @@ public:
 		bool m_TeleCheck = false;
 		bool m_TeleEvil = false;
 		int m_TeleTick = -1;
+		// The exits of the teleporter that took the tee this tick, whose
+		// draw comes in the tee's turn of the tick, see DrawTeleportExit
+		const std::vector<vec2> *m_pTeleDrawOuts = nullptr;
 		// The tick the recording placed the tee somewhere else, the
 		// simulation cannot be held to it there
 		int m_PlacedTick = -1;
@@ -779,6 +784,9 @@ private:
 	CLayers m_Layers;
 	CCollision m_Collision;
 	CWorldCore m_WorldCore;
+	CPrng m_Prng;
+	int m_NumTeleDraws = 0;
+	int m_NumTeleDrawsMatched = 0;
 	CTeamsCore m_TeamsCore;
 	CTuningParams m_Tuning;
 	// Per tune zone, filled from the map's own tune_zone settings the way the
@@ -1857,6 +1865,21 @@ public:
 	CCollision *Collision() { return &m_Collision; }
 	int ServerTick() const { return m_Tick; }
 	std::vector<SSwitchers> &Switchers() { return m_WorldCore.m_vSwitchers; }
+	int RandomOr0(int BelowThis) { return m_WorldCore.RandomOr0(BelowThis); }
+
+	// The prng the server draws every teleporter exit from, seeded the way
+	// the recording's header describes it
+	bool SeedPrng(const char *pDescription)
+	{
+		uint64_t aSeed[2];
+		if(sscanf(pDescription, "pcg-xsh-rr:%16" SCNx64 ":%16" SCNx64, &aSeed[0], &aSeed[1]) != 2)
+			return false;
+		m_Prng.Seed(aSeed);
+		if(str_comp(m_Prng.Description(), pDescription) != 0)
+			return false;
+		m_WorldCore.m_pPrng = &m_Prng;
+		return true;
+	}
 	const CTuningParams &Tuning(int Zone) const { return Zone <= 0 || Zone >= (int)TuneZone::NUM ? m_Tuning : m_aTuneZones[Zone]; }
 	const CServerConfig &Config() const { return m_Config; }
 	int ClientId(const CPlayer *pChar) const { return pChar - m_aPlayers; }
@@ -2615,6 +2638,8 @@ public:
 			m_NumSnapshots, m_NumTicks,
 			m_NumTicks / SERVER_TICK_SPEED / 60, m_NumTicks / SERVER_TICK_SPEED % 60,
 			m_NumChatMessages, m_MaxPlayersSeen, m_NumPlayerHookTicks, m_NumFrozenTicks);
+		if(m_NumTeleDraws > 0)
+			log_info(TOOL_NAME, "%d of %d teleports through several exits went where the replayed draw says", m_NumTeleDrawsMatched, m_NumTeleDraws);
 		if(m_NumLateHammers > 0)
 			log_info(TOOL_NAME, "%d hammers swung by tees that the same tick's arrivals unfroze", m_NumLateHammers);
 		return true;
@@ -3501,7 +3526,39 @@ private:
 			Player.m_TeleCheck = Tele <= 0;
 			Player.m_TeleEvil = TeleIn <= 0 && !m_Collision.IsCheckTeleport(Index);
 			Player.m_TeleTick = m_Tick;
+			if(!Player.m_Core.m_Super && !Player.m_Core.m_Invincible)
+				Player.m_pTeleDrawOuts = &TeleOutsOf(Player);
 		}
+	}
+
+	// The server draws the exit in the tee's turn of the world tick, after
+	// the entities, CCharacter::HandleTiles. The recording has the tee at the
+	// exit it drew, which says whether the draws still follow the server's.
+	void DrawTeleportExit(CPlayer &Player)
+	{
+		if(Player.m_pTeleDrawOuts == nullptr)
+			return;
+		const std::vector<vec2> &vOuts = *Player.m_pTeleDrawOuts;
+		Player.m_pTeleDrawOuts = nullptr;
+		if(vOuts.size() < 2 || m_WorldCore.m_pPrng == nullptr)
+			return;
+		const vec2 Pos(Player.m_X, Player.m_Y);
+		int Nearest = 0;
+		for(int i = 1; i < (int)vOuts.size(); i++)
+		{
+			if(distance(vOuts[i], Pos) < distance(vOuts[Nearest], Pos))
+				Nearest = i;
+		}
+		// The tile scan can reach a teleporter a tick before the server
+		// takes the tee, which only drew once it did
+		if(distance(vOuts[Nearest], Pos) > 32.0f)
+			return;
+		const int Drawn = RandomOr0(vOuts.size());
+		m_NumTeleDraws++;
+		if(Drawn == Nearest)
+			m_NumTeleDrawsMatched++;
+		else if(m_Tick >= m_DebugStartTick && m_Tick <= m_DebugEndTick)
+			log_info(TOOL_NAME, "tick=%d cid=%d drew exit %d of %d, the recording has it at exit %d", m_Tick, ClientId(&Player), Drawn, (int)vOuts.size(), Nearest);
 	}
 
 	// Everything one tile does to a player, mirroring CCharacter::HandleTiles
@@ -4280,6 +4337,7 @@ private:
 			// DDRacePostCoreTick clears this right after the weapons ran
 			Player.m_FrozenLastTick = false;
 			HandlePlayerTiles(Player);
+			DrawTeleportExit(Player);
 		}
 		for(const CCharacterRef &Char : m_vAliveChars)
 		{
@@ -5977,14 +6035,12 @@ void CReplayProjectile::Tick()
 		return;
 	}
 
-	// Teleporting weapons. The server picks a random exit of the teleporter
-	// with its own prng, whose state cannot be reconstructed from the
-	// recording, so the first exit is used.
+	// Teleporting weapons
 	const int Index = Collision()->GetIndex(PrevPos, CurPos);
 	const int Teleporter = m_pConverter->Config().m_SvOldTeleportWeapons ? Collision()->IsTeleport(Index) : Collision()->IsTeleportWeapon(Index);
 	if(Teleporter && !Collision()->TeleOuts(Teleporter - 1).empty())
 	{
-		m_Pos = Collision()->TeleOuts(Teleporter - 1)[0];
+		m_Pos = Collision()->TeleOuts(Teleporter - 1)[m_pConverter->RandomOr0(Collision()->TeleOuts(Teleporter - 1).size())];
 		m_StartTick = ServerTick();
 	}
 }
@@ -6131,12 +6187,9 @@ void CReplayLaser::DoBounce()
 				m_Energy -= Distance + Tuning(m_TuneZone).m_LaserBounceCost;
 			m_ZeroEnergyBounceInLastTick = Distance == 0.0f;
 
-			// The server picks a random exit of the teleporter with its own
-			// prng, whose state cannot be reconstructed, so the first one is
-			// used
 			if(Res == TILE_TELEINWEAPON && !Collision()->TeleOuts(TeleNr - 1).empty())
 			{
-				m_TelePos = Collision()->TeleOuts(TeleNr - 1)[0];
+				m_TelePos = Collision()->TeleOuts(TeleNr - 1)[m_pConverter->RandomOr0(Collision()->TeleOuts(TeleNr - 1).size())];
 				m_WasTele = true;
 			}
 			else
@@ -6899,6 +6952,9 @@ int main(int argc, const char *argv[])
 	// The server builds its entities once the settings are in, and the map's
 	// own tiles override some of them again
 	Converter.CreateAllEntities();
+	const json_value &PrngDescription = (*pHeader)["prng_description"];
+	if(PrngDescription.type == json_string && Converter.SeedPrng(PrngDescription))
+		log_info(TOOL_NAME, "teleporter exits drawn from %s", (const char *)PrngDescription);
 	const json_value &VersionMinor = (*pHeader)["version_minor"];
 	const int MinorVersion = VersionMinor.type == json_string ? str_toint(VersionMinor) : 0;
 	const bool InputAppliedNextTick = MinorVersion < 24;

@@ -391,15 +391,19 @@ class CScrambler
 	// share, the place one bounces off a wall, keeps its own noise and stays
 	// one point. Turning the beam instead would say what the turn is: a bounce
 	// mirrors the direction, so the two published angles add up to twice it.
-	// The beam of a dragger ends on a tee and follows that tee.
+	// The beam of a dragger ends on a tee and follows that tee. Doors, freeze
+	// lasers, turrets and the draggers themselves are where the map puts them,
+	// a noise there would only tilt and shake them.
 	void ScrambleLaser(CNetObj_DDNetLaser *pLaser, int Size, int Tick)
 	{
 		if(Size < (int)(offsetof(CNetObj_DDNetLaser, m_Type) + sizeof(int)))
 			return;
+		const bool MapLaser = pLaser->m_Type == LASERTYPE_DOOR || pLaser->m_Type == LASERTYPE_FREEZE ||
+				      pLaser->m_Type == LASERTYPE_GUN || pLaser->m_Type == LASERTYPE_DRAGGER;
 		const ivec2 From = ivec2(pLaser->m_FromX, pLaser->m_FromY);
 		const ivec2 To = ivec2(pLaser->m_ToX, pLaser->m_ToY);
-		const ivec2 PublishedFrom = MovePoint(From, Tick);
-		const ivec2 PublishedTo = MovePoint(To, Tick);
+		const ivec2 PublishedFrom = MapLaser && OwnerOf(From) < 0 ? From : MovePoint(From, Tick);
+		const ivec2 PublishedTo = MapLaser && OwnerOf(To) < 0 ? To : MovePoint(To, Tick);
 		pLaser->m_FromX = PublishedFrom.x;
 		pLaser->m_FromY = PublishedFrom.y;
 		pLaser->m_ToX = PublishedTo.x;

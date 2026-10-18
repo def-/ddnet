@@ -746,6 +746,8 @@ public:
 		// The tick the recording placed the tee somewhere else, the
 		// simulation cannot be held to it there
 		int m_PlacedTick = -1;
+		// The tick the recording took the character away in
+		int m_DeathTick = -1;
 		// The tick the tee crossed a start tile, for the finishes of a
 		// recording that carries no finish events
 		int m_RaceStartTick = -1;
@@ -1159,6 +1161,7 @@ private:
 
 	int m_MarkerFinishTick = -1;
 	bool m_InputAppliedNextTick = true;
+	bool m_StartKillEndsTile = true;
 	double m_ErrSum = 0.0;
 	double m_ErrMax = 0.0;
 	int m_ErrCount = 0;
@@ -1848,6 +1851,9 @@ public:
 	// section of the tick it ARRIVED in, while the server applies it in the
 	// following tick. Newer ones store it with the tick that applied it.
 	void SetInputAppliedNextTick(bool Value) { m_InputAppliedNextTick = Value; }
+	// Servers from 15.3 to 18.2 went on handling the tile a tee was killed on
+	// by the start line, until ddnet/ddnet#8486
+	void SetStartKillEndsTile(bool Value) { m_StartKillEndsTile = Value; }
 	int ErrCount() const { return m_ErrCount; }
 	double ErrMean() const { return m_ErrCount ? m_ErrSum / m_ErrCount : 0.0; }
 	double ErrMax() const { return m_ErrMax; }
@@ -2450,6 +2456,7 @@ public:
 				return false;
 			OnPlayerChunk(Cid);
 			m_aPlayers[Cid].m_Alive = false;
+			m_aPlayers[Cid].m_DeathTick = m_Tick;
 			m_WorldCore.m_apCharacters[Cid] = nullptr;
 			OnCharacterDeath(Cid);
 			break;
@@ -3561,6 +3568,45 @@ private:
 			log_info(TOOL_NAME, "tick=%d cid=%d drew exit %d of %d, the recording has it at exit %d", m_Tick, ClientId(&Player), Drawn, (int)vOuts.size(), Nearest);
 	}
 
+	// The race tiles of CGameControllerDDNet::HandleCharacterTiles, the
+	// only ones the server also reads at four points around the tee
+	// ("sensitivity") and not only under its middle.
+	bool OnRaceTile(const CPlayer &Player, int Index, int Wanted) const
+	{
+		if(m_Collision.GetTileIndex(Index) == Wanted || m_Collision.GetFrontTileIndex(Index) == Wanted)
+			return true;
+		const float Reach = CCharacterCore::PhysicalSize() / 3.0f;
+		for(int i = 0; i < 4; i++)
+		{
+			const vec2 Corner = vec2(Player.m_TileDueX, Player.m_TileDueY) +
+					    vec2(i < 2 ? Reach : -Reach, i % 2 == 0 ? -Reach : Reach);
+			const int Sensitivity = m_Collision.GetPureMapIndex(Corner);
+			if(m_Collision.GetTileIndex(Sensitivity) == Wanted ||
+				m_Collision.GetFrontTileIndex(Sensitivity) == Wanted)
+				return true;
+		}
+		return false;
+	}
+
+	// The switchers a tee opens and closes are per team, and they gate
+	// doors, pickups and the switch layer's freeze tiles
+	void HandleSwitcherTile(int Index, int Team)
+	{
+		const int SwitchType = m_Collision.GetSwitchType(Index);
+		const int SwitchNumber = m_Collision.GetSwitchNumber(Index);
+		if(SwitchNumber > 0 && Team >= 0 && Team < TEAM_SUPER && (int)m_WorldCore.m_vSwitchers.size() > SwitchNumber &&
+			(SwitchType == TILE_SWITCHOPEN || SwitchType == TILE_SWITCHTIMEDOPEN || SwitchType == TILE_SWITCHTIMEDCLOSE || SwitchType == TILE_SWITCHCLOSE))
+		{
+			SSwitchers &Switcher = m_WorldCore.m_vSwitchers[SwitchNumber];
+			const bool Open = SwitchType == TILE_SWITCHOPEN || SwitchType == TILE_SWITCHTIMEDOPEN;
+			const bool Timed = SwitchType == TILE_SWITCHTIMEDOPEN || SwitchType == TILE_SWITCHTIMEDCLOSE;
+			Switcher.m_aStatus[Team] = Open;
+			Switcher.m_aEndTick[Team] = Timed ? m_Tick + 1 + m_Collision.GetSwitchDelay(Index) * SERVER_TICK_SPEED : 0;
+			Switcher.m_aType[Team] = SwitchType;
+			Switcher.m_aLastUpdateTick[Team] = m_Tick;
+		}
+	}
+
 	// Everything one tile does to a player, mirroring CCharacter::HandleTiles
 	void HandleTiles(CPlayer &Player, int Index)
 	{
@@ -3601,24 +3647,6 @@ private:
 				Player.m_DeepFrozen = false;
 		}
 
-		// The race tiles of CGameControllerDDNet::HandleCharacterTiles, the
-		// only ones the server also reads at four points around the tee
-		// ("sensitivity") and not only under its middle.
-		const auto RaceTile = [&](int Wanted) {
-			if(Tile == Wanted || FrontTile == Wanted)
-				return true;
-			const float Reach = CCharacterCore::PhysicalSize() / 3.0f;
-			for(int i = 0; i < 4; i++)
-			{
-				const vec2 Corner = vec2(Player.m_TileDueX, Player.m_TileDueY) +
-						    vec2(i < 2 ? Reach : -Reach, i % 2 == 0 ? -Reach : Reach);
-				const int Sensitivity = m_Collision.GetPureMapIndex(Corner);
-				if(m_Collision.GetTileIndex(Sensitivity) == Wanted ||
-					m_Collision.GetFrontTileIndex(Sensitivity) == Wanted)
-					return true;
-			}
-			return false;
-		};
 		// A finish only counts for a tee whose race was running before this
 		// tile, which the server reads before it handles the start. Whether
 		// a start tile touched while the race runs starts it again is a
@@ -3626,8 +3654,8 @@ private:
 		// the band are kept and the rank's time decides which one it is.
 		const int RaceStartBefore = Player.m_RaceStartTick;
 		const int RaceStartFirstBefore = Player.m_RaceStartFirstTick;
-		const bool OnStart = RaceTile(TILE_START);
-		const bool OnFinish = RaceTile(TILE_FINISH);
+		const bool OnStart = OnRaceTile(Player, Index, TILE_START);
+		const bool OnFinish = OnRaceTile(Player, Index, TILE_FINISH);
 		// A start belongs to the team the tee is in. A finish belongs to the
 		// team the tick began with: sv_rejoin_team_0 puts a team back into
 		// the flock in the same tick its last member crosses, which is the
@@ -3795,19 +3823,7 @@ private:
 		else if(Tile == TILE_UNLIMITED_JUMPS_DISABLE || FrontTile == TILE_UNLIMITED_JUMPS_DISABLE)
 			Player.m_Core.m_EndlessJump = false;
 
-		// The switchers a tee opens and closes are per team, and they gate
-		// doors, pickups and the switch layer's freeze tiles
-		if(SwitchNumber > 0 && Team >= 0 && Team < TEAM_SUPER && (int)m_WorldCore.m_vSwitchers.size() > SwitchNumber &&
-			(SwitchType == TILE_SWITCHOPEN || SwitchType == TILE_SWITCHTIMEDOPEN || SwitchType == TILE_SWITCHTIMEDCLOSE || SwitchType == TILE_SWITCHCLOSE))
-		{
-			SSwitchers &Switcher = m_WorldCore.m_vSwitchers[SwitchNumber];
-			const bool Open = SwitchType == TILE_SWITCHOPEN || SwitchType == TILE_SWITCHTIMEDOPEN;
-			const bool Timed = SwitchType == TILE_SWITCHTIMEDOPEN || SwitchType == TILE_SWITCHTIMEDCLOSE;
-			Switcher.m_aStatus[Team] = Open;
-			Switcher.m_aEndTick[Team] = Timed ? m_Tick + 1 + SwitchDelay * SERVER_TICK_SPEED : 0;
-			Switcher.m_aType[Team] = SwitchType;
-			Switcher.m_aLastUpdateTick[Team] = m_Tick;
-		}
+		HandleSwitcherTile(Index, Team);
 
 		// A stopper takes the air jumps back and holds the tee in place
 		if(Player.m_Core.m_Vel.y > 0 && (Player.m_MoveRestrictions & CANTMOVE_DOWN))
@@ -4323,6 +4339,11 @@ private:
 	{
 		m_TickEndPositions = true;
 		UpdateCharacterBox();
+		for(const CPlayer &Player : m_aPlayers)
+		{
+			if(!m_StartKillEndsTile && Player.m_DeathTick == m_Tick)
+				HandleStartKillTile(Player);
+		}
 		for(const CCharacterRef &Char : m_vAliveChars)
 		{
 			CPlayer &Player = m_aPlayers[Char.m_Cid];
@@ -4364,6 +4385,35 @@ private:
 				m_vPendingHammers.push_back({Char.m_Cid, ClientId(apTargets[i]), HammerPush(Player, Pos, apTargets[i]), Pos, HammerHitPos(ProjStartPos, apTargets[i])});
 		}
 		m_TickEndPositions = false;
+	}
+
+	// The start line kills a tee whose team is too small
+	// (CGameControllerDDRace::HandleCharacterTiles), and a server that went on
+	// with that tile set its switcher after the death had reset the team's
+	void HandleStartKillTile(const CPlayer &Player)
+	{
+		const int Cid = ClientId(&Player);
+		const int Team = TeamBeforeTick(Cid);
+		int Size = 0;
+		for(int Other = 0; Other < MAX_CLIENTS; Other++)
+		{
+			if(m_aPlayers[Other].m_Connected && TeamBeforeTick(Other) == Team)
+				Size++;
+		}
+		if(m_Config.m_SvTeam != SV_TEAM_MANDATORY || (Team != TEAM_FLOCK && Size > 1))
+			return;
+		const vec2 Due(Player.m_TileDueX, Player.m_TileDueY);
+		std::vector<int> vIndices = m_Collision.GetMapIndices(vec2(Player.m_TileScanX, Player.m_TileScanY), Due);
+		if(vIndices.empty())
+			vIndices.push_back(m_Collision.GetMapIndex(Due));
+		for(const int Index : vIndices)
+		{
+			if(OnRaceTile(Player, Index, TILE_START))
+			{
+				HandleSwitcherTile(Index, m_TeamsCore.Team(Cid));
+				return;
+			}
+		}
 	}
 
 	// CCharacter::DDRacePostCoreTick. The server handles the tiles of the
@@ -6960,6 +7010,20 @@ int main(int argc, const char *argv[])
 	const bool InputAppliedNextTick = MinorVersion < 24;
 	Converter.SetInputAppliedNextTick(InputAppliedNextTick);
 	log_info(TOOL_NAME, "teehistorian version_minor=%d, inputs apply %s", MinorVersion, InputAppliedNextTick ? "one tick after the section they are stored in" : "in their own section");
+	// "0.6.4, 18.2 (f989f50c23e0e5da)"
+	const json_value &ServerVersion = (*pHeader)["server_version"];
+	const char *pRelease = ServerVersion.type == json_string ? str_find(ServerVersion, ", ") : nullptr;
+	int Major = 0;
+	int Minor = 0;
+	int Patch = 0;
+	if(pRelease != nullptr && sscanf(pRelease + 2, "%d.%d.%d", &Major, &Minor, &Patch) >= 2)
+	{
+		const int Version = Major * 1000 + Minor * 10 + Patch;
+		const bool StartKillEndsTile = Version < 15030 || Version >= 18030;
+		Converter.SetStartKillEndsTile(StartKillEndsTile);
+		if(!StartKillEndsTile)
+			log_info(TOOL_NAME, "server %d.%d.%d went on with the tile its start line killed a tee on", Major, Minor, Patch);
+	}
 
 	Converter.SetTickRange(DemoStartTick, DemoEndTick);
 	if(DebugStartSeconds >= 0)

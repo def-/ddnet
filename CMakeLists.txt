@@ -3322,6 +3322,7 @@ if(TOOLS)
     config_store.cpp
     crapnet.cpp
     demo_extract_chat.cpp
+    demo_ghost.cpp
     demo_inspect.cpp
     demo_scramble.cpp
     demo_scramble_noise.h
@@ -3364,6 +3365,9 @@ if(TOOLS)
       endif()
       if(TOOL MATCHES "^config_")
         list(APPEND EXTRA_TOOL_SRC "src/tools/config_common.h")
+      endif()
+      if(TOOL MATCHES "^demo_ghost$")
+        list(APPEND EXTRA_TOOL_SRC src/engine/client/ghost.cpp src/engine/client/ghost.h)
       endif()
       if(TOOL MATCHES "^map_render$")
         list(APPEND TOOL_INCLUDE_DIRS ${PNG_INCLUDE_DIRS} ${FREETYPE_INCLUDE_DIRS} ${GLEW_INCLUDE_DIRS})

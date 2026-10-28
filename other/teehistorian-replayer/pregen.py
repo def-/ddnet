@@ -59,7 +59,7 @@ def remake(entry):
 
 # What a run of pregen decides about a rank, the rest of a line comes from the
 # manifest and is refreshed on every run
-OUTCOME_FIELDS = ("status", "code", "message", "cid", "team", "finishers", "demo", "rev")
+OUTCOME_FIELDS = ("status", "code", "message", "cid", "team", "finishers", "demo", "rev", "ghosts")
 
 
 def outcome(entry):
@@ -71,7 +71,7 @@ def ok_result(demo_path, meta):
     # which is who the rank belongs to (names are not unique)
     return {"status": "ok", "cid": meta["cid"], "team": meta["team"],
         "finishers": meta.get("finish_cids", []), "demo": demo_path.name,
-        "rev": meta.get("rev", "")}
+        "rev": meta.get("rev", ""), "ghosts": meta.get("ghosts", [])}
 
 
 def generate(entry, reconvert=False):

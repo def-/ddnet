@@ -223,11 +223,13 @@ def upload_partial(uploaded):
             continue
         if entry.get("status") == "ok" and entry.get("demo"):
             fresh.setdefault(entry["uuid"], {})[(entry["kind"], entry["time"])] = line
-    demos = sorted({json.loads(line)["demo"] for lines in fresh.values() for line in lines.values()}
-        - uploaded)
+    entries = [json.loads(line) for lines in fresh.values() for line in lines.values()]
+    demos = sorted({entry["demo"] for entry in entries} - uploaded)
     demos = [name for name in demos if (CACHE / "demos" / name).is_file()]
     if not demos:
         return
+    ghosts = [name for entry in entries if entry["demo"] in demos for name in ghost_names(entry)
+        if (CACHE / "demos" / name).is_file()]
     for line, entry in manifest_entries(WATCHABLE):
         if entry.get("status") == "ok" and entry.get("demo") and entry["uuid"] in fresh:
             fresh[entry["uuid"]].setdefault((entry["kind"], entry["time"]), line.rstrip("\n"))
@@ -241,7 +243,7 @@ def upload_partial(uploaded):
             path.write_text(text, encoding="utf-8")
             changed.append(path.name)
     run(["rsync", "-a", "--files-from=-", str(CACHE / "demos"), f"{args.target}/demos/"],
-        input="\n".join(demos), text=True)
+        input="\n".join(demos + ghosts), text=True)
     if changed:
         run(["rsync", "-a", "--files-from=-", str(runs), f"{args.target}/runs/"],
             input="\n".join(changed), text=True)
@@ -251,6 +253,16 @@ def upload_partial(uploaded):
 
 def wanted_demos():
     return {entry["demo"] for _, entry in manifest_entries(WATCHABLE) if entry.get("status") == "ok"}
+
+
+def ghost_names(entry):
+    """The ghosts beside a rank's demo, see Converter.ghost_path"""
+    return [f"{entry['demo'][:-len('.demo.gz')]}.{cid}.gho" for cid in entry.get("ghosts", [])]
+
+
+def wanted_ghosts():
+    return {name for _, entry in manifest_entries(WATCHABLE) if entry.get("status") == "ok"
+        for name in ghost_names(entry)}
 
 
 def refresh_revisions():
@@ -267,18 +279,24 @@ def refresh_revisions():
         meta = CACHE / "demos" / (entry.get("demo", "x")[:-len(".demo.gz")] + ".json")
         if entry.get("status") == "ok" and meta.is_file():
             try:
-                rev = json.loads(meta.read_text()).get("rev", "")
+                cached = json.loads(meta.read_text())
             except ValueError:
-                rev = ""
+                cached = {}
+            rev = cached.get("rev", "")
             if rev and rev != entry.get("rev"):
                 entry["rev"] = rev
+                changed += 1
+            # The ghosts are made beside the demo, by ghosts.py for the demos
+            # that are older than them
+            if "ghosts" in cached and cached["ghosts"] != entry.get("ghosts"):
+                entry["ghosts"] = cached["ghosts"]
                 changed += 1
         lines.append(json.dumps(entry, ensure_ascii=False))
     if changed and not args.dry_run:
         temp = WATCHABLE.with_suffix(".jsonl.new")
         temp.write_text("\n".join(lines) + "\n", encoding="utf-8")
         temp.replace(WATCHABLE)
-    print(f"{changed} demo revisions refreshed", file=sys.stderr)
+    print(f"{changed} demo revisions and ghost lists refreshed", file=sys.stderr)
 
 
 def write_runs():
@@ -309,12 +327,13 @@ def drop_from_manifest(demos):
     temp.replace(WATCHABLE)
 
 
-def deploy(demos):
+def deploy(demos, ghosts):
     if not demos:
         sys.exit("no demo in the manifest, refusing to empty the web directory")
     listing = subprocess.run(["ssh", HOST, f"mkdir -p {REMOTE}/demos && ls -1 {REMOTE}/demos"],
         check=True, capture_output=True, text=True).stdout
     present = {name for name in listing.split("\n") if name.endswith(".demo.gz")}
+    present_ghosts = {name for name in listing.split("\n") if name.endswith(".gho")}
     # A demo the cache dropped to stay under its size limit stays on the web
     # host, the manifest still names it. Everything else is offered to rsync,
     # which skips what is already there and re-uploads what the converter
@@ -324,7 +343,8 @@ def deploy(demos):
     # A demo the manifest no longer names is a rank that was beaten. Its link
     # is out there and its file is small, so it stays unless --prune says
     # otherwise.
-    stale = sorted(present - demos) if args.prune else []
+    stale = sorted(present - demos) + sorted(present_ghosts - ghosts) if args.prune else []
+    cached_ghosts = sorted(name for name in ghosts if (CACHE / "demos" / name).is_file())
     total = sum((CACHE / "demos" / name).stat().st_size for name in cached if name not in present)
     if gone:
         # Their link would go to a demo that is on neither host, so the page
@@ -334,7 +354,8 @@ def deploy(demos):
         if not args.dry_run:
             drop_from_manifest(set(gone))
     print(f"{len(demos)} demos referenced, {len(cached)} offered to rsync "
-        f"({total / 1024**2:.0f} MiB not on the web host yet), {len(stale)} to delete", file=sys.stderr)
+        f"({total / 1024**2:.0f} MiB not on the web host yet) with {len(cached_ghosts)} ghosts, "
+        f"{len(stale)} to delete", file=sys.stderr)
     if args.dry_run:
         return
 
@@ -342,7 +363,7 @@ def deploy(demos):
     # end up as one huge command line
     if cached:
         run(["rsync", "-a", "--files-from=-", str(CACHE / "demos"), f"{args.target}/demos/"],
-            input="\n".join(cached), text=True)
+            input="\n".join(cached + cached_ghosts), text=True)
     # The manifest decides which ranks the map pages link, so it goes up only
     # after every demo it names is there, and the index the pages read is
     # loaded from it right after
@@ -369,7 +390,7 @@ def main():
         fetch_manifest()
         generate()
     refresh_revisions()
-    deploy(wanted_demos())
+    deploy(wanted_demos(), wanted_ghosts())
 
 
 if __name__ == "__main__":

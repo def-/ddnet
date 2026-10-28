@@ -691,7 +691,7 @@
 			}
 		}
 		/* The menus a button in the bar opens, in the same panel as the bar */
-		#cameramenu, #sharemenu, #skinmenu, #stepmenu {
+		#cameramenu, #sharemenu, #skinmenu, #stepmenu, #downloadmenu {
 			display: none;
 			position: absolute;
 			bottom: calc(100% + 6px);
@@ -709,7 +709,7 @@
 			backdrop-filter: blur(8px);
 			-webkit-backdrop-filter: blur(8px);
 		}
-		#cameramenu button, #sharemenu button, #skinmenu button, #stepmenu button {
+		#cameramenu button, #sharemenu button, #skinmenu button, #stepmenu button, #downloadmenu button {
 			justify-content: flex-start;
 			gap: 10px;
 			height: 38px;
@@ -805,6 +805,7 @@
 			<div id="sharemenu"></div>
 			<div id="skinmenu"></div>
 			<div id="stepmenu"></div>
+			<div id="downloadmenu"></div>
 			<div id="demotitle"></div>
 			<div class="buttons">
 				<span class="rowbreak"></span>
@@ -1438,6 +1439,7 @@
 					help.style.display = 'none';
 					cameraMenu.style.display = 'none';
 					shareMenu.style.display = 'none';
+					downloadMenu.style.display = 'none';
 					skinMenu.style.display = 'none';
 					stepMenu.style.display = 'none';
 				} else if (e.key === 'F1') {
@@ -1996,6 +1998,9 @@
 				for (const finisher of entry.finishers || []) {
 					params.append('finisher', String(finisher));
 				}
+				for (const ghost of entry.ghosts || []) {
+					params.append('ghost', String(ghost));
+				}
 				if (entry.ts) {
 					params.set('ts', String(entry.ts));
 				}
@@ -2134,6 +2139,15 @@
 				download.href = URL.createObjectURL(new Blob([demoData], { type: 'application/octet-stream' }));
 				// "<map> [<seconds>] - <player>, <player> & <player>.demo"
 				download.download = `${titleOf(params, meta, params.get('time') || meta.time)}.demo`.replace(/[\\/:*?"<>|]/g, '_');
+				// The ghosts lie beside a published demo, one for every finisher
+				// it holds the whole run of. The client lists a ghost on the
+				// maps whose name its file name starts with.
+				if (params.get('demo')) {
+					ghostIds = params.getAll('ghost');
+					ghostUrl = id => url.replace(/\.demo\.gz(?=$|\?)/, `.${id}.gho`);
+					ghostFile = name => `${params.get('map')}_${name}_${params.get('time')}.gho`.replace(/[\\/:*?"<>|]/g, '_');
+				}
+				download.title = ghostIds.length ? 'Download the demo or a ghost to race against' : 'Download demo';
 				const title = titleOf(params, meta);
 				renderDemoTitle(params, meta);
 				setRunTitle(title);
@@ -2801,6 +2815,9 @@
 				if (!shareMenu.contains(e.target) && !shareButton.contains(e.target)) {
 					shareMenu.style.display = 'none';
 				}
+				if (!downloadMenu.contains(e.target) && !downloadButton.contains(e.target)) {
+					downloadMenu.style.display = 'none';
+				}
 				if (!skinMenu.contains(e.target) && !skinButton.contains(e.target)) {
 					skinMenu.style.display = 'none';
 				}
@@ -2869,6 +2886,70 @@
 				shareMenu.style.display = 'flex';
 				placeMenu(shareMenu, shareButton);
 			}
+			// Download menu: the demo, and the ghost of every ranked player whose
+			// whole run the demo holds, to race against in the game. Without a
+			// ghost the button is the demo's link.
+			const downloadMenu = document.getElementById('downloadmenu');
+			const downloadButton = document.getElementById('downloadbutton');
+			let ghostIds = [];
+			let ghostUrl = null;
+			let ghostFile = null;
+			function save(href, filename) {
+				const link = document.createElement('a');
+				link.href = href;
+				link.download = filename;
+				link.click();
+			}
+			// The name the demo gives a tee, the ghost carries the same
+			function teeName(id) {
+				let info = '';
+				try {
+					info = Module.ccall('EmscriptenCallbackPlayerInfo', 'string', [], []);
+				} catch {
+					// A client that aborted still lets the ghosts download
+				}
+				for (const line of info.split('\n')) {
+					const [otherId, name] = line.split('\t');
+					if (otherId === id && name !== undefined) {
+						return name;
+					}
+				}
+				return soloRun && rankedNames.length ? rankedNames[0] : `#${id}`;
+			}
+			downloadButton.addEventListener('click', e => {
+				const ghosts = [...new Set(rankedIds)].filter(id => ghostIds.includes(id));
+				if (downloadMenu.style.display === 'flex' || ghosts.length === 0) {
+					if (downloadMenu.style.display === 'flex') {
+						e.preventDefault();
+					}
+					downloadMenu.style.display = 'none';
+					return;
+				}
+				e.preventDefault();
+				downloadMenu.replaceChildren();
+				const demoEntry = document.createElement('button');
+				demoEntry.textContent = 'Demo';
+				demoEntry.addEventListener('click', () => {
+					downloadMenu.style.display = 'none';
+					save(downloadButton.href, downloadButton.download);
+				});
+				downloadMenu.appendChild(demoEntry);
+				const where = 'Put it in the folder that the Ghosts directory button of DDNet\'s Ghost tab opens, then activate it there';
+				for (const id of ghosts) {
+					const name = teeName(id);
+					const entry = document.createElement('button');
+					entry.textContent = `Ghost of ${name}`;
+					entry.title = where;
+					entry.addEventListener('click', () => {
+						downloadMenu.style.display = 'none';
+						save(ghostUrl(id), ghostFile(name));
+						showHint(where);
+					});
+					downloadMenu.appendChild(entry);
+				}
+				downloadMenu.style.display = 'flex';
+				placeMenu(downloadMenu, downloadButton);
+			});
 			// Hide the controls after a second without pointer movement, unless
 			// the pointer rests on them or their camera menu is open
 			const demoBar = document.getElementById('demobar');
@@ -2877,7 +2958,7 @@
 				demoBar.classList.remove('idle');
 				clearTimeout(idleTimer);
 				idleTimer = setTimeout(() => {
-					if (!demoBar.matches(':hover') && cameraMenu.style.display !== 'flex' && shareMenu.style.display !== 'flex' && skinMenu.style.display !== 'flex') {
+					if (!demoBar.matches(':hover') && cameraMenu.style.display !== 'flex' && shareMenu.style.display !== 'flex' && downloadMenu.style.display !== 'flex' && skinMenu.style.display !== 'flex') {
 						demoBar.classList.add('idle');
 					}
 				}, 1000);

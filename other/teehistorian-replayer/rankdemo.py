@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import hmac
 import fcntl
+import glob
 import json
 import os
 import re
@@ -63,6 +64,9 @@ class Converter:
         # Only a run that was saved and loaded needs it, so a missing splicer
         # is not fatal: those runs keep the half that is in their own recording
         self.splice_tool = Path(splice_tool) if splice_tool else self.tool.with_name("demo_splice")
+        # The ghosts are an addition to the demo, a demo is published without
+        # them when the tool is missing
+        self.ghost_tool = self.tool.with_name("demo_ghost")
         self.root = Path(archive_root)
         self.cache = Path(cache_dir)
         self.demos = self.cache / "demos"
@@ -405,6 +409,7 @@ class Converter:
                 self.stitch_save(workdir, map_path, meta)
                 self.check_shown(meta, names)
                 self.scramble(workdir, "out.demo", "watch.demo", self.scramble_key(demo_path))
+                self.make_ghosts(workdir, meta)
                 for name in ("out.demo", "watch.demo"):
                     with open(workdir / (name + ".gz"), "wb") as compressed:
                         subprocess.run(["gzip", "-9", "-c", name], cwd=workdir,
@@ -413,6 +418,7 @@ class Converter:
                     rev=self.revision(workdir / "watch.demo.gz"))
                 if substitute is not None:
                     meta["map_substitute"] = substitute
+                self.place_ghosts(workdir, demo_path, meta)
                 self.write_meta(meta_path, meta)
                 shutil.move(workdir / "out.demo.gz", raw_path)
                 shutil.move(workdir / "watch.demo.gz", demo_path)
@@ -586,10 +592,74 @@ class Converter:
             if meta_path.is_file():
                 meta = json.loads(meta_path.read_text())
                 meta["rev"] = self.revision(workdir / "watch.demo.gz")
+                # The ghosts are of the noise the demo has
+                self.make_ghosts(workdir, meta)
+                self.place_ghosts(workdir, demo_path, meta)
                 self.write_meta(meta_path, meta)
             shutil.move(workdir / "watch.demo.gz", demo_path)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+
+    def make_ghosts(self, workdir, meta):
+        """The run of every finisher as a ghost to race against, made of
+        watch.demo in the work directory. They are made of the published
+        demo, so they hold nothing that a viewer of it does not see. A ghost
+        starts at the start line, which a run continued from a /load or begun
+        before its recording has not got in its demo. The demo is published
+        without a ghost that fails, the failure is kept in the metadata.
+        Without the tool the metadata says nothing, ghosts.py makes them."""
+        meta.pop("ghosts", None)
+        meta.pop("ghost_error", None)
+        if not self.ghost_tool.is_file():
+            return
+        meta["ghosts"] = []
+        start, first, finish = meta.get("run_start_tick"), meta.get("demo_start_tick"), meta.get("finish_tick")
+        if meta.get("load") or None in (start, first, finish) or start < first:
+            return
+        # A player who finished a team rank under two names is one finisher
+        for cid in dict.fromkeys(meta.get("finish_cids", [])):
+            result = subprocess.run([str(self.ghost_tool), "watch.demo", str(cid), str(start), str(finish),
+                f"{cid}.gho"], cwd=workdir, capture_output=True, text=True)
+            if result.returncode == 0:
+                meta["ghosts"].append(cid)
+            else:
+                output = (result.stdout + result.stderr).strip().splitlines()
+                meta["ghost_error"] = output[-1] if output else "making the ghost failed"
+
+    def place_ghosts(self, workdir, demo_path, meta):
+        """Moves the ghosts make_ghosts made beside the demo, and drops the
+        ones of finishers it has none of any more"""
+        for cid in meta.get("ghosts", []):
+            shutil.move(workdir / f"{cid}.gho", self.ghost_path(demo_path, cid))
+        for path in self.ghost_paths(demo_path):
+            if int(path.name.split(".")[-2]) not in meta.get("ghosts", []):
+                path.unlink(missing_ok=True)
+
+    def add_ghosts(self, demo_path):
+        """Ghosts for a demo published before there were any"""
+        meta_path = self.siblings(demo_path)[1]
+        with open(self.locks_dir / (demo_path.name + ".lock"), "w", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            meta = json.loads(meta_path.read_text())
+            workdir = Path(tempfile.mkdtemp(dir=self.tmp))
+            try:
+                with open(workdir / "watch.demo", "wb") as demo:
+                    subprocess.run(["gzip", "-dc", str(demo_path)], stdout=demo, check=True)
+                self.make_ghosts(workdir, meta)
+                self.place_ghosts(workdir, demo_path, meta)
+                # A reconvert goes by the metadata's age
+                made = meta_path.stat().st_mtime
+                self.write_meta(meta_path, meta)
+                os.utime(meta_path, (made, made))
+            finally:
+                shutil.rmtree(workdir, ignore_errors=True)
+        return meta
+
+    def ghost_path(self, demo_path, cid):
+        return self.demos / f"{demo_path.name[:-len('.demo.gz')]}.{cid}.gho"
+
+    def ghost_paths(self, demo_path):
+        return list(self.demos.glob(f"{glob.escape(demo_path.name[:-len('.demo.gz')])}.*.gho"))
 
     def siblings(self, demo_path):
         """The converter output and the metadata beside a published demo.
@@ -604,6 +674,8 @@ class Converter:
         for path in self.demos.glob("*.demo.gz"):
             if not path.name.endswith(".raw.demo.gz") and path.name not in named:
                 raw, meta = self.siblings(path)
+                for ghost in self.ghost_paths(path):
+                    ghost.unlink(missing_ok=True)
                 path.unlink()
                 raw.unlink(missing_ok=True)
                 meta.unlink(missing_ok=True)
@@ -617,6 +689,8 @@ class Converter:
         while demos and total > self.cache_limit_bytes:
             oldest = demos.pop(0)
             raw, meta = self.siblings(oldest)
+            for ghost in self.ghost_paths(oldest):
+                ghost.unlink(missing_ok=True)
             total -= size(oldest) + size(raw)
             oldest.unlink(missing_ok=True)
             raw.unlink(missing_ok=True)

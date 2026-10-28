@@ -74,6 +74,130 @@ static constexpr int NINJA_DURATION_MS = 15000;
 static constexpr int NINJA_MOVETIME_MS = 200;
 static constexpr int NINJA_VELOCITY = 50;
 
+// The builds that go on with the tile the start line killed a tee on
+// besides 15.3 to 18.2: the 15.2.5 builds that have a14607f818, and the 18.3
+// builds of its release branch before the fix was picked onto it. The 18.2
+// builds of the fix and its merge are spared.
+// git rev-list --ancestry-path a14607f818..master --before=2021-04-01,
+// git rev-list 97d9384509^ ^4773930e95 and fbb2243a05 b422c3cb26, each
+// cut to the 16 characters servers report
+static const char *const s_apStartKillGoesOn1525[] = {
+	"04900fca3633b445",
+	"04e8ce56a9a5d890",
+	"07d46317fa48236f",
+	"0b2c457c3788b1c4",
+	"0b672dbc1024bd90",
+	"14e70506e1f6fd3c",
+	"15129ad721e5fa53",
+	"15220d45456bff1f",
+	"18bb0ed92cdb87fb",
+	"211b1d9155719a92",
+	"243f330e3c05e447",
+	"281492c0fa45e16a",
+	"28eb4b15af0784ee",
+	"292b263b7bcce54e",
+	"2b5723cdef8e439e",
+	"2e1b39c7b72233d0",
+	"319c3821678fc470",
+	"32c8c3e8941d5519",
+	"32f7a7979e11af48",
+	"33dc79d190cad160",
+	"3539f2b183379a99",
+	"487bd18a39711fef",
+	"4bd3525b3853126a",
+	"4eeb14d2f4a272a4",
+	"5a54b02035a6546b",
+	"5d927f35b6d53770",
+	"5e4481d9cc01782f",
+	"697d03e5c32be3c0",
+	"6c5af58904e28212",
+	"6f2c82c0d451f110",
+	"6fbc8187b5ab71d2",
+	"75a2ca613e2df617",
+	"76d7835fc01ef273",
+	"77a9f41268b99073",
+	"7b0b1c4162de4712",
+	"7b721bd7acfe6b0f",
+	"7f4ec45e9a3d9e59",
+	"80df59ba5af2095a",
+	"819c8d0f0054c1cd",
+	"8be462af2620ee29",
+	"9196a9a3d4c0e32c",
+	"93acedf00e826b52",
+	"953ea87929fc8a50",
+	"96db08b760c5b5c2",
+	"989d26bfecff5aec",
+	"9c5b5ce2d014ca2e",
+	"a14607f818d19a36",
+	"a1769906496533f4",
+	"a3702e83143905b6",
+	"a3ae01617792cbf0",
+	"a404be6702863d5a",
+	"a99f4f15b608aaa5",
+	"aa43e329b69aefcb",
+	"aa6c6ed367583807",
+	"ab897f21f15a7a51",
+	"acfb541db91b905b",
+	"af8b306dfb528922",
+	"b08b93ee736fff75",
+	"b28cdc933a76a24c",
+	"b3c93b091a54b7cd",
+	"bc4e9511ba1146ef",
+	"c28bd693d3b8782a",
+	"c28d949f0c193bf4",
+	"c2b28f124b1b3f17",
+	"c30b596dab570e91",
+	"cbf5aa6e36be1f1a",
+	"cd407a08a8ca73b1",
+	"d21f7966b11ed010",
+	"d2744d595a781c71",
+	"d39a17933dbc3264",
+	"d536743dda7ece67",
+	"d5dbd94c6610919c",
+	"d7e67fb27589914b",
+	"e0affc3f3446b8f4",
+	"e1448bebc78dd709",
+	"e16dd5c1d2539301",
+	"e2c7c81c5577e534",
+	"e6de475a72774263",
+	"ed9abba485b889dc",
+	"f02c1baf53004982",
+	"f08812b06a78156a",
+	"f199b5101f0775b2",
+	"f2cf038248368128",
+	"f49e8b060debece6",
+	"f5280919f1aa3c24",
+	"f7dfd8c9b9b5476e",
+};
+static const char *const s_apStartKillGoesOn183[] = {
+	"23fa51f7c9ffba2b",
+	"290055021a2f959a",
+	"30171b86cd11e255",
+	"401d9a57aaab7e94",
+	"46cdd6d1f1cbdadf",
+	"5ff306a65c9d1499",
+	"619cc64283a8213d",
+	"6b495a8fed79708b",
+	"7301fff299bc30d6",
+	"74972ab280c58614",
+	"76feb50795d44ecb",
+	"8f70908fb4410f10",
+	"9783d8cc9432a566",
+	"a570243bd9b6c755",
+	"b1013114388a9b83",
+	"bbe8722f51a62e79",
+	"bf636dcb8ec22713",
+	"da5e5519c7b3149d",
+	"df953211af043bb1",
+	"e669803e1c2ac509",
+	"e694df6bd81f7097",
+	"f429ede81c108274",
+};
+static const char *const s_apStartKillEnds182[] = {
+	"b422c3cb26d7f07f",
+	"fbb2243a0500544e",
+};
+
 class CInputSource
 {
 public:
@@ -4403,6 +4527,18 @@ private:
 		if(m_Config.m_SvTeam != SV_TEAM_MANDATORY || (Team != TEAM_FLOCK && Size > 1))
 			return;
 		const vec2 Due(Player.m_TileDueX, Player.m_TileDueY);
+		// A death tile or the edge of the map kills before the tiles of the
+		// path are handled (CCharacter::HandleSkippableTiles)
+		const float Reach = CCharacterCore::PhysicalSize() / 3.0f;
+		for(int i = 0; i < 4; i++)
+		{
+			const vec2 Corner = Due + vec2(i < 2 ? Reach : -Reach, i % 2 == 0 ? -Reach : Reach);
+			if(!Player.m_Core.m_Super && (m_Collision.GetCollisionAt(Corner.x, Corner.y) == TILE_DEATH || m_Collision.GetFrontCollisionAt(Corner.x, Corner.y) == TILE_DEATH))
+				return;
+		}
+		if(round_to_int(Due.x) / 32 < -200 || round_to_int(Due.x) / 32 > m_Collision.GetWidth() + 200 ||
+			round_to_int(Due.y) / 32 < -200 || round_to_int(Due.y) / 32 > m_Collision.GetHeight() + 200)
+			return;
 		std::vector<int> vIndices = m_Collision.GetMapIndices(vec2(Player.m_TileScanX, Player.m_TileScanY), Due);
 		if(vIndices.empty())
 			vIndices.push_back(m_Collision.GetMapIndex(Due));
@@ -7019,7 +7155,15 @@ int main(int argc, const char *argv[])
 	if(pRelease != nullptr && sscanf(pRelease + 2, "%d.%d.%d", &Major, &Minor, &Patch) >= 2)
 	{
 		const int Version = Major * 1000 + Minor * 10 + Patch;
-		const bool StartKillEndsTile = Version < 15030 || Version >= 18030;
+		const char *pHash = str_find(pRelease, " (");
+		const auto Listed = [&](const auto &apHashes) {
+			return pHash != nullptr && std::any_of(std::begin(apHashes), std::end(apHashes), [&](const char *pListed) {
+				return str_startswith(pHash + 2, pListed) != nullptr;
+			});
+		};
+		const bool StartKillEndsTile = (Version < 15030 || Version >= 18030 || (Version == 18020 && Listed(s_apStartKillEnds182))) &&
+					       !(Version == 15025 && Listed(s_apStartKillGoesOn1525)) &&
+					       !(Version == 18030 && Listed(s_apStartKillGoesOn183));
 		Converter.SetStartKillEndsTile(StartKillEndsTile);
 		if(!StartKillEndsTile)
 			log_info(TOOL_NAME, "server %d.%d.%d went on with the tile its start line killed a tee on", Major, Minor, Patch);

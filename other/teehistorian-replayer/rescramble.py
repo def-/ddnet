@@ -7,6 +7,7 @@
 # Usage: rescramble.py [--cache ~/teehistorian-demos] [--jobs 4]
 
 import argparse
+import fcntl
 import pathlib
 import sys
 import threading
@@ -37,7 +38,10 @@ def rescramble(raw_path):
     demo_path = raw_path.with_name(raw_path.name.replace(".raw.demo.gz", ".demo.gz"))
     error = None
     try:
-        converter.scramble_cached(raw_path, demo_path)
+        # A conversion or ghosts.py of the same demo would mix their files with these
+        with open(converter.locks_dir / (demo_path.name + ".lock"), "w", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            converter.scramble_cached(raw_path, demo_path)
     except Exception as failure:  # one broken demo must not end the run
         error = failure
     with counted:

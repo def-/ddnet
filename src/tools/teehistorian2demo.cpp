@@ -6806,10 +6806,10 @@ int main(int argc, const char *argv[])
 		// demo output this only parses the stream. Allow for the server tick
 		// falling behind wall-clock time during long sessions.
 		constexpr int ScanSlackTicks = 30 * 60 * SERVER_TICK_SPEED;
+		const int ScanEndTick = RankExpectedTick < 0 ? std::numeric_limits<int>::max() : RankExpectedTick + ScanSlackTicks;
 		CConverter Scanner(pStorage.get(), pSnapshotDelta.get());
 		NameScanner.CopyPlayerIdentitiesTo(&Scanner);
-		Scanner.ScanForRank(&vRankNames, &vAliases, RankTimeTicks, RankExpectedTick,
-			RankExpectedTick < 0 ? std::numeric_limits<int>::max() : RankExpectedTick + ScanSlackTicks);
+		Scanner.ScanForRank(&vRankNames, &vAliases, RankTimeTicks, RankExpectedTick, ScanEndTick);
 		CTeehistorianReader ScanReader;
 		json_value *pScanHeader = ScanReader.Open(argv[1]);
 		if(pScanHeader == nullptr)
@@ -6859,16 +6859,18 @@ int main(int argc, const char *argv[])
 			if(Scanner.ApproxMatchedNames() < vRankNames.size())
 				log_warn(TOOL_NAME, "%zu of %zu rank names are in the recording at the rank's time, the run is placed by those", Scanner.ApproxMatchedNames(), vRankNames.size());
 		}
-		// The names told nothing: the recording has no finish events and
-		// nobody of the rank's names was on the server at its timestamp. The
-		// map knows anyway, so walk the recording once more with it loaded
-		// and take the finish that ran the rank's time. No simulation and no
-		// demo, only the tiles the recorded positions cross.
+		// Without finish events the run is at best placed by who held the
+		// rank's names at its timestamp, in the team they were in then, which
+		// is team 0 again once the finish dissolved their team. The map knows
+		// better, so walk the recording once more with it loaded and take the
+		// finish that ran the rank's time. No simulation and no demo, only the
+		// tiles the recorded positions cross.
 		CRankCandidate TileCandidate = {-1, -1, -1};
 		// T2D_TILESCAN lists what the map's tiles say about every run in the
 		// recording, for a rank whose time none of them matches
 		const bool TileScan = getenv("T2D_TILESCAN") != nullptr;
-		const bool TileFallback = pBest == nullptr && !Scanner.SawFinishEvent();
+		const bool TileFallback = !Scanner.SawFinishEvent();
+		const bool PlacedByTimestamp = pBest != nullptr;
 		if(TileFallback || TileScan)
 		{
 			CTeehistorianReader TileReader;
@@ -6888,7 +6890,7 @@ int main(int argc, const char *argv[])
 			TileScanner.ApplyTuning(json_object_get(pTileHeader, "tuning"));
 			TileScanner.ApplyConfig(json_object_get(pTileHeader, "config"));
 			TileScanner.CreateAllEntities();
-			TileScanner.SetTickRange(std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+			TileScanner.SetTickRange(std::numeric_limits<int>::max(), ScanEndTick);
 			json_value_free(pTileHeader);
 			TileReader.ParseChunks(&TileScanner);
 
@@ -6916,6 +6918,8 @@ int main(int argc, const char *argv[])
 				if(!TileFallback || !RanRankTime(Finish))
 					continue;
 				const bool Named = IsOneOfNames(Finish.m_aName, vRankNames);
+				if(PlacedByTimestamp && !Named && std::find(vRunCids.begin(), vRunCids.end(), Finish.m_Cid) == vRunCids.end())
+					continue;
 				if(pFinish == nullptr)
 				{
 					pFinish = &Finish;
@@ -6936,9 +6940,11 @@ int main(int argc, const char *argv[])
 			{
 				TileCandidate = {pFinish->m_FinishTick, pFinish->m_Cid, pFinish->m_Team};
 				pBest = &TileCandidate;
+				PreSeconds = RUN_PRE_SECONDS;
+				PostSeconds = RUN_POST_SECONDS;
 				// The teams of that time are not in the recording either, the
 				// run is everyone who crossed the finish with it
-				if(vRankNames.size() >= 2)
+				if(!PlacedByTimestamp && vRankNames.size() >= 2)
 				{
 					for(const CTileFinish &Finish : TileScanner.TileFinishes())
 					{
@@ -6948,7 +6954,7 @@ int main(int argc, const char *argv[])
 					}
 				}
 				const int TileSeconds = pFinish->m_FinishTick / SERVER_TICK_SPEED;
-				log_warn(TOOL_NAME, "No finish event and no rank name at the rank's time, taking the run of %.2f seconds that crossed the finish tile at %d:%02d:%02d by '%s'",
+				log_warn(TOOL_NAME, "No finish event, taking the run of %.2f seconds that crossed the finish tile at %d:%02d:%02d by '%s'",
 					pFinish->m_TimeTicks / (float)SERVER_TICK_SPEED, TileSeconds / 3600, TileSeconds / 60 % 60,
 					TileSeconds % 60, pFinish->m_aName);
 			}

@@ -1301,7 +1301,6 @@ private:
 	int m_NumChunks = 0;
 	int m_NumTicks = 0;
 	int m_NumSnapshots = 0;
-	int m_NumChatMessages = 0;
 	int m_MaxPlayersSeen = 0;
 	int m_NumPlayerHookTicks = 0;
 	int m_NumFrozenTicks = 0;
@@ -2689,37 +2688,23 @@ public:
 			const int Cid = pUnpacker->GetInt();
 			const int FlagMask = pUnpacker->GetInt();
 			const char *pCommand = pUnpacker->GetString();
-			char aChat[512];
-			str_format(aChat, sizeof(aChat), "/%s", pCommand == nullptr ? "" : pCommand);
 			const int NumArgs = pUnpacker->GetInt();
 			if(pUnpacker->Error() || NumArgs < 0 || NumArgs > 128)
 				return false;
-			// Teehistorian records every chat command with what was typed
-			// after it, and some of that is a secret the server never echoes:
-			// the codes of /save, /load and /timeout. The demo shows the
-			// arguments of the commands known to be harmless and the bare
-			// name of every other one.
-			const bool ShowArguments = pCommand != nullptr && ChatArgumentsArePublic(pCommand);
 			const char *pFirstArg = nullptr;
 			for(int i = 0; i < NumArgs; i++)
 			{
 				const char *pArg = pUnpacker->GetString();
 				if(i == 0)
 					pFirstArg = pArg;
-				if(pArg != nullptr && ShowArguments)
-				{
-					str_append(aChat, " ");
-					str_append(aChat, pArg);
-				}
 			}
 			if(pUnpacker->Error())
 				return false;
 			m_TickDirty = true;
-			// Chat is not recorded in teehistorian, but chat commands are
-			// executed through the console, show them as chat messages.
+			// Chat commands are not shown in the demo, the server never shows
+			// them to other players either
 			if(Cid >= 0 && Cid < MAX_CLIENTS && (FlagMask & CFGFLAG_CHAT))
 			{
-				QueueChat(Cid, 0, aChat);
 				// CGameContext::ConLock and ConUnlock, /lock alone toggles
 				const int Team = m_TeamsCore.Team(Cid);
 				if(pCommand != nullptr && m_Config.m_SvTeam != SV_TEAM_FORBIDDEN && m_Config.m_SvTeam != SV_TEAM_FORCED_SOLO && Team != TEAM_FLOCK && Team < TEAM_SUPER)
@@ -2765,10 +2750,10 @@ public:
 				m_Tick / SERVER_TICK_SPEED / 3600, m_Tick / SERVER_TICK_SPEED / 60 % 60, m_Tick / SERVER_TICK_SPEED % 60);
 			return false;
 		}
-		log_info(TOOL_NAME, "Wrote %d snapshots covering %d ticks (%d:%02d min), %d chat messages, %d players seen, %d ticks with player hooks, %d ticks frozen",
+		log_info(TOOL_NAME, "Wrote %d snapshots covering %d ticks (%d:%02d min), %d players seen, %d ticks with player hooks, %d ticks frozen",
 			m_NumSnapshots, m_NumTicks,
 			m_NumTicks / SERVER_TICK_SPEED / 60, m_NumTicks / SERVER_TICK_SPEED % 60,
-			m_NumChatMessages, m_MaxPlayersSeen, m_NumPlayerHookTicks, m_NumFrozenTicks);
+			m_MaxPlayersSeen, m_NumPlayerHookTicks, m_NumFrozenTicks);
 		if(m_NumTeleDraws > 0)
 			log_info(TOOL_NAME, "%d of %d teleports through several exits went where the replayed draw says", m_NumTeleDrawsMatched, m_NumTeleDraws);
 		if(m_NumLateHammers > 0)
@@ -2825,14 +2810,6 @@ private:
 			pPlayer->m_UseCustomColor = pInfo->m_UseCustomColor;
 			pPlayer->m_ColorBody = pInfo->m_ColorBody;
 			pPlayer->m_ColorFeet = pInfo->m_ColorFeet;
-			break;
-		}
-		case NETMSGTYPE_CL_SAY:
-		{
-			// Not recorded by current servers (TeeHistorianRecordMsg filters
-			// it), but present in old recordings.
-			const CNetMsg_Cl_Say *pSay = (const CNetMsg_Cl_Say *)pRawMsg;
-			QueueChat(Cid, pSay->m_Team ? 1 : 0, pSay->m_pMessage);
 			break;
 		}
 		case NETMSGTYPE_CL_KILL:
@@ -2953,16 +2930,6 @@ private:
 		while(LenB > 0 && pB[LenB - 1] == ' ')
 			LenB--;
 		return LenA == LenB && str_comp_num(pA, pB, LenA) == 0;
-	}
-
-	static bool ChatArgumentsArePublic(const char *pCommand)
-	{
-		static const char *const s_apPublic[] = {"rank", "teamrank", "top5", "top5team", "times", "points", "mapinfo",
-			"map", "emote", "team", "invite", "spec", "pause", "swap", "showothers", "showall", "specvoted",
-			"practice", "lock", "unlock", "kill", "settings", "timecp", "list", "help", "dnd", "tc", "teamcp"};
-		return std::any_of(std::begin(s_apPublic), std::end(s_apPublic), [pCommand](const char *pPublic) {
-			return str_comp_nocase(pCommand, pPublic) == 0;
-		});
 	}
 
 	// Whether a recorded name is the rank's name, as the rank carries it or
@@ -3138,21 +3105,6 @@ private:
 		std::vector<unsigned char> vData(pPacker->Size());
 		mem_copy(vData.data(), pPacker->Data(), pPacker->Size());
 		m_vTickMessages.push_back(std::move(vData));
-	}
-
-	void QueueChat(int Cid, int Team, const char *pMessage)
-	{
-		if(!IncludePlayer(Cid))
-			return;
-		CPacker Packer;
-		Packer.Reset();
-		Packer.AddInt((NETMSGTYPE_SV_CHAT << 1) | 0);
-		Packer.AddInt(Team);
-		Packer.AddInt(PublishCid(Cid));
-		Packer.AddString(pMessage, -1);
-		QueueMessage(&Packer);
-		if(m_Tick >= m_StartTick && m_Tick <= m_EndTick)
-			m_NumChatMessages++;
 	}
 
 	void OnExChunk(CUuid Uuid, const unsigned char *pData, int Size)

@@ -13,7 +13,9 @@ BUILD=build-trixie
 LOCAL=$REPO/build-tools
 REMOTE=/home/teeworlds/bin/teehistorian2demo
 
-docker run --rm -v "$REPO:$REPO" -v "$HOME/git/ddnet/.git:$HOME/git/ddnet/.git" -w "$REPO" debian:trixie sh -c '
+# Host network: Docker's default bridge is IPv4 only, and this host's IPv4
+# route is so slow that apt-get takes hours
+docker run --rm --network host -v "$REPO:$REPO" -v "$HOME/git/ddnet/.git:$HOME/git/ddnet/.git" -w "$REPO" debian:trixie sh -c '
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update -qq >/dev/null
 	apt-get install -y -qq build-essential cmake ninja-build python3 rustc cargo git \
